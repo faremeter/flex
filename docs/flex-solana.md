@@ -235,17 +235,34 @@ pub fn close_session_key(
 
 **Constraints**: Session key must be revoked and grace period must have elapsed.
 
+### Hold Validation
+
+Before performing work, the middleware requests a hold from the facilitator. The facilitator validates holds off-chain by querying on-chain state. Holds do not create on-chain state; the facilitator maintains hold state in its own storage.
+
+**Validation**:
+1. Query `SessionKey` PDA to retrieve the public key and verify the session key is active (not expired, not revoked past grace period)
+2. Verify Ed25519 signature over the `PaymentAuthorization` message using the retrieved public key
+3. Query escrow token account PDA to verify sufficient balance
+4. Verify nonce is greater than any previously seen nonce for this escrow
+
+**Hold State**: The facilitator stores the information needed for eventual on-chain submission: escrow, mint, recipient, authorized amount, nonce, and signature.
+
+**Additional Authorization**: If the middleware requires more than the initially authorized amount during service delivery, the client signs a new authorization with a higher amount and a new (higher) nonce. The facilitator validates and stores the new authorization, which supersedes the previous hold.
+
+**Settlement**: After service delivery, the middleware reports the actual amount consumed to the facilitator. The facilitator calls `submit_authorization` with the consumed amount, which must be less than or equal to the authorized hold amount. The difference between the authorized and consumed amounts is never submitted on-chain.
+
 ### Settlement Flow
 
 #### `submit_authorization`
 
-Submits a client-signed authorization, creating a pending settlement.
+Submits a client-signed authorization, creating a pending settlement. The `amount` parameter specifies the actual amount consumed, which may be less than the amount in the signed authorization. The program verifies the signature against the signed amount and confirms the submitted amount does not exceed it.
 
 ```rust
 pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
     mint: Pubkey,
     recipient: Pubkey,
+    authorized_amount: u64,
     amount: u64,
     nonce: u64,
     signature: [u8; 64],
@@ -256,9 +273,10 @@ pub fn submit_authorization(
 
 **Validation**:
 1. Verify `nonce > escrow.last_nonce` (replay protection)
-2. Verify Ed25519 signature over `(escrow, mint, recipient, amount, nonce)`
-3. Verify session key is registered and valid (not expired, not revoked past grace period)
-4. Verify token account has sufficient balance
+2. Verify Ed25519 signature over `(escrow, mint, recipient, authorized_amount, nonce)` where `authorized_amount` is the amount the client signed
+3. Verify `amount <= authorized_amount` (cannot settle more than authorized)
+4. Verify session key is registered and valid (not expired, not revoked past grace period)
+5. Verify token account has sufficient balance for `amount`
 
 **Effects**:
 1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`
@@ -350,7 +368,7 @@ pub struct PaymentAuthorization {
     /// Recipient (merchant) token account
     pub recipient: Pubkey,
     
-    /// Amount for this payment (in token base units)
+    /// Maximum authorized amount for this payment (in token base units)
     pub amount: u64,
     
     /// Monotonically increasing nonce (global, not per-recipient or per-mint)
