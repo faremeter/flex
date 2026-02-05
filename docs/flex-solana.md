@@ -1,6 +1,6 @@
 # Flex Payment Scheme: Solana Implementation
 
-This document describes the Solana implementation of the Flex Payment Scheme defined in [flex-scheme.md](./flex-scheme.md).
+This document describes the Solana implementation of the Flex Payment Scheme defined in the [project README](../README.md).
 
 ## Overview
 
@@ -118,8 +118,11 @@ pub struct PendingSettlement {
     /// Current amount (can be reduced by refunds)
     pub amount: u64,
     
-    /// Original amount when submitted
+    /// Original amount when submitted (settle_amount, not max_amount)
     pub original_amount: u64,
+    
+    /// Maximum amount authorized by the client (for audit trail)
+    pub max_amount: u64,
     
     /// Authorization nonce
     pub nonce: u64,
@@ -130,13 +133,12 @@ pub struct PendingSettlement {
     /// Session key that signed this authorization
     pub session_key: Pubkey,
     
-    /// Facilitator who submitted (receives rent back on finalize)
-    pub submitter: Pubkey,
-    
     /// PDA bump seed
     pub bump: u8,
 }
 ```
+
+**Note:** Rent for pending settlement PDAs is returned to the escrow's facilitator on finalize or refund. Since only the registered facilitator can submit authorizations, tracking a separate submitter per settlement is unnecessary.
 
 ## Instructions
 
@@ -262,7 +264,8 @@ pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
     mint: Pubkey,
     recipient: Pubkey,
-    amount: u64,
+    max_amount: u64,
+    settle_amount: u64,
     nonce: u64,
     signature: [u8; 64],
 ) -> Result<()>
@@ -270,17 +273,24 @@ pub fn submit_authorization(
 
 **Signers**: Facilitator
 
+**Parameters**:
+- `max_amount`: The maximum amount the client authorized (what was signed)
+- `settle_amount`: The actual amount to settle (must be ≤ `max_amount`)
+
 **Validation**:
 1. Verify `nonce > escrow.last_nonce` (replay protection)
-2. Verify Ed25519 signature over `(escrow, mint, recipient, amount, nonce)`
-3. Verify session key is registered and valid (not expired, not revoked past grace period)
-4. Verify token account has sufficient balance
+2. Verify Ed25519 signature over `(escrow, mint, recipient, max_amount, nonce)`
+3. Verify `settle_amount <= max_amount`
+4. Verify session key is registered and valid (not expired, not revoked past grace period)
+5. Verify token account has sufficient balance for `settle_amount`
 
 **Effects**:
-1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`
+1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`, `amount = settle_amount`, `max_amount = max_amount`
 2. Update `escrow.last_nonce = nonce`
 3. Update `escrow.last_activity_slot`
 4. Increment `escrow.pending_count`
+
+**Notes**: The separation of `max_amount` and `settle_amount` enables the off-chain hold workflow. The client signs an authorization for up to `max_amount`, and the facilitator settles for the actual amount consumed (`settle_amount`). This allows the middleware to request a hold, perform work, then settle for less than the hold without requiring a new client signature.
 
 #### `refund`
 
@@ -303,7 +313,7 @@ pub fn refund(
 1. Reduce `pending_settlement.amount` by `refund_amount`
 2. If `amount` becomes zero (full refund):
    - Close the PendingSettlement PDA immediately
-   - Return rent to `pending_settlement.submitter` (facilitator)
+   - Return rent to `escrow.facilitator`
    - Decrement `escrow.pending_count`
 
 **Notes**: A full refund closes the pending settlement immediately rather than leaving a zero-amount settlement to be finalized later. This saves a transaction and returns rent to the facilitator promptly.
@@ -325,7 +335,7 @@ pub fn finalize(
 **Effects**:
 1. Transfer `pending_settlement.amount` from token account to `pending_settlement.recipient`
 2. Close PendingSettlement PDA
-3. Return rent to `pending_settlement.submitter` (the facilitator who submitted)
+3. Return rent to `escrow.facilitator`
 4. Decrement `escrow.pending_count`
 
 **Notes**: The facilitator is incentivized to call finalize to reclaim their rent. Merchants can also call finalize to receive their funds promptly.
@@ -349,13 +359,74 @@ pub fn emergency_close(
 **Validation**: Number of remaining accounts must equal `escrow.pending_count`.
 
 **Effects**:
-1. Close all PendingSettlement PDAs, returning rent to each `submitter`
+1. Close all PendingSettlement PDAs, returning rent to `escrow.facilitator`
 2. Transfer all token account balances to owner
 3. Close all token account PDAs and escrow account PDA
 
 **Notes**: This allows clients to recover funds if a facilitator becomes unresponsive. Any pending settlements are voided - the facilitator loses the opportunity to finalize them, but gets their rent back.
 
 **Transaction Size Consideration**: If an escrow has many pending settlements, they may not all fit in a single transaction. Clients with large numbers of pending settlements may need to use Address Lookup Tables (ALTs) to fit all account references. This is an accepted tradeoff; facilitators have business incentives to finalize settlements promptly rather than accumulate large numbers of pending settlements.
+
+## Off-Chain Hold Workflow
+
+The on-chain program does not track holds explicitly. Instead, holds are managed off-chain by the facilitator, with the on-chain settlement supporting partial fulfillment of authorizations.
+
+### Workflow
+
+1. **Hold Request**: The middleware responds to a client request with a hold amount (the estimated or maximum cost).
+
+2. **Client Authorization**: The client signs a `PaymentAuthorization` with `max_amount` set to the hold ceiling (which may exceed the requested hold to reduce round-trips for variable costs). The authorization includes a unique nonce.
+
+3. **Hold Validation (off-chain)**: The facilitator:
+   - Verifies the Ed25519 signature
+   - Checks the escrow's on-chain token balance
+   - Records the authorization as an active hold in their database
+   - Returns success to the middleware
+
+4. **Service Delivery**: The middleware performs the requested work.
+
+5. **Settlement**: After work completes, the middleware reports the actual amount consumed. The facilitator calls `submit_authorization` with:
+   - `max_amount`: The original authorized ceiling (for signature verification)
+   - `settle_amount`: The actual amount to settle (≤ `max_amount`)
+
+### Hold Accounting
+
+The facilitator must track active holds to prevent over-authorization:
+
+```
+available_balance = on_chain_balance - sum(active_holds) - sum(pending_settlements)
+```
+
+When validating a new hold, the facilitator checks that the escrow has sufficient `available_balance` for the requested hold amount.
+
+### Hold Expiration
+
+Holds are ephemeral facilitator state. The facilitator defines hold expiration policies (e.g., holds expire after 5 minutes if not settled). Expired holds are removed from the facilitator's accounting, and the client's signed authorization becomes unusable since the facilitator won't submit it.
+
+### Additional Authorization
+
+If the middleware requires more than the initially authorized `max_amount` during service delivery, it requests a new authorization from the client:
+
+1. The middleware sends the additional amount needed to the client
+2. The client signs a new `PaymentAuthorization` with a new nonce and the additional `max_amount`
+3. The facilitator validates and records the new hold
+4. Service delivery continues
+
+The original authorization remains valid and can still be settled for up to its `max_amount`. The new authorization covers the additional amount. Both settlements are independent and use separate nonces.
+
+To minimize round-trips, clients can authorize a higher ceiling than initially requested. For example, if the middleware requests a 100 token hold, the client might authorize 150 tokens to allow for 50% cost overrun without requiring additional authorization.
+
+### Why Off-Chain?
+
+On-chain holds would require:
+- Additional account creation (rent costs)
+- Two transactions per payment (create hold, then settle)
+- Complex state management for hold modifications
+
+The off-chain approach achieves the same user experience with lower costs and simpler on-chain logic. The security model remains intact because:
+- The client's signature caps the maximum amount
+- The on-chain nonce prevents replay
+- The facilitator can only settle up to what was authorized
 
 ## Authorization Message Format
 
@@ -372,8 +443,8 @@ pub struct PaymentAuthorization {
     /// Recipient (merchant) token account
     pub recipient: Pubkey,
     
-    /// Amount for this payment (in token base units)
-    pub amount: u64,
+    /// Maximum amount authorized for this payment (in token base units)
+    pub max_amount: u64,
     
     /// Monotonically increasing nonce (global, not per-recipient or per-mint)
     pub nonce: u64,
@@ -381,6 +452,8 @@ pub struct PaymentAuthorization {
 ```
 
 The message is serialized using Borsh and signed with the session key's Ed25519 private key.
+
+**Note**: The client signs `max_amount`, which represents the ceiling for this authorization. The facilitator may settle for any amount up to `max_amount` when submitting the authorization on-chain. This enables the off-chain hold workflow where the client authorizes a maximum before work begins, and the facilitator settles for the actual amount consumed.
 
 ## Signature Verification
 
@@ -396,7 +469,39 @@ The program uses Solana's native Ed25519 program for signature verification via 
 
 This approach leverages Solana's native Ed25519 program rather than performing signature verification in the program itself, which would be prohibitively expensive.
 
-Compute cost: ~25,000 CU per signature verification (in the Ed25519 program instruction).
+### Introspection Matching Algorithm
+
+When `submit_authorization` executes, it must find and validate the corresponding Ed25519 verification instruction. The matching algorithm:
+
+1. **Iterate preceding instructions**: Starting from the current instruction index, scan backwards through the Instructions sysvar.
+
+2. **Identify Ed25519 program instructions**: Check if instruction program ID equals `Ed25519Program` (`Ed25519SigVerify111111111111111111111111111`).
+
+3. **Parse verification data**: The Ed25519 program instruction data contains:
+   - Number of signatures (u8)
+   - For each signature: pubkey offset, signature offset, message offset, message length
+
+4. **Match by message content**: Reconstruct the expected `PaymentAuthorization` message from the `submit_authorization` parameters (escrow, mint, recipient, max_amount, nonce) and serialize it with Borsh. Compare against the message in the Ed25519 instruction.
+
+5. **Validate pubkey**: Confirm the verified pubkey matches the `session_key` account passed to `submit_authorization`.
+
+**Failure modes:**
+
+| Condition | Error |
+|-----------|-------|
+| No Ed25519 instruction found | `InvalidSignature` |
+| Ed25519 instruction exists but message doesn't match | `InvalidSignature` |
+| Ed25519 instruction exists but pubkey doesn't match session key | `InvalidSignature` |
+| Multiple Ed25519 instructions with same message (ambiguous) | First match is used |
+
+**Batching note:** When batching multiple authorizations, each `submit_authorization` finds its corresponding Ed25519 verification by message content. The Ed25519 instruction can appear anywhere before the `submit_authorization` that references it. The recommended pattern is to interleave them (verify, submit, verify, submit) for clarity, but the matching algorithm supports any ordering.
+
+### Compute Costs
+
+| Operation | Compute Units |
+|-----------|---------------|
+| Ed25519 signature verification (native program) | ~25,000 CU |
+| Instruction introspection + message comparison | ~5,000 CU |
 
 ## Security Model
 
@@ -440,19 +545,28 @@ The `close_escrow` instruction checks on-chain that `pending_count == 0`. This e
 
 ## Transaction Batching
 
-Multiple authorizations can be batched into a single transaction:
+Multiple authorizations can be batched into a single transaction. Each `submit_authorization` requires a corresponding Ed25519 signature verification instruction preceding it:
 
 ```rust
 // Single transaction with multiple submit_authorization instructions
+// Each submit_authorization introspects its corresponding Ed25519 verification
 let tx = Transaction::new_with_payer(
     &[
-        submit_authorization(mint_1, recipient_1, amount_1, nonce_1, sig_1),
-        submit_authorization(mint_2, recipient_2, amount_2, nonce_2, sig_2),
-        submit_authorization(mint_1, recipient_3, amount_3, nonce_3, sig_3),
+        // Verification and submission for authorization 1
+        ed25519_verify(session_key_1, message_1, sig_1),
+        submit_authorization(mint_1, recipient_1, max_1, settle_1, nonce_1, sig_1),
+        // Verification and submission for authorization 2
+        ed25519_verify(session_key_2, message_2, sig_2),
+        submit_authorization(mint_2, recipient_2, max_2, settle_2, nonce_2, sig_2),
+        // Verification and submission for authorization 3
+        ed25519_verify(session_key_3, message_3, sig_3),
+        submit_authorization(mint_1, recipient_3, max_3, settle_3, nonce_3, sig_3),
     ],
     Some(&facilitator.pubkey()),
 );
 ```
+
+Each `submit_authorization` instruction introspects the Instructions sysvar to find and validate its corresponding Ed25519 verification. The program matches verifications to submissions by checking that the verified message data matches the authorization parameters.
 
 **Note**: Nonces must be strictly increasing within the batch (nonce_1 < nonce_2 < nonce_3). Clients must ensure atomic nonce generation to avoid gaps or conflicts when signing multiple authorizations concurrently.
 
@@ -486,6 +600,25 @@ TBD
 
 TBD
 
+## Compute Budget Estimates
+
+Estimated compute units per instruction (excluding transaction overhead):
+
+| Instruction | Compute Units | Notes |
+|-------------|---------------|-------|
+| `create_escrow` | ~15,000 CU | PDA derivation + account init |
+| `deposit` | ~25,000 CU | Token transfer CPI; +15,000 if init_if_needed |
+| `close_escrow` | ~20,000 CU base | +10,000 per token account closed |
+| `register_session_key` | ~12,000 CU | PDA derivation + account init |
+| `revoke_session_key` | ~8,000 CU | Account update only |
+| `close_session_key` | ~10,000 CU | Account close |
+| `submit_authorization` | ~35,000 CU | Ed25519 introspection + PDA init |
+| `refund` | ~12,000 CU | +5,000 if full refund (close) |
+| `finalize` | ~25,000 CU | Token transfer CPI + account close |
+| `emergency_close` | ~30,000 CU base | +15,000 per pending settlement closed |
+
+**Batching guidance:** A single transaction can include ~1,400,000 CU max. For `submit_authorization` batches, account for ~60,000 CU per authorization (25,000 Ed25519 + 35,000 submit). This allows ~20 authorizations per transaction before hitting compute limits, though transaction size (1,232 bytes) is typically the binding constraint at ~8-10 authorizations.
+
 ## Rent Considerations
 
 | Account | Estimated Size | Rent-Exempt Minimum |
@@ -493,11 +626,11 @@ TBD
 | Escrow Account | ~150 bytes | ~0.002 SOL |
 | Token Account | 165 bytes | ~0.002 SOL |
 | Session Key | ~120 bytes | ~0.001 SOL |
-| Pending Settlement | ~200 bytes | ~0.002 SOL |
+| Pending Settlement | ~170 bytes | ~0.002 SOL |
 
 Closing accounts returns rent to:
 - Escrow Account, Token Accounts, Session Key: Owner
-- Pending Settlement: Submitter (facilitator)
+- Pending Settlement: Facilitator (from `escrow.facilitator`)
 
 ## Error Codes
 
@@ -516,6 +649,92 @@ Closing accounts returns rent to:
 | 6010 | RefundWindowExpired | Cannot refund after refund timeout |
 | 6011 | RefundExceedsAmount | Cannot refund more than pending amount |
 | 6012 | PendingCountMismatch | Remaining accounts count does not match pending_count |
+
+## Event Emission
+
+The program emits events via Anchor's `emit!` macro for indexer consumption. Events are logged as base64-encoded data in the transaction logs.
+
+### Events
+
+```rust
+#[event]
+pub struct EscrowCreated {
+    pub escrow: Pubkey,
+    pub owner: Pubkey,
+    pub facilitator: Pubkey,
+    pub refund_timeout_slots: u64,
+    pub deadman_timeout_slots: u64,
+}
+
+#[event]
+pub struct EscrowClosed {
+    pub escrow: Pubkey,
+    pub owner: Pubkey,
+    /// True if closed via emergency_close, false if normal close
+    pub emergency: bool,
+}
+
+#[event]
+pub struct Deposited {
+    pub escrow: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub depositor: Pubkey,
+}
+
+#[event]
+pub struct SessionKeyRegistered {
+    pub escrow: Pubkey,
+    pub session_key: Pubkey,
+    pub expires_at_slot: Option<u64>,
+}
+
+#[event]
+pub struct SessionKeyRevoked {
+    pub escrow: Pubkey,
+    pub session_key: Pubkey,
+    pub revoked_at_slot: u64,
+}
+
+#[event]
+pub struct AuthorizationSubmitted {
+    pub escrow: Pubkey,
+    pub nonce: u64,
+    pub mint: Pubkey,
+    pub recipient: Pubkey,
+    pub max_amount: u64,
+    pub settle_amount: u64,
+    pub session_key: Pubkey,
+}
+
+#[event]
+pub struct Refunded {
+    pub escrow: Pubkey,
+    pub nonce: u64,
+    pub refund_amount: u64,
+    pub remaining_amount: u64,
+}
+
+#[event]
+pub struct Finalized {
+    pub escrow: Pubkey,
+    pub nonce: u64,
+    pub mint: Pubkey,
+    pub recipient: Pubkey,
+    pub amount: u64,
+}
+```
+
+### Indexing Strategy
+
+Indexers should:
+
+1. Subscribe to program logs via `logsSubscribe` or poll `getSignaturesForAddress`
+2. Parse Anchor event discriminators (first 8 bytes of SHA256 of event name)
+3. Deserialize event data using Borsh
+4. Maintain derived state: escrow balances, pending settlements, session key status
+
+The combination of events and on-chain account state provides complete audit trails. Events capture the "what happened" while account queries provide current state.
 
 ## Implementation Notes
 
@@ -547,6 +766,39 @@ The current implementation uses a single facilitator per escrow account. A futur
 ### On-Chain Settlement Record
 
 The SPL token transfer history provides a complete on-chain record of all finalized settlements. Clients and facilitators can reconstruct per-recipient totals by querying the token account's transaction history.
+
+## Program Upgrade Authority
+
+### Deployment Model
+
+The program uses Solana's standard BPF upgradeable loader, allowing program updates while preserving deployed addresses.
+
+### Upgrade Authority Options
+
+| Phase | Authority Model | Description |
+|-------|-----------------|-------------|
+| Development | Single key | Fast iteration during development |
+| Testnet | Multisig | 2-of-3 team multisig for testing |
+| Mainnet Beta | Multisig + Timelock | 3-of-5 multisig with 48-hour timelock |
+| Production | Immutable or DAO | Freeze upgrades or transfer to governance |
+
+### Recommended Mainnet Configuration
+
+1. **Multisig authority**: Use Squads or similar for upgrade authority (3-of-5 recommended)
+2. **Timelock**: Implement upgrade timelock to give users time to exit if they disagree with changes
+3. **Upgrade announcements**: Publish upgrade intentions with sufficient notice
+4. **Immutability path**: Define criteria for freezing the program (e.g., 6 months without security issues)
+
+### Account Compatibility
+
+Program upgrades must maintain backward compatibility with existing accounts:
+
+- Account discriminators must not change
+- Existing fields must remain at same offsets
+- New fields can only be appended
+- Migration instructions may be needed for complex changes
+
+For breaking changes, deploy a new program and provide migration tooling.
 
 ## Future Extensions
 
