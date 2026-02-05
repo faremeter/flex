@@ -5,8 +5,9 @@
 Before responding to the user's first message in any session, complete the following steps in order:
 
 1. **Load the `style` skill** (from global skills)
-2. **Review local Anchor/Solana skills** in `/skills/` directory
-3. **Read metadata from all local skills** to understand what patterns are available
+2. **Read `CONVENTIONS.md`** and follow all conventions defined there
+3. **Review local Anchor/Solana skills** in `/skills/` directory
+4. **Read metadata from all local skills** to understand what patterns are available
 
 ### Local Skills Discovery
 
@@ -18,17 +19,18 @@ This repository contains comprehensive Anchor/Solana skills in the `/skills/` di
 
 At the beginning of each session:
 
-1. **Glob for available skills** using the pattern `skills/*/SKILL.md`
-2. **Read the skills README** at `skills/README.md` to understand what each skill covers
-3. **Acknowledge the available skills** with a message like:
+1. **Read `CONVENTIONS.md`** to understand coding conventions for both TypeScript and Rust/Anchor
+2. **Glob for available skills** using the pattern `skills/*/SKILL.md`
+3. **Read the skills README** at `skills/README.md` to understand what each skill covers
+4. **Acknowledge the available skills** with a message like:
    ```
    I have reviewed the style skill and discovered the local Anchor/Solana skills in /skills/.
    Available skills: [list discovered skills]
    I understand this project implements the Flex Payment Scheme escrow on Solana
    and will follow the security patterns and best practices documented in the skills.
    ```
-4. When user asks to implement Anchor code, load the appropriate skills based on the task
-5. **Always prioritize loading security-related skills** when writing or reviewing Anchor code
+5. When user asks to implement Anchor code, load the appropriate skills based on the task
+6. **Always prioritize loading security-related skills** when writing or reviewing Anchor code
 
 ### Important Notes
 

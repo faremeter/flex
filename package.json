@@ -1,0 +1,17 @@
+{
+  "name": "flex",
+  "license": "LGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*", "scripts", "tests"],
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@types/bun": "^1.3.11",
+    "@types/node": "^20.19.11",
+    "eslint": "^9.34.0",
+    "jiti": "^2.6.1",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.42.0"
+  }
+}

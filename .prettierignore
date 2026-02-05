@@ -1,0 +1,7 @@
+bun.lock
+dist
+*~
+*\#*
+target/
+.anchor/
+tmp/
