@@ -11,3 +11,11 @@ keypairs
 .eslintcache
 .build-finished
 .DS_Store
+
+# Anchor/Rust
+target/
+.anchor/
+test-ledger/
+
+# Temporary files
+tmp/
