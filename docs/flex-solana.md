@@ -28,6 +28,18 @@ Escrow Account (per client)
 | Session Key | `["session", escrow, session_key]` | Owner |
 | Pending Settlement | `["pending", escrow, nonce]` | Facilitator |
 
+### Dual Authorization Model
+
+The escrow enforces dual authorization at the **instruction level**, not the token account level:
+
+1. **Token accounts** are SPL token accounts with the program's PDA as the sole authority. The program can sign for transfers via PDA signing.
+
+2. **Transfers require both parties**:
+   - **Client authorization**: Off-chain Ed25519 signature from a registered session key, verified on-chain
+   - **Facilitator authorization**: On-chain transaction signature from the registered facilitator
+
+Neither the client nor the facilitator can unilaterally move funds. The client's session key signature authorizes the payment, and the facilitator's transaction signature submits it. The program PDA then signs the actual token transfer.
+
 ## Account Structures
 
 ### Escrow Account
@@ -186,6 +198,8 @@ pub fn close_escrow(
 
 **Constraints**: `pending_count == 0` (no pending settlements)
 
+**Preconditions**: The owner must have existing token accounts for each mint held in the escrow. The instruction transfers remaining balances to these owner-provided destination accounts before closing the escrow's token account PDAs.
+
 **Notes**: The facilitator verifies off-chain that no unsettled authorizations exist before co-signing. The on-chain check ensures no pending settlement PDAs remain. Closes all token account PDAs and the escrow account, returning all funds and rent to the owner.
 
 ### Session Key Management
@@ -205,7 +219,9 @@ pub fn register_session_key(
 
 **Signers**: Owner
 
-**Notes**: Session key registration is an on-chain transaction. The escrow account does not need to sign arbitrary off-chain messages. This allows smart wallets and multisigs to use the flex scheme. Session keys have no spending limits; they simply provide signing authority.
+**Notes**: Session key registration is an on-chain transaction. The escrow account does not need to sign arbitrary off-chain messages. This allows smart wallets and multisigs to use the flex scheme.
+
+Session keys intentionally have no spending limits - registering a session key grants full authorization over the escrow account's funds. Clients should treat session key generation with the same care as private key management. If per-key limits are needed, clients should create separate escrow accounts with limited funding.
 
 #### `revoke_session_key`
 
@@ -285,8 +301,12 @@ pub fn refund(
 
 **Effects**:
 1. Reduce `pending_settlement.amount` by `refund_amount`
+2. If `amount` becomes zero (full refund):
+   - Close the PendingSettlement PDA immediately
+   - Return rent to `pending_settlement.submitter` (facilitator)
+   - Decrement `escrow.pending_count`
 
-**Notes**: A full refund sets `amount` to zero. The pending settlement PDA remains until finalized (transferring zero tokens) or the escrow account is emergency-closed.
+**Notes**: A full refund closes the pending settlement immediately rather than leaving a zero-amount settlement to be finalized later. This saves a transaction and returns rent to the facilitator promptly.
 
 #### `finalize`
 
@@ -335,6 +355,8 @@ pub fn emergency_close(
 
 **Notes**: This allows clients to recover funds if a facilitator becomes unresponsive. Any pending settlements are voided - the facilitator loses the opportunity to finalize them, but gets their rent back.
 
+**Transaction Size Consideration**: If an escrow has many pending settlements, they may not all fit in a single transaction. Clients with large numbers of pending settlements may need to use Address Lookup Tables (ALTs) to fit all account references. This is an accepted tradeoff; facilitators have business incentives to finalize settlements promptly rather than accumulate large numbers of pending settlements.
+
 ## Authorization Message Format
 
 Off-chain authorizations are Ed25519 signatures over a structured message:
@@ -362,14 +384,19 @@ The message is serialized using Borsh and signed with the session key's Ed25519 
 
 ## Signature Verification
 
-The program uses Solana's native Ed25519 program for signature verification:
+The program uses Solana's native Ed25519 program for signature verification via instruction introspection:
 
-1. Facilitator includes the signature in the `submit_authorization` instruction
-2. Program reconstructs the expected message from instruction parameters
-3. Program invokes Ed25519 program to verify signature against registered session key
-4. Submission proceeds only if verification succeeds
+1. The transaction includes an Ed25519 signature verification instruction (before the `submit_authorization` instruction)
+2. The `submit_authorization` instruction reads the Instructions sysvar to introspect the preceding Ed25519 verification
+3. Program verifies that:
+   - An Ed25519 verification instruction exists in the transaction
+   - The verified public key matches the registered session key
+   - The verified message matches the expected `PaymentAuthorization` data
+4. Submission proceeds only if the introspection confirms valid signature verification
 
-Compute cost: ~25,000 CU per signature verification.
+This approach leverages Solana's native Ed25519 program rather than performing signature verification in the program itself, which would be prohibitively expensive.
+
+Compute cost: ~25,000 CU per signature verification (in the Ed25519 program instruction).
 
 ## Security Model
 
@@ -427,7 +454,7 @@ let tx = Transaction::new_with_payer(
 );
 ```
 
-**Note**: Nonces must be strictly increasing within the batch (nonce_1 < nonce_2 < nonce_3).
+**Note**: Nonces must be strictly increasing within the batch (nonce_1 < nonce_2 < nonce_3). Clients must ensure atomic nonce generation to avoid gaps or conflicts when signing multiple authorizations concurrently.
 
 Similarly, multiple `finalize` instructions can be batched to settle many pending payments at once.
 
