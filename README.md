@@ -103,9 +103,7 @@ The initial implementation targets Solana, with EVM support planned.
 
 ## Account Scope
 
-The initial implementation supports a single facilitator per escrow account. The client creates a separate escrow account for each facilitator they work with.
-
-A future enhancement may support multiple facilitators per account, where each facilitator is authorized to settle up to a specified allowance. This would allow clients to use a single funded account across multiple services.
+Each escrow account has a single facilitator. The client creates a separate escrow account for each facilitator they work with.
 
 ## Security Considerations
 
