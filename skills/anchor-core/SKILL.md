@@ -19,7 +19,7 @@ declare_id!("YourProgramIDHere");
 #[program]
 mod your_program {
     use super::*;
-    
+
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         Ok(())
     }
@@ -42,25 +42,25 @@ pub struct MyAccount {
 
 ### Common Account Types
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `Account<'info, T>` | Owned program account | `Account<'info, EscrowAccount>` |
-| `Signer<'info>` | Signature verification | `pub authority: Signer<'info>` |
-| `Program<'info, T>` | Program validation | `Program<'info, System>` |
-| `SystemProgram` | System program reference | `pub system_program: Program<'info, System>` |
-| `UncheckedAccount<'info>` | No automatic checks | Requires `/// CHECK:` comment |
+| Type                      | Purpose                  | Example                                      |
+| ------------------------- | ------------------------ | -------------------------------------------- |
+| `Account<'info, T>`       | Owned program account    | `Account<'info, EscrowAccount>`              |
+| `Signer<'info>`           | Signature verification   | `pub authority: Signer<'info>`               |
+| `Program<'info, T>`       | Program validation       | `Program<'info, System>`                     |
+| `SystemProgram`           | System program reference | `pub system_program: Program<'info, System>` |
+| `UncheckedAccount<'info>` | No automatic checks      | Requires `/// CHECK:` comment                |
 
 ### Most-Used Constraints
 
-| Constraint | Purpose | Example |
-|------------|---------|---------|
-| `mut` | Account is mutable | `#[account(mut)]` |
-| `signer` | Account must sign | `#[account(signer)]` (use `Signer` type instead) |
-| `init` | Initialize new account | `#[account(init, payer = user, space = 8 + 32)]` |
-| `has_one` | Validate relationship | `#[account(has_one = authority)]` |
-| `constraint` | Custom validation | `#[account(constraint = amount > 0)]` |
-| `seeds`, `bump` | PDA validation | `#[account(seeds = [b"escrow"], bump)]` |
-| `close` | Close account | `#[account(mut, close = destination)]` |
+| Constraint      | Purpose                | Example                                          |
+| --------------- | ---------------------- | ------------------------------------------------ |
+| `mut`           | Account is mutable     | `#[account(mut)]`                                |
+| `signer`        | Account must sign      | `#[account(signer)]` (use `Signer` type instead) |
+| `init`          | Initialize new account | `#[account(init, payer = user, space = 8 + 32)]` |
+| `has_one`       | Validate relationship  | `#[account(has_one = authority)]`                |
+| `constraint`    | Custom validation      | `#[account(constraint = amount > 0)]`            |
+| `seeds`, `bump` | PDA validation         | `#[account(seeds = [b"escrow"], bump)]`          |
+| `close`         | Close account          | `#[account(mut, close = destination)]`           |
 
 ### Error Handling Quick Pattern
 
@@ -96,6 +96,7 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 ```
 
 The `declare_id!` macro creates an `ID` field that stores your program's address. Anchor uses this for:
+
 - Security checks (verifying account ownership)
 - Allowing other programs to reference your program
 - PDA derivation
@@ -106,7 +107,7 @@ The `declare_id!` macro creates an `ID` field that stores your program's address
 #[program]
 mod hello_anchor {
     use super::*;
-    
+
     pub fn set_data(ctx: Context<SetData>, data: u64) -> Result<()> {
         ctx.accounts.my_account.data = data;
         Ok(())
@@ -115,6 +116,7 @@ mod hello_anchor {
 ```
 
 **Handler Function Signature:**
+
 - First argument: `ctx: Context<T>` where `T` is your Accounts struct
 - Additional arguments: Instruction data (automatically deserialized)
 - Return type: `Result<()>` or `Result<T>` for return values
@@ -184,6 +186,7 @@ pub struct MyAccount {
 ```
 
 **Account<'info, T> automatically checks:**
+
 - Account is owned by the program declared in the crate where `T` is defined
 - Account discriminator matches `T` (prevents type cosplay attacks)
 - Account data deserializes correctly to `T`
@@ -203,6 +206,7 @@ pub struct Initialize<'info> {
 ```
 
 **Automatically checks:**
+
 - Account's `is_signer` flag is true
 
 **When to use:** Any account that must provide a signature (user authority, payer, etc.).
@@ -223,6 +227,7 @@ pub struct TransferTokens<'info> {
 ```
 
 **Automatically checks:**
+
 - Account address matches the expected program ID
 
 **When to use:** Validating programs before making CPIs (prevents arbitrary CPI attacks).
@@ -255,6 +260,7 @@ pub struct Initialize<'info> {
 **Checks:** None (you must validate manually if needed)
 
 **When to use:**
+
 - PDA signers (accounts that will sign via CPI)
 - Accounts where you only need the address
 - Accounts you'll validate manually
@@ -292,6 +298,7 @@ pub struct CheckBalance<'info> {
 ```
 
 The `TokenAccount` type is a wrapper that:
+
 - Validates the account is owned by the Token program
 - Deserializes the account data
 - Provides typed access to fields (amount, mint, owner, etc.)
@@ -350,6 +357,7 @@ pub special_account: AccountInfo<'info>,
 Checks that `account.key() == <expr>`.
 
 Common uses:
+
 - Validating sysvar addresses
 - Hardcoded authority addresses
 - Program-specific constants
@@ -376,6 +384,7 @@ pub authority: Signer<'info>,
 Checks that `my_account.authority == authority.key()`.
 
 This is equivalent to:
+
 ```rust
 #[account(constraint = my_account.authority == authority.key())]
 ```
@@ -383,6 +392,7 @@ This is equivalent to:
 **Critical for security:** Prevents unauthorized access by validating account relationships.
 
 **Example from sealevel-attacks:**
+
 ```rust
 #[derive(Accounts)]
 pub struct UpdateUser<'info> {
@@ -407,6 +417,7 @@ pub transfer: Account<'info, Transfer>,
 Arbitrary boolean expressions. All must evaluate to true.
 
 **With custom error:**
+
 ```rust
 #[account(
     constraint = amount > 0 @ ErrorCode::InvalidAmount
@@ -414,6 +425,7 @@ Arbitrary boolean expressions. All must evaluate to true.
 ```
 
 **Common patterns:**
+
 - Numeric validations: `amount > 0`, `balance >= amount`
 - Key comparisons: `account_a.key() != account_b.key()`
 - State checks: `escrow.status == Status::Active`
@@ -435,10 +447,12 @@ pub system_program: Program<'info, System>,
 ```
 
 **Required with init:**
+
 - `payer = <account>` - Who pays for account creation
 - `space = <bytes>` - Account size (must include 8-byte discriminator)
 
 **Automatically:**
+
 - Creates account via CPI to system program
 - Sets account owner to your program
 - Writes discriminator
@@ -473,6 +487,7 @@ pub destination: AccountInfo<'info>,
 ```
 
 **At end of instruction:**
+
 - Transfers all lamports from account to destination
 - Zeroes account data
 - Resets account owner to system program
@@ -496,6 +511,7 @@ pub my_account: Account<'info, MyAccount>,
 Resizes account at beginning of instruction.
 
 **Parameters:**
+
 - `realloc = <size>` - New size in bytes
 - `realloc::payer = <account>` - Who pays/receives if size changes
 - `realloc::zero = <bool>` - Whether to zero new space
@@ -513,6 +529,7 @@ pub escrow: Account<'info, EscrowAccount>,
 ```
 
 **With init (finds canonical bump):**
+
 ```rust
 #[account(
     init,
@@ -526,6 +543,7 @@ pub escrow: Account<'info, EscrowAccount>,
 Access the bump: `ctx.bumps.escrow`
 
 **With stored bump (more efficient):**
+
 ```rust
 #[account(
     seeds = [b"escrow", owner.key().as_ref()],
@@ -535,6 +553,7 @@ pub escrow: Account<'info, EscrowAccount>,
 ```
 
 **Seeds can be:**
+
 - Byte literals: `b"escrow"`
 - Account keys: `owner.key().as_ref()`
 - Numbers: `&id.to_le_bytes()`
@@ -595,22 +614,22 @@ When using `init`, you must specify the account size. **Always add 8 bytes** for
 
 ### Type Size Reference
 
-| Type | Bytes | Notes |
-|------|-------|-------|
-| `bool` | 1 | |
-| `u8`, `i8` | 1 | |
-| `u16`, `i16` | 2 | |
-| `u32`, `i32` | 4 | |
-| `u64`, `i64` | 8 | |
-| `u128`, `i128` | 16 | |
-| `f32` | 4 | Serialization fails for NaN |
-| `f64` | 8 | Serialization fails for NaN |
-| `Pubkey` | 32 | |
-| `[T; N]` | `size(T) * N` | Fixed array |
-| `Vec<T>` | `4 + size(T) * count` | Must allocate max size upfront |
-| `String` | `4 + byte_length` | Must allocate max size upfront |
-| `Option<T>` | `1 + size(T)` | |
-| `Enum` | `1 + largest_variant` | |
+| Type           | Bytes                 | Notes                          |
+| -------------- | --------------------- | ------------------------------ |
+| `bool`         | 1                     |                                |
+| `u8`, `i8`     | 1                     |                                |
+| `u16`, `i16`   | 2                     |                                |
+| `u32`, `i32`   | 4                     |                                |
+| `u64`, `i64`   | 8                     |                                |
+| `u128`, `i128` | 16                    |                                |
+| `f32`          | 4                     | Serialization fails for NaN    |
+| `f64`          | 8                     | Serialization fails for NaN    |
+| `Pubkey`       | 32                    |                                |
+| `[T; N]`       | `size(T) * N`         | Fixed array                    |
+| `Vec<T>`       | `4 + size(T) * count` | Must allocate max size upfront |
+| `String`       | `4 + byte_length`     | Must allocate max size upfront |
+| `Option<T>`    | `1 + size(T)`         |                                |
+| `Enum`         | `1 + largest_variant` |                                |
 
 ### Manual Calculation Example
 
@@ -669,15 +688,17 @@ pub struct Initialize<'info> {
 ```
 
 **Notes:**
+
 - `#[max_len(n)]` for `String` and `Vec` specifies max element count
 - For nested collections: `#[max_len(outer_count, inner_count)]`
 - `INIT_SPACE` constant is automatically generated
 - Still need to add 8 for discriminator in `space` constraint
 
 **Important:** `max_len` is element count, not bytes. For `Vec<u32>` with `#[max_len(10)]`:
+
 - Element count: 10
 - Bytes per element: 4
-- Total: 4 (length prefix) + (10 * 4) = 44 bytes
+- Total: 4 (length prefix) + (10 \* 4) = 44 bytes
 
 ## Error Handling
 
@@ -701,6 +722,7 @@ pub enum ErrorCode {
 ```
 
 **Automatic:**
+
 - Error codes start at 6000 (custom error offset)
 - Each variant gets sequential number (6000, 6001, 6002, ...)
 - Message attribute provides user-friendly error text
@@ -714,13 +736,14 @@ pub fn transfer(ctx: Context<Transfer>, amount: u64) -> Result<()> {
         ctx.accounts.escrow.balance >= amount,
         ErrorCode::InsufficientBalance
     );
-    
+
     // Proceed with transfer
     Ok(())
 }
 ```
 
 The `require!` macro:
+
 - Checks the condition
 - If false, returns the error
 - If true, continues execution
@@ -732,7 +755,7 @@ pub fn set_data(ctx: Context<SetData>, data: u64) -> Result<()> {
     if data >= 100 {
         return err!(ErrorCode::DataTooLarge);
     }
-    
+
     ctx.accounts.my_account.data = data;
     Ok(())
 }
@@ -740,27 +763,27 @@ pub fn set_data(ctx: Context<SetData>, data: u64) -> Result<()> {
 
 ### Require Macro Family
 
-| Macro | Purpose | Example |
-|-------|---------|---------|
-| `require!` | General condition | `require!(amount > 0, ErrorCode)` |
-| `require_eq!` | Equality (non-Pubkey) | `require_eq!(a, b, ErrorCode)` |
-| `require_neq!` | Inequality (non-Pubkey) | `require_neq!(a, b, ErrorCode)` |
-| `require_keys_eq!` | Pubkey equality | `require_keys_eq!(key1, key2, ErrorCode)` |
-| `require_keys_neq!` | Pubkey inequality | `require_keys_neq!(key1, key2, ErrorCode)` |
-| `require_gt!` | Greater than | `require_gt!(a, b, ErrorCode)` |
-| `require_gte!` | Greater or equal | `require_gte!(balance, amount, ErrorCode)` |
+| Macro               | Purpose                 | Example                                    |
+| ------------------- | ----------------------- | ------------------------------------------ |
+| `require!`          | General condition       | `require!(amount > 0, ErrorCode)`          |
+| `require_eq!`       | Equality (non-Pubkey)   | `require_eq!(a, b, ErrorCode)`             |
+| `require_neq!`      | Inequality (non-Pubkey) | `require_neq!(a, b, ErrorCode)`            |
+| `require_keys_eq!`  | Pubkey equality         | `require_keys_eq!(key1, key2, ErrorCode)`  |
+| `require_keys_neq!` | Pubkey inequality       | `require_keys_neq!(key1, key2, ErrorCode)` |
+| `require_gt!`       | Greater than            | `require_gt!(a, b, ErrorCode)`             |
+| `require_gte!`      | Greater or equal        | `require_gte!(balance, amount, ErrorCode)` |
 
 **Important:** Use `require_keys_eq!` for Pubkey comparisons (more efficient than `require_eq!`).
 
 ### Error Number Scheme
 
-| Range | Type |
-|-------|------|
-| >= 100 | Instruction errors |
-| >= 1000 | IDL errors |
-| >= 2000 | Constraint errors |
-| >= 3000 | Account errors |
-| >= 4100 | Misc errors |
+| Range   | Type                                 |
+| ------- | ------------------------------------ |
+| >= 100  | Instruction errors                   |
+| >= 1000 | IDL errors                           |
+| >= 2000 | Constraint errors                    |
+| >= 3000 | Account errors                       |
+| >= 4100 | Misc errors                          |
 | >= 6000 | **Custom user errors (your errors)** |
 
 ## Safety Checks
@@ -776,7 +799,7 @@ pub fn set_data(ctx: Context<SetData>, data: u64) -> Result<()> {
 pub struct Initialize<'info> {
     /// CHECK: This account is only used as a signing PDA and does not store data
     pub authority_pda: UncheckedAccount<'info>,
-    
+
     /// CHECK: Validated via constraint below
     #[account(constraint = metadata.owner == metadata_program.key())]
     pub metadata: AccountInfo<'info>,
@@ -791,6 +814,7 @@ Please add a `/// CHECK:` doc comment explaining why no checks through types are
 ```
 
 **Must be a doc comment:**
+
 - `///` (line doc comment) - Valid
 - `/** */` (block doc comment) - Valid
 - `//` (regular comment) - Invalid (not a doc comment)
@@ -798,17 +822,20 @@ Please add a `/// CHECK:` doc comment explaining why no checks through types are
 ### When to Use UncheckedAccount vs AccountInfo
 
 **Use `UncheckedAccount<'info>` when:**
+
 - Account will be a PDA signer in a CPI
 - You only need the account address
 - Account will be validated via custom constraints
 - Account is from a non-Anchor program without a wrapper type
 
 **Use `AccountInfo<'info>` when:**
+
 - You need direct access to account fields (lamports, data, owner)
 - Performing manual deserialization
 - Advanced account manipulation
 
 **Prefer typed accounts when possible:**
+
 - `Account<'info, T>` - Program-owned accounts
 - `Signer<'info>` - Signature verification
 - `Program<'info, T>` - Program validation
@@ -825,11 +852,11 @@ Order constraints logically:
     init,
     payer = owner,
     space = 8 + EscrowAccount::INIT_SPACE,
-    
+
     // 2. PDA (seeds, bump)
     seeds = [b"escrow", owner.key().as_ref()],
     bump,
-    
+
     // 3. Validation (mut, has_one, constraint)
     // (not needed here, but would go here)
 )]
@@ -851,7 +878,7 @@ pub struct SubmitAuthorization<'info> {
         bump = escrow.bump,
     )]
     pub escrow: Account<'info, EscrowAccount>,
-    
+
     #[account(
         init,
         payer = facilitator,
@@ -860,10 +887,10 @@ pub struct SubmitAuthorization<'info> {
         bump,
     )]
     pub pending: Account<'info, PendingSettlement>,
-    
+
     // Signers and authority
     pub facilitator: Signer<'info>,
-    
+
     // Programs
     pub system_program: Program<'info, System>,
 }
@@ -885,20 +912,20 @@ pub fn submit_authorization(
     // 1. Validate inputs
     require!(nonce > ctx.accounts.escrow.last_nonce, ErrorCode::InvalidNonce);
     require!(amount > 0, ErrorCode::InvalidAmount);
-    
+
     // 2. Verify signature
     // (signature verification logic)
-    
+
     // 3. Update state
     let escrow = &mut ctx.accounts.escrow;
     escrow.last_nonce = nonce;
     escrow.pending_count += 1;
-    
+
     let pending = &mut ctx.accounts.pending;
     pending.amount = amount;
     pending.nonce = nonce;
     // ... set other fields
-    
+
     Ok(())
 }
 ```
@@ -906,11 +933,13 @@ pub fn submit_authorization(
 ### When to Use Custom Constraints vs Built-in
 
 **Use built-in constraints:**
+
 - `has_one` for simple field equality
 - `mut`, `signer` for standard checks
 - `seeds`, `bump` for PDAs
 
 **Use custom constraints when:**
+
 - Comparing multiple fields
 - Complex boolean logic
 - Calculations or transformations
@@ -922,7 +951,7 @@ pub fn submit_authorization(
 
 // Good - use custom constraint for complex logic
 #[account(
-    constraint = account.start_time < clock.slot 
+    constraint = account.start_time < clock.slot
         && account.end_time > clock.slot
         @ ErrorCode::OutsideTimeWindow
 )]
@@ -931,14 +960,17 @@ pub fn submit_authorization(
 ## Skill Loading Guidance
 
 ### Always Load With
+
 - **anchor-security** - Security is paramount; always load together
 
 ### Commonly Paired With
+
 - **anchor-pdas** - Most programs use PDAs
 - **anchor-cpis** - Most programs make cross-program invocations
 - **anchor-token-operations** - For token-related programs
 
 ### Load This Skill When
+
 - Writing any Anchor program code
 - Reviewing Anchor program implementations
 - Designing account structures
@@ -946,6 +978,7 @@ pub fn submit_authorization(
 - Calculating account space
 
 ### Related Skills
+
 - **anchor-pdas** - For PDA-specific patterns (seeds, bumps, program signing)
 - **anchor-security** - For security constraints and validation patterns
 - **anchor-cpis** - For cross-program invocation patterns
@@ -956,6 +989,7 @@ pub fn submit_authorization(
 ## Reference Links
 
 ### Official Documentation
+
 - [Anchor Documentation](https://www.anchor-lang.com/docs)
 - [Anchor Account Constraints](https://www.anchor-lang.com/docs/references/account-constraints)
 - [Anchor Account Types](https://www.anchor-lang.com/docs/references/account-types)
@@ -964,6 +998,7 @@ pub fn submit_authorization(
 - [Anchor Rust Docs](https://docs.rs/anchor-lang/latest/anchor_lang/)
 
 ### Source Material
+
 - [Anchor Book](https://github.com/coral-xyz/anchor-book) - Complete tutorial guide
   - [High-level Overview](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/high-level_overview.md)
   - [The Accounts Struct](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/the_accounts_struct.md)

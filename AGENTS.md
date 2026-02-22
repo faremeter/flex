@@ -52,12 +52,14 @@ This project implements a prepaid escrow account system on Solana for the x402 p
 - **Session Key System:** Off-chain signatures with on-chain validation
 
 Design documents:
+
 - `/README.md` - Scheme overview
 - `/docs/flex-solana.md` - Solana implementation details
 
 ### Security is Non-Negotiable
 
 When writing Anchor code:
+
 - ✅ Always load `anchor-security` skill
 - ✅ Validate all account relationships with `has_one` or constraints
 - ✅ Use typed accounts (`Account<'info, T>`) for ownership validation
@@ -71,6 +73,7 @@ When writing Anchor code:
 ### Code Quality Standards
 
 Follow the patterns in the skills:
+
 - Use `#[account]` for all program-owned data
 - Use `#[derive(InitSpace)]` for space calculation
 - Organize CPI code in `impl` blocks

@@ -21,12 +21,12 @@ Escrow Account (per client)
 
 ### Program-Derived Addresses
 
-| Account Type | Seeds | Authority |
-|--------------|-------|-----------|
-| Escrow Account | `[b"escrow", owner.key().as_ref()]` | Owner + Facilitator |
-| Token Account | `[b"token", escrow.key().as_ref(), mint.key().as_ref()]` | Program (PDA signer) |
-| Session Key | `[b"session", escrow.key().as_ref(), session_key.as_ref()]` | Owner |
-| Pending Settlement | `[b"pending", escrow.key().as_ref(), nonce.to_le_bytes().as_ref()]` | Facilitator |
+| Account Type       | Seeds                                                               | Authority            |
+| ------------------ | ------------------------------------------------------------------- | -------------------- |
+| Escrow Account     | `[b"escrow", owner.key().as_ref()]`                                 | Owner + Facilitator  |
+| Token Account      | `[b"token", escrow.key().as_ref(), mint.key().as_ref()]`            | Program (PDA signer) |
+| Session Key        | `[b"session", escrow.key().as_ref(), session_key.as_ref()]`         | Owner                |
+| Pending Settlement | `[b"pending", escrow.key().as_ref(), nonce.to_le_bytes().as_ref()]` | Facilitator          |
 
 ### Dual Authorization Model
 
@@ -48,37 +48,37 @@ Neither the client nor the facilitator can unilaterally move funds. The client's
 pub struct EscrowAccount {
     /// Account version for future migrations
     pub version: u8,
-    
+
     /// Client who owns this escrow account
     pub owner: Pubkey,
-    
+
     /// Authorized facilitator
     pub facilitator: Pubkey,
-    
+
     /// Global nonce for replay protection
     pub last_nonce: u64,
-    
+
     /// Number of open pending settlements
     pub pending_count: u64,
-    
+
     /// Number of active token account PDAs
     pub mint_count: u64,
-    
+
     /// Refund window duration in slots
     pub refund_timeout_slots: u64,
-    
+
     /// Deadman switch timeout in slots
     pub deadman_timeout_slots: u64,
-    
+
     /// Last activity slot (for deadman switch)
     pub last_activity_slot: u64,
-    
+
     /// Maximum number of session keys allowed (0 = unlimited)
     pub max_session_keys: u8,
-    
+
     /// Current number of active session keys
     pub session_key_count: u8,
-    
+
     /// PDA bump seed
     pub bump: u8,
 }
@@ -88,12 +88,12 @@ pub struct EscrowAccount {
 
 **Design Rationale:** The deadman switch protects clients from unresponsive facilitators. The activity tracking is intentionally asymmetric:
 
-| Instruction | Updates `last_activity_slot` | Rationale |
-|-------------|------------------------------|-----------|
-| `submit_authorization` | Yes | Requires facilitator signature; proves engagement |
-| `refund` | Yes | Requires facilitator signature; proves engagement |
-| `finalize` | No | Permissionless crank; anyone can call it |
-| `deposit` | No | Anyone can deposit; not facilitator action |
+| Instruction            | Updates `last_activity_slot` | Rationale                                         |
+| ---------------------- | ---------------------------- | ------------------------------------------------- |
+| `submit_authorization` | Yes                          | Requires facilitator signature; proves engagement |
+| `refund`               | Yes                          | Requires facilitator signature; proves engagement |
+| `finalize`             | No                           | Permissionless crank; anyone can call it          |
+| `deposit`              | No                           | Anyone can deposit; not facilitator action        |
 
 **Why `finalize` doesn't reset the timer:** A facilitator who only finalizes existing settlements but refuses to process new authorizations is effectively unresponsive to the client. Allowing `finalize` to reset the timer would let a malicious facilitator keep the escrow locked indefinitely by periodically cranking finalizations while ignoring new business.
 
@@ -105,28 +105,28 @@ pub struct EscrowAccount {
 pub struct SessionKey {
     /// Account version for future migrations
     pub version: u8,
-    
+
     /// Parent escrow account
     pub escrow: Pubkey,
-    
+
     /// The session key pubkey (Ed25519)
     pub key: Pubkey,
-    
+
     /// Slot when created
     pub created_at_slot: u64,
-    
+
     /// Optional expiration slot
     pub expires_at_slot: Option<u64>,
-    
+
     /// Whether this key is active
     pub active: bool,
-    
+
     /// Slot when revoked (if revoked)
     pub revoked_at_slot: Option<u64>,
-    
+
     /// Grace period in slots after revocation during which authorizations remain valid for settlement
     pub revocation_grace_period_slots: u64,
-    
+
     /// PDA bump seed
     pub bump: u8,
 }
@@ -135,6 +135,7 @@ pub struct SessionKey {
 **Out of Scope:** Per-session-key spending limits (e.g., max amount per authorization, cumulative limits) are not included in this design. Clients who need to limit exposure should create separate escrow accounts with limited funding.
 
 **Grace Period Selection:** The `revocation_grace_period_slots` balances facilitator settlement needs with client risk exposure. Suggested ranges:
+
 - **Minimum:** 100 slots (~40 seconds) - allows facilitator to submit in-flight authorizations
 - **Typical:** 200-300 slots (~80-120 seconds) - reasonable buffer for network congestion
 - **Maximum recommended:** 500 slots (~3 minutes) - longer periods increase compromise exposure
@@ -143,11 +144,11 @@ A facilitator could intentionally delay settlement until just before grace perio
 
 **Facilitator SLA Recommendations:** Facilitators should document their settlement SLAs to help clients choose appropriate grace periods:
 
-| SLA Metric | Recommended Target | Rationale |
-|------------|-------------------|-----------|
-| Authorization-to-submission latency | < 30 seconds (p99) | Allows 100-slot grace period |
-| Submission retry window | < 60 seconds | Handles transient network issues |
-| Maximum in-flight authorizations | Documented per escrow | Bounds exposure during revocation |
+| SLA Metric                          | Recommended Target    | Rationale                         |
+| ----------------------------------- | --------------------- | --------------------------------- |
+| Authorization-to-submission latency | < 30 seconds (p99)    | Allows 100-slot grace period      |
+| Submission retry window             | < 60 seconds          | Handles transient network issues  |
+| Maximum in-flight authorizations    | Documented per escrow | Bounds exposure during revocation |
 
 Clients should set `revocation_grace_period_slots` to at least 2x the facilitator's documented submission latency to account for network variability.
 
@@ -157,34 +158,34 @@ Clients should set `revocation_grace_period_slots` to at least 2x the facilitato
 pub struct PendingSettlement {
     /// Account version for future migrations
     pub version: u8,
-    
+
     /// Parent escrow account
     pub escrow: Pubkey,
-    
+
     /// Token mint for this settlement
     pub mint: Pubkey,
-    
+
     /// Recipient (merchant) token account
     pub recipient: Pubkey,
-    
+
     /// Current amount (can be reduced by refunds)
     pub amount: u64,
-    
+
     /// Original amount when submitted (settle_amount, not max_amount)
     pub original_amount: u64,
-    
+
     /// Maximum amount authorized by the client (for audit trail)
     pub max_amount: u64,
-    
+
     /// Authorization nonce
     pub nonce: u64,
-    
+
     /// Slot when submitted
     pub submitted_at_slot: u64,
-    
+
     /// Session key that signed this authorization
     pub session_key: Pubkey,
-    
+
     /// PDA bump seed
     pub bump: u8,
 }
@@ -213,6 +214,7 @@ pub fn create_escrow(
 **Signers**: Owner
 
 **Accounts**:
+
 - `owner` (signer, mut) - Client creating the account
 - `escrow` (init, PDA)
 
@@ -232,6 +234,7 @@ pub fn deposit(
 **Signers**: Depositor (anyone with tokens)
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account (for updating `mint_count`)
 - `depositor` (signer, mut) - Party depositing tokens; pays rent if token account is created
 - `mint` - SPL token mint
@@ -241,11 +244,13 @@ pub fn deposit(
 - `system_program` - System program (for account creation)
 
 **Constraints**:
+
 - `escrow.mint_count < 8` when creating a new token account (enforces mint limit)
 - `amount > 0`
 
 **Token Account Creation**:
 When the token account PDA does not exist:
+
 1. The depositor pays rent (~0.002 SOL) for the new token account
 2. `escrow.mint_count` is incremented
 3. Token account is initialized with:
@@ -253,23 +258,27 @@ When the token account PDA does not exist:
    - Owner/Authority: escrow PDA (program signs for transfers)
 
 **Effects**:
+
 1. If token account doesn't exist: create it, increment `mint_count`
 2. Transfer `amount` tokens from `source` to escrow token account PDA
 3. Emit `Deposited` event
 
-**Notes**: 
+**Notes**:
+
 - Anyone can deposit to an escrow account (permissionless)
 - The depositor pays rent for new token accounts, not the escrow owner
 - Maximum 8 different mints per escrow (returns `MintLimitReached` if exceeded)
 - Deposits do not update `last_activity_slot` (only facilitator actions do)
 
 **Mint Griefing Consideration:** Since deposits are permissionless, a malicious actor could deposit tiny amounts of unwanted tokens to consume the 8-mint limit. Mitigations:
+
 - The 8-mint limit is generous for typical use cases
 - Each deposit requires the attacker to pay rent (~0.002 SOL per mint)
 - Clients can create a new escrow if their mint limit is exhausted
 - Future versions may add owner-controlled mint whitelisting if this becomes problematic
 
 **Rent Ownership Trade-off:** When a depositor creates a new token account by depositing a mint for the first time, they pay the rent (~0.002 SOL). However, when the escrow is closed, this rent is returned to the escrow owner, not the original depositor. This design choice:
+
 - Simplifies closure logic (all rent goes to one destination)
 - Prevents griefing where attackers create token accounts to lock up the owner's SOL
 - Means third-party depositors should understand they forfeit the rent
@@ -288,6 +297,7 @@ pub fn close_escrow(
 **Signers**: Owner + Facilitator
 
 **Accounts**:
+
 - `escrow` (mut, close) - The escrow account to close
 - `owner` (signer) - Must match `escrow.owner`
 - `facilitator` (signer) - Must match `escrow.facilitator`
@@ -295,15 +305,18 @@ pub fn close_escrow(
 - `token_program` - SPL Token program
 - Remaining accounts: Token account pairs (see below)
 
-**Constraints**: 
+**Constraints**:
+
 - `pending_count == 0` (no pending settlements)
 - Number of token account pairs in remaining_accounts equals `mint_count * 2`
 
 **Remaining Accounts**: Token accounts are passed as remaining accounts in pairs:
+
 1. Escrow token account PDA (source, will be closed)
 2. Owner's destination token account (receives balance)
 
 The instruction validates each pair:
+
 - Source is a valid token account PDA derived from `[b"token", escrow.key(), mint.key()]`
 - Source is owned by the SPL Token program
 - Source has the escrow PDA as its authority
@@ -324,24 +337,24 @@ fn validate_token_pair(
         &program_id,
     );
     require_keys_eq!(source.key(), expected_source);
-    
+
     // 2. Verify source is a token account owned by Token program
     require_keys_eq!(source.owner, &spl_token::ID);
-    
+
     // 3. Deserialize and verify source authority is escrow PDA
     let source_token = TokenAccount::try_deserialize(&source.data.borrow())?;
     require_keys_eq!(source_token.owner, escrow.key());
-    
+
     // 4. Verify destination is a token account owned by Token program
     require_keys_eq!(destination.owner, &spl_token::ID);
-    
+
     // 5. Deserialize and verify destination authority is escrow owner
     let dest_token = TokenAccount::try_deserialize(&destination.data.borrow())?;
     require_keys_eq!(dest_token.owner, escrow.owner);
-    
+
     // 6. Verify mints match
     require_keys_eq!(source_token.mint, dest_token.mint);
-    
+
     Ok(())
 }
 ```
@@ -363,6 +376,7 @@ for (source, _destination) in token_account_pairs {
 ```
 
 **Effects**:
+
 1. For each token account pair: transfer full balance from escrow PDA to destination
 2. Close each escrow token account PDA, returning rent to owner
 3. Close escrow account PDA, returning rent to owner
@@ -370,6 +384,7 @@ for (source, _destination) in token_account_pairs {
 **Notes**: The facilitator verifies off-chain that no unsettled authorizations exist before co-signing. The on-chain check ensures no pending settlement PDAs remain.
 
 **Destination Token Account Requirements**: The owner must have existing token accounts for each mint held in the escrow before calling `close_escrow`. These are typically Associated Token Accounts (ATAs). If a destination account doesn't exist, the transaction fails. The owner should:
+
 1. Query the escrow's token account PDAs to determine which mints are held
 2. Create ATAs for any mints they don't already have accounts for
 3. Call `close_escrow` with the complete set of token account pairs
@@ -392,15 +407,18 @@ pub fn register_session_key(
 **Signers**: Owner
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account (for updating `session_key_count`)
 - `owner` (signer, mut) - Must match `escrow.owner`; pays rent for session key PDA
 - `session_key_account` (init, PDA) - New session key account
 - `system_program` - System program (for account creation)
 
 **Constraints**:
+
 - `escrow.max_session_keys == 0 || escrow.session_key_count < escrow.max_session_keys` (session key limit not reached)
 
 **Effects**:
+
 1. Create SessionKey PDA
 2. Increment `escrow.session_key_count`
 3. Emit `SessionKeyRegistered` event
@@ -421,13 +439,14 @@ Session keys authorize payments, but clients control all payment parameters in t
 
 The facilitator can only submit what the client signed. They cannot modify the recipient, increase the amount, or change the token. This means each authorization's exposure is limited to what the client explicitly approved.
 
-| Compromised Parties | Severity | Attack Vector | Funds at Risk |
-|---------------------|----------|---------------|---------------|
-| Session key + Facilitator collusion | **CRITICAL** | Client signs to attacker recipient; facilitator submits | Up to signed `max_amount` per authorization |
-| Session key alone | LOW | Attacker can sign authorizations, but cannot submit them | None without facilitator cooperation |
-| Middleware alone | NONE | Middleware cannot sign; can only pass authorizations | None |
+| Compromised Parties                 | Severity     | Attack Vector                                            | Funds at Risk                               |
+| ----------------------------------- | ------------ | -------------------------------------------------------- | ------------------------------------------- |
+| Session key + Facilitator collusion | **CRITICAL** | Client signs to attacker recipient; facilitator submits  | Up to signed `max_amount` per authorization |
+| Session key alone                   | LOW          | Attacker can sign authorizations, but cannot submit them | None without facilitator cooperation        |
+| Middleware alone                    | NONE         | Middleware cannot sign; can only pass authorizations     | None                                        |
 
 **Key insight:** A compromised session key alone cannot drain an escrow. The attacker would need to either:
+
 1. Collude with the facilitator to submit fraudulent authorizations, OR
 2. Trick an honest facilitator into submitting authorizations to attacker-controlled recipients
 
@@ -460,6 +479,7 @@ pub fn revoke_session_key(
 **Signers**: Owner
 
 **Accounts**:
+
 - `escrow` - The escrow account (for validation)
 - `owner` (signer) - Must match `escrow.owner`
 - `session_key` (mut) - The session key PDA to revoke
@@ -479,6 +499,7 @@ pub fn close_session_key(
 **Signers**: Owner
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account (for updating `session_key_count`)
 - `owner` (signer) - Must match `escrow.owner`; receives rent
 - `session_key` (mut, close) - The session key PDA to close
@@ -486,6 +507,7 @@ pub fn close_session_key(
 **Constraints**: Session key must be revoked and grace period must have elapsed.
 
 **Effects**:
+
 1. Close SessionKey PDA, return rent to owner
 2. Decrement `escrow.session_key_count`
 3. Emit `SessionKeyClosed` event
@@ -511,6 +533,7 @@ pub fn submit_authorization(
 **Signers**: Facilitator
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account
 - `facilitator` (signer) - Must match `escrow.facilitator`
 - `session_key` - SessionKey PDA for the signing key
@@ -520,10 +543,12 @@ pub fn submit_authorization(
 - `system_program` - System program (for PDA creation)
 
 **Parameters**:
+
 - `max_amount`: The maximum amount the client authorized (what was signed)
 - `settle_amount`: The actual amount to settle (must be ≤ `max_amount`)
 
 **Validation**:
+
 1. Verify `escrow.pending_count < 16` (pending limit not reached)
 2. Verify `nonce > escrow.last_nonce` (replay protection)
 3. Verify Ed25519 signature over `(escrow, mint, recipient, max_amount, nonce)`
@@ -534,6 +559,7 @@ pub fn submit_authorization(
 8. Verify `recipient` is a valid SPL token account with matching mint (returns `InvalidRecipient` if not)
 
 **Effects**:
+
 1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`, `amount = settle_amount`, `max_amount = max_amount`
 2. Update `escrow.last_nonce = nonce`
 3. Update `escrow.last_activity_slot`
@@ -545,23 +571,24 @@ pub fn submit_authorization(
 
 **Timing considerations:** Between off-chain validation and on-chain finalization, the recipient account state may change:
 
-| State Change | When Detected | Impact |
-|--------------|---------------|--------|
-| Account closed | `submit_authorization` | Fails with `InvalidRecipient`; no pending settlement created |
-| Account frozen | `finalize` | Transfer CPI fails; pending settlement remains until refund window expires |
+| State Change   | When Detected          | Impact                                                                     |
+| -------------- | ---------------------- | -------------------------------------------------------------------------- |
+| Account closed | `submit_authorization` | Fails with `InvalidRecipient`; no pending settlement created               |
+| Account frozen | `finalize`             | Transfer CPI fails; pending settlement remains until refund window expires |
 
 A frozen recipient creates a pending settlement that cannot finalize. The facilitator must issue a full refund before the refund window expires, or the funds remain locked until the client can void via deadman switch.
 
 **Frozen Recipient Recovery:** When a `finalize` fails due to a frozen recipient, the facilitator has limited time to respond:
 
-| Scenario | Action Required | Deadline |
-|----------|-----------------|----------|
-| Recipient frozen, refund window open | Issue full refund via `refund` | Before `submitted_at_slot + refund_timeout_slots` |
-| Recipient frozen, refund window expired | No recovery possible | Funds locked until deadman switch |
+| Scenario                                | Action Required                | Deadline                                          |
+| --------------------------------------- | ------------------------------ | ------------------------------------------------- |
+| Recipient frozen, refund window open    | Issue full refund via `refund` | Before `submitted_at_slot + refund_timeout_slots` |
+| Recipient frozen, refund window expired | No recovery possible           | Funds locked until deadman switch                 |
 
 Facilitators should monitor `finalize` failures and alert on frozen recipient errors. The recommended `refund_timeout_slots` should account for facilitator response time to frozen recipient incidents (e.g., if facilitator SLA is 1 hour response time, refund timeout should be at least 2 hours of slots).
 
 **Recommendations:**
+
 - Facilitators should re-validate recipient accounts before submission
 - Prefer Associated Token Accounts (ATAs) as recipients since they are deterministic and unlikely to be closed
 - Facilitators may want to check freeze authority status for high-value settlements
@@ -580,15 +607,18 @@ pub fn refund(
 **Signers**: Facilitator
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account (for updating `pending_count` on full refund, `last_activity_slot`)
 - `facilitator` (signer) - Must match `escrow.facilitator`
 - `pending` (mut) - The pending settlement to refund (closed on full refund)
 
-**Constraints**: 
+**Constraints**:
+
 - `refund_amount <= pending_settlement.amount`
 - Refund window has not expired (`current_slot < submitted_at_slot + refund_timeout_slots`)
 
 **Effects**:
+
 1. Reduce `pending_settlement.amount` by `refund_amount`
 2. If `amount` becomes zero (full refund):
    - Close the PendingSettlement PDA immediately
@@ -610,6 +640,7 @@ pub fn finalize(
 **Signers**: Anyone (permissionless crank)
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account (for updating `pending_count`)
 - `pending` (mut, close) - The pending settlement to finalize
 - `token_account` (mut) - Escrow's token account PDA for the settlement's mint
@@ -620,6 +651,7 @@ pub fn finalize(
 **Constraints**: `current_slot >= submitted_at_slot + escrow.refund_timeout_slots`
 
 **Effects**:
+
 1. Transfer `pending_settlement.amount` from token account to `pending_settlement.recipient`
 2. Close PendingSettlement PDA
 3. Return rent to `escrow.facilitator`
@@ -642,11 +674,13 @@ pub fn void_pending(
 **Constraints**: `current_slot - escrow.last_activity_slot > escrow.deadman_timeout_slots`
 
 **Accounts**:
+
 - `escrow` (mut) - The escrow account (for updating `pending_count`)
 - `owner` (signer, mut) - Escrow owner; receives rent from closed pending settlement
 - `pending` (mut, close) - The pending settlement to void
 
 **Effects**:
+
 1. Close the PendingSettlement PDA, returning rent to `escrow.owner`
 2. Decrement `escrow.pending_count`
 
@@ -665,24 +699,29 @@ pub fn emergency_close(
 **Signers**: Owner only
 
 **Accounts**:
+
 - `escrow` (mut, close) - The escrow account to close
 - `owner` (signer, mut) - Escrow owner; receives all rent and token balances
 - `token_program` - SPL Token program
 - `system_program` - System program
 - Remaining accounts: Token account pairs (see below)
 
-**Constraints**: 
+**Constraints**:
+
 - `current_slot - escrow.last_activity_slot > escrow.deadman_timeout_slots`
 - `escrow.pending_count == 0` (all pending settlements must be voided first)
 
-**Remaining Accounts**: 
+**Remaining Accounts**:
+
 - All token account pairs as in `close_escrow` (count must equal `escrow.mint_count * 2`)
 
-**Validation**: 
+**Validation**:
+
 - Total remaining accounts must equal `mint_count * 2`
 - Token account pairs validated as in `close_escrow`
 
 **Effects**:
+
 1. Transfer all token account balances to owner destination accounts
 2. Close all token account PDAs and escrow account PDA, returning rent to owner
 
@@ -701,32 +740,36 @@ pub fn force_close(
 **Signers**: Owner only
 
 **Accounts**:
+
 - `escrow` (mut, close) - The escrow account to close
 - `owner` (signer, mut) - Escrow owner; receives all rent and token balances
 - `token_program` - SPL Token program
 - `system_program` - System program
 - Remaining accounts: Token account pairs (as in `close_escrow`)
 
-**Constraints**: 
+**Constraints**:
+
 - `current_slot - escrow.last_activity_slot > escrow.deadman_timeout_slots * 2` (double the normal deadman timeout)
 
 **Effects**:
+
 1. Transfer all token account balances to owner destination accounts
 2. Close all token account PDAs and escrow account PDA, returning rent to owner
 3. Does NOT check `pending_count` (this is the key difference from `emergency_close`)
 
 **When to use `force_close`:**
 
-| Scenario | Use |
-|----------|-----|
-| Normal unresponsive facilitator | `void_pending` + `emergency_close` |
-| `pending_count` field corrupted | `force_close` after 2x deadman timeout |
-| Bug causes accounting mismatch | `force_close` after 2x deadman timeout |
+| Scenario                                     | Use                                    |
+| -------------------------------------------- | -------------------------------------- |
+| Normal unresponsive facilitator              | `void_pending` + `emergency_close`     |
+| `pending_count` field corrupted              | `force_close` after 2x deadman timeout |
+| Bug causes accounting mismatch               | `force_close` after 2x deadman timeout |
 | PendingSettlement PDAs exist but not tracked | `force_close` after 2x deadman timeout |
 
 **Security rationale:** The extended timeout (2x deadman) ensures this is truly a last resort. In normal operation, `void_pending` + `emergency_close` should always work. The `force_close` instruction exists only for catastrophic accounting failures.
 
 **Warning:** Any pending settlement PDAs that exist when `force_close` is called become orphaned. Their rent is not recovered. This is acceptable because:
+
 1. The scenario should be extremely rare
 2. Rent is small (~0.002 SOL per PDA)
 3. Recovering funds is more important than rent optimization
@@ -740,20 +783,22 @@ When a facilitator becomes unresponsive and the deadman timeout expires:
 3. **Close the escrow**: Call `emergency_close` with all token account pairs
 
 This two-phase approach:
+
 - Keeps each transaction under size limits
 - Allows progress even with many pending settlements
 - Returns all rent to owner (facilitator is unresponsive)
 
 **Protocol Limits**: To keep recovery manageable, the protocol enforces:
+
 - **Maximum pending settlements**: 16 per escrow (enforced at `submit_authorization`)
 - **Maximum mints**: 8 per escrow (enforced at `deposit`)
 - **Maximum session keys**: Configurable per escrow (enforced at `register_session_key`)
 
-| Resource | Limit | Rationale |
-|----------|-------|-----------|
-| `pending_count` | 16 | Keeps void phase to ~4 transactions max |
-| `mint_count` | 8 | 8 mint pairs (16 accounts) fits in single close transaction |
-| `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16 |
+| Resource            | Limit                      | Rationale                                                   |
+| ------------------- | -------------------------- | ----------------------------------------------------------- |
+| `pending_count`     | 16                         | Keeps void phase to ~4 transactions max                     |
+| `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction |
+| `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                     |
 
 **Implication**: When `pending_count` reaches 16, `submit_authorization` returns `PendingLimitReached` error. Facilitators must finalize existing settlements before submitting new ones. This creates back-pressure that prevents unbounded accumulation.
 
@@ -795,13 +840,14 @@ Holds are ephemeral facilitator state. The facilitator defines hold expiration p
 
 **Facilitator Hold Expiration Requirements:** Since holds exist only in facilitator state, clients depend on facilitators properly expiring stale holds. Facilitators should:
 
-| Requirement | Recommended Value | Rationale |
-|-------------|-------------------|-----------|
-| Hold expiration timeout | 5-15 minutes | Balances service completion time with fund availability |
-| Expired hold cleanup frequency | Every 60 seconds | Prevents accounting drift |
-| Client notification on expiration | Optional but recommended | Allows client to retry or escalate |
+| Requirement                       | Recommended Value        | Rationale                                               |
+| --------------------------------- | ------------------------ | ------------------------------------------------------- |
+| Hold expiration timeout           | 5-15 minutes             | Balances service completion time with fund availability |
+| Expired hold cleanup frequency    | Every 60 seconds         | Prevents accounting drift                               |
+| Client notification on expiration | Optional but recommended | Allows client to retry or escalate                      |
 
 **Client Recovery:** If a facilitator accepts a hold but becomes unresponsive before settlement or expiration, the client's recourse is:
+
 1. Wait for the facilitator's hold expiration timeout (off-chain)
 2. If the facilitator remains unresponsive and the deadman timeout expires, use `emergency_close`
 
@@ -823,11 +869,13 @@ To minimize round-trips, clients can authorize a higher ceiling than initially r
 ### Why Off-Chain?
 
 On-chain holds would require:
+
 - Additional account creation (rent costs)
 - Two transactions per payment (create hold, then settle)
 - Complex state management for hold modifications
 
 The off-chain approach achieves the same user experience with lower costs and simpler on-chain logic. The security model remains intact because:
+
 - The client's signature caps the maximum amount
 - The on-chain nonce prevents replay
 - The facilitator can only settle up to what was authorized
@@ -840,19 +888,19 @@ Off-chain authorizations are Ed25519 signatures over a structured message:
 pub struct PaymentAuthorization {
     /// Program ID (prevents cross-chain/cross-program replay)
     pub program_id: Pubkey,
-    
+
     /// Escrow account pubkey
     pub escrow: Pubkey,
-    
+
     /// Token mint
     pub mint: Pubkey,
-    
+
     /// Recipient (merchant) token account
     pub recipient: Pubkey,
-    
+
     /// Maximum amount authorized for this payment (in token base units)
     pub max_amount: u64,
-    
+
     /// Monotonically increasing nonce (global, not per-recipient or per-mint)
     pub nonce: u64,
 }
@@ -899,6 +947,7 @@ When `submit_authorization` executes, it must find and validate the correspondin
 6. **Validate pubkey**: Confirm the verified pubkey matches the `session_key` account passed to `submit_authorization`.
 
 **Why immediate precedence?** Requiring the Ed25519 instruction at exactly `index - 1` provides several benefits:
+
 - **Simplicity**: No scanning or searching required
 - **Unambiguous matching**: Each `submit_authorization` has exactly one possible Ed25519 instruction
 - **Prevents reuse**: An Ed25519 instruction cannot be "claimed" by a later `submit_authorization`
@@ -922,25 +971,26 @@ Any other ordering will fail. For example, these structures are invalid:
 
 **Failure modes:**
 
-| Condition | Error |
-|-----------|-------|
-| No preceding instruction (index 0) | `InvalidEd25519Instruction` |
-| Preceding instruction is not Ed25519 program | `InvalidEd25519Instruction` |
-| Ed25519 instruction message doesn't match | `InvalidSignature` |
-| Ed25519 instruction pubkey doesn't match session key | `InvalidSignature` |
+| Condition                                            | Error                       |
+| ---------------------------------------------------- | --------------------------- |
+| No preceding instruction (index 0)                   | `InvalidEd25519Instruction` |
+| Preceding instruction is not Ed25519 program         | `InvalidEd25519Instruction` |
+| Ed25519 instruction message doesn't match            | `InvalidSignature`          |
+| Ed25519 instruction pubkey doesn't match session key | `InvalidSignature`          |
 
 ### Compute Costs
 
-| Operation | Compute Units |
-|-----------|---------------|
-| Ed25519 signature verification (native program) | ~25,000 CU |
-| Instruction introspection + message comparison | ~5,000 CU |
+| Operation                                       | Compute Units |
+| ----------------------------------------------- | ------------- |
+| Ed25519 signature verification (native program) | ~25,000 CU    |
+| Instruction introspection + message comparison  | ~5,000 CU     |
 
 ## Security Model
 
 ### Dual Authorization
 
 All transfers out of the escrow require both:
+
 1. **Client authorization**: Via session key signature (registered on-chain)
 2. **Facilitator authorization**: Via transaction signature
 
@@ -949,20 +999,22 @@ Neither party can unilaterally move funds (except via deadman switch after timeo
 ### Replay Protection
 
 The escrow account tracks a global `last_nonce`. Each authorization must have a nonce strictly greater than the last submitted nonce. This prevents:
+
 - Replaying the same authorization multiple times
 - Submitting authorizations out of order in a way that could benefit an attacker
 
 **Nonce Gap Consideration:** If a client signs authorizations with nonces 1, 2, 3 but the facilitator only submits nonce 3, nonces 1 and 2 become permanently unusable. This is by design - skipped authorizations cannot be submitted, so funds remain safe. Clients should track signed nonces and detect anomalies:
 
-| Condition | Severity | Action |
-|-----------|----------|--------|
-| Many consecutive skipped nonces | Warning | Review facilitator behavior; consider new escrow |
-| Unknown pending settlements | Critical | Revoke session key immediately |
-| Pending for unknown recipient | Critical | Revoke session key; investigate compromise |
+| Condition                       | Severity | Action                                           |
+| ------------------------------- | -------- | ------------------------------------------------ |
+| Many consecutive skipped nonces | Warning  | Review facilitator behavior; consider new escrow |
+| Unknown pending settlements     | Critical | Revoke session key immediately                   |
+| Pending for unknown recipient   | Critical | Revoke session key; investigate compromise       |
 
 ### Refund Window
 
 Pending settlements cannot be finalized until the refund timeout expires. During this window, the facilitator can reduce or cancel the pending amount. This protects against:
+
 - Charges for undelivered services
 - Erroneous or disputed transactions
 
@@ -970,13 +1022,14 @@ Pending settlements cannot be finalized until the refund timeout expires. During
 
 **Important:** Refunds require only the facilitator's signature, not dual authorization. This differs from the payment authorization model intentionally:
 
-| Operation | Client Signature | Facilitator Signature | Rationale |
-|-----------|------------------|----------------------|-----------|
-| Submit authorization | Required (session key) | Required (transaction) | Protects client funds |
-| Refund | Not required | Required | Facilitator is returning funds they would have received |
-| Finalize | Not required | Not required (permissionless) | Settlement already authorized |
+| Operation            | Client Signature       | Facilitator Signature         | Rationale                                               |
+| -------------------- | ---------------------- | ----------------------------- | ------------------------------------------------------- |
+| Submit authorization | Required (session key) | Required (transaction)        | Protects client funds                                   |
+| Refund               | Not required           | Required                      | Facilitator is returning funds they would have received |
+| Finalize             | Not required           | Not required (permissionless) | Settlement already authorized                           |
 
 **Security implications:**
+
 - A facilitator can unilaterally reduce or cancel any pending settlement
 - This is safe because refunds return funds to the escrow (benefiting the client)
 - The facilitator has no economic incentive to issue fraudulent refunds
@@ -991,6 +1044,7 @@ If `current_slot - last_activity_slot > deadman_timeout_slots`, the client can i
 ### Session Key Revocation
 
 When a client revokes a session key:
+
 1. `revoked_at_slot` is set to the current slot
 2. Authorizations signed before revocation remain valid during the grace period
 3. After `revoked_at_slot + revocation_grace_period_slots`, the key becomes fully invalid
@@ -1008,11 +1062,11 @@ Instructions that accept multiple accounts of the same type must validate that t
 
 **Instructions requiring duplicate checks:**
 
-| Instruction | Accounts to Check | Constraint |
-|-------------|-------------------|------------|
-| `close_escrow` | Token account pairs | Each source/destination pair must be unique |
-| `emergency_close` | Pending settlements | Each pending PDA must be unique |
-| `finalize` (batched) | Multiple pending settlements | Each settlement must be unique |
+| Instruction          | Accounts to Check            | Constraint                                  |
+| -------------------- | ---------------------------- | ------------------------------------------- |
+| `close_escrow`       | Token account pairs          | Each source/destination pair must be unique |
+| `emergency_close`    | Pending settlements          | Each pending PDA must be unique             |
+| `finalize` (batched) | Multiple pending settlements | Each settlement must be unique              |
 
 **Implementation pattern:**
 
@@ -1075,11 +1129,11 @@ Similarly, multiple `finalize` instructions can be batched to settle many pendin
 
 The following are practical considerations for implementers, not protocol-level constraints. Facilitators determine their own batching strategies.
 
-| Constraint | Limit | Practical Batch Size |
-|------------|-------|---------------------|
-| Transaction size | 1,232 bytes | ~8-10 submit_authorizations |
-| With Address Lookup Tables | ~256 accounts | ~30+ submit_authorizations |
-| Compute units | 1,400,000 max | ~50 operations |
+| Constraint                 | Limit         | Practical Batch Size        |
+| -------------------------- | ------------- | --------------------------- |
+| Transaction size           | 1,232 bytes   | ~8-10 submit_authorizations |
+| With Address Lookup Tables | ~256 accounts | ~30+ submit_authorizations  |
+| Compute units              | 1,400,000 max | ~50 operations              |
 
 Transaction size is typically the binding constraint for `submit_authorization` since each creates a new PDA. `finalize` operations are more compact since they close PDAs.
 
@@ -1099,21 +1153,22 @@ The flex scheme extends standard x402 payment requirements with escrow-specific 
 type FlexPaymentRequirements = {
   // Standard x402 fields
   scheme: "@faremeter/flex";
-  network: string;              // e.g., "solana:mainnet", "solana:devnet"
-  
+  network: string; // e.g., "solana:mainnet", "solana:devnet"
+
   // Flex-specific fields
-  facilitator: string;          // Facilitator pubkey (base58)
-  escrow?: string;              // Client's escrow account if known (base58)
-  supportedMints: string[];     // Accepted token mints (base58)
-  
+  facilitator: string; // Facilitator pubkey (base58)
+  escrow?: string; // Client's escrow account if known (base58)
+  supportedMints: string[]; // Accepted token mints (base58)
+
   // Hold parameters
-  estimatedAmount: string;      // Estimated cost (decimal string)
-  maxAmount?: string;           // Maximum authorized amount (decimal string)
-  mint: string;                 // Preferred mint for this request (base58)
+  estimatedAmount: string; // Estimated cost (decimal string)
+  maxAmount?: string; // Maximum authorized amount (decimal string)
+  mint: string; // Preferred mint for this request (base58)
 };
 ```
 
 **Discovery flow:**
+
 1. Client requests resource, receives 402 with `FlexPaymentRequirements`
 2. If client has no escrow with this facilitator, create one
 3. Client signs authorization for `maxAmount` (or `estimatedAmount` if no max)
@@ -1126,23 +1181,24 @@ The payment payload contains the signed authorization:
 ```typescript
 type FlexPaymentPayload = {
   scheme: "@faremeter/flex";
-  
+
   // Escrow identification
-  escrow: string;               // Escrow account pubkey (base58)
-  
+  escrow: string; // Escrow account pubkey (base58)
+
   // Authorization details (matches PaymentAuthorization struct)
-  mint: string;                 // Token mint (base58)
-  recipient: string;            // Merchant token account (base58)
-  maxAmount: string;            // Maximum amount authorized (decimal string)
-  nonce: string;                // Monotonic nonce (decimal string)
-  
+  mint: string; // Token mint (base58)
+  recipient: string; // Merchant token account (base58)
+  maxAmount: string; // Maximum amount authorized (decimal string)
+  nonce: string; // Monotonic nonce (decimal string)
+
   // Session key signature
-  sessionKey: string;           // Session key pubkey (base58)
-  signature: string;            // Ed25519 signature (base64)
+  sessionKey: string; // Session key pubkey (base58)
+  signature: string; // Ed25519 signature (base64)
 };
 ```
 
 **Validation flow (facilitator):**
+
 1. Verify `escrow` exists and has this facilitator registered
 2. Verify `sessionKey` is registered and valid for the escrow
 3. Verify `signature` over Borsh-serialized `PaymentAuthorization`
@@ -1156,9 +1212,9 @@ After service delivery, the middleware reports actual usage to the facilitator:
 
 ```typescript
 type FlexSettlementRequest = {
-  escrow: string;               // Escrow account pubkey
-  nonce: string;                // Authorization nonce
-  settleAmount: string;         // Actual amount to settle (<= maxAmount)
+  escrow: string; // Escrow account pubkey
+  nonce: string; // Authorization nonce
+  settleAmount: string; // Actual amount to settle (<= maxAmount)
 };
 ```
 
@@ -1168,67 +1224,68 @@ The facilitator batches settlements and submits them on-chain via `submit_author
 
 Estimated compute units per instruction (excluding transaction overhead):
 
-| Instruction | Compute Units | Notes |
-|-------------|---------------|-------|
-| `create_escrow` | ~15,000 CU | PDA derivation + account init |
-| `deposit` | ~25,000 CU | Token transfer CPI; +15,000 if init_if_needed |
-| `close_escrow` | ~20,000 CU base | +10,000 per token account closed |
-| `register_session_key` | ~12,000 CU | PDA derivation + account init |
-| `revoke_session_key` | ~8,000 CU | Account update only |
-| `close_session_key` | ~10,000 CU | Account close |
-| `submit_authorization` | ~35,000 CU | Ed25519 introspection + PDA init |
-| `refund` | ~12,000 CU | +5,000 if full refund (close) |
-| `finalize` | ~25,000 CU | Token transfer CPI + account close |
-| `emergency_close` | ~30,000 CU base | +15,000 per pending settlement closed |
+| Instruction            | Compute Units   | Notes                                         |
+| ---------------------- | --------------- | --------------------------------------------- |
+| `create_escrow`        | ~15,000 CU      | PDA derivation + account init                 |
+| `deposit`              | ~25,000 CU      | Token transfer CPI; +15,000 if init_if_needed |
+| `close_escrow`         | ~20,000 CU base | +10,000 per token account closed              |
+| `register_session_key` | ~12,000 CU      | PDA derivation + account init                 |
+| `revoke_session_key`   | ~8,000 CU       | Account update only                           |
+| `close_session_key`    | ~10,000 CU      | Account close                                 |
+| `submit_authorization` | ~35,000 CU      | Ed25519 introspection + PDA init              |
+| `refund`               | ~12,000 CU      | +5,000 if full refund (close)                 |
+| `finalize`             | ~25,000 CU      | Token transfer CPI + account close            |
+| `emergency_close`      | ~30,000 CU base | +15,000 per pending settlement closed         |
 
 ## Rent Considerations
 
-| Account | Estimated Size | Rent-Exempt Minimum |
-|---------|----------------|---------------------|
-| Escrow Account | ~170 bytes | ~0.002 SOL |
-| Token Account | 165 bytes | ~0.002 SOL |
-| Session Key | ~120 bytes | ~0.001 SOL |
-| Pending Settlement | ~170 bytes | ~0.002 SOL |
+| Account            | Estimated Size | Rent-Exempt Minimum |
+| ------------------ | -------------- | ------------------- |
+| Escrow Account     | ~170 bytes     | ~0.002 SOL          |
+| Token Account      | 165 bytes      | ~0.002 SOL          |
+| Session Key        | ~120 bytes     | ~0.001 SOL          |
+| Pending Settlement | ~170 bytes     | ~0.002 SOL          |
 
 **Rent payers and recipients:**
 
-| Account | Rent Payer | Rent Returned To (normal) | Rent Returned To (emergency) |
-|---------|------------|---------------------------|------------------------------|
-| Escrow Account | Owner (at creation) | Owner | Owner |
-| Token Account | Depositor (at first deposit) | Owner | Owner |
-| Session Key | Owner (at registration) | Owner | Owner |
-| Pending Settlement | Facilitator (at submission) | Facilitator | Owner |
+| Account            | Rent Payer                   | Rent Returned To (normal) | Rent Returned To (emergency) |
+| ------------------ | ---------------------------- | ------------------------- | ---------------------------- |
+| Escrow Account     | Owner (at creation)          | Owner                     | Owner                        |
+| Token Account      | Depositor (at first deposit) | Owner                     | Owner                        |
+| Session Key        | Owner (at registration)      | Owner                     | Owner                        |
+| Pending Settlement | Facilitator (at submission)  | Facilitator               | Owner                        |
 
-**Notes:** 
+**Notes:**
+
 - Token account rent is paid by whoever first deposits that mint, not the escrow owner. This prevents griefing where someone creates many token accounts to lock up the owner's SOL.
 - During emergency recovery (`void_pending`), pending settlement rent is returned to the owner rather than the facilitator, since the facilitator is unresponsive.
 
 ## Error Codes
 
-| Code | Name | Description |
-|------|------|-------------|
-| 6000 | SessionKeyExpired | Session key has expired |
-| 6001 | SessionKeyRevoked | Session key revoked and grace period elapsed |
-| 6002 | InvalidNonce | Nonce not strictly greater than last nonce |
-| 6003 | InvalidSignature | Ed25519 signature verification failed |
-| 6004 | InsufficientBalance | Token account balance insufficient |
-| 6005 | DeadmanNotExpired | Cannot emergency close before timeout |
-| 6006 | UnauthorizedFacilitator | Signer is not the registered facilitator |
-| 6007 | SessionKeyGracePeriodActive | Cannot close session key during grace period |
-| 6008 | PendingSettlementsExist | Cannot close escrow with pending settlements |
-| 6009 | RefundWindowNotExpired | Cannot finalize before refund timeout |
-| 6010 | RefundWindowExpired | Cannot refund after refund timeout |
-| 6011 | RefundExceedsAmount | Cannot refund more than pending amount |
-| 6012 | PendingCountMismatch | Remaining accounts count does not match pending_count |
-| 6013 | PendingLimitReached | Maximum pending settlements (16) reached |
-| 6014 | MintLimitReached | Maximum mints (8) per escrow reached |
-| 6015 | InvalidTokenAccountPair | Token account pair validation failed |
-| 6016 | UnsupportedAccountVersion | Account version not supported by this program |
-| 6017 | DuplicateAccounts | Same account passed multiple times |
-| 6018 | SessionKeyLimitReached | Maximum session keys per escrow reached |
-| 6019 | InvalidEd25519Instruction | Ed25519 instruction malformed or missing required data |
-| 6020 | InvalidRecipient | Recipient is not a valid token account for the specified mint |
-| 6021 | ForceCloseTimeoutNotExpired | Cannot force close before extended timeout (2x deadman) |
+| Code | Name                        | Description                                                   |
+| ---- | --------------------------- | ------------------------------------------------------------- |
+| 6000 | SessionKeyExpired           | Session key has expired                                       |
+| 6001 | SessionKeyRevoked           | Session key revoked and grace period elapsed                  |
+| 6002 | InvalidNonce                | Nonce not strictly greater than last nonce                    |
+| 6003 | InvalidSignature            | Ed25519 signature verification failed                         |
+| 6004 | InsufficientBalance         | Token account balance insufficient                            |
+| 6005 | DeadmanNotExpired           | Cannot emergency close before timeout                         |
+| 6006 | UnauthorizedFacilitator     | Signer is not the registered facilitator                      |
+| 6007 | SessionKeyGracePeriodActive | Cannot close session key during grace period                  |
+| 6008 | PendingSettlementsExist     | Cannot close escrow with pending settlements                  |
+| 6009 | RefundWindowNotExpired      | Cannot finalize before refund timeout                         |
+| 6010 | RefundWindowExpired         | Cannot refund after refund timeout                            |
+| 6011 | RefundExceedsAmount         | Cannot refund more than pending amount                        |
+| 6012 | PendingCountMismatch        | Remaining accounts count does not match pending_count         |
+| 6013 | PendingLimitReached         | Maximum pending settlements (16) reached                      |
+| 6014 | MintLimitReached            | Maximum mints (8) per escrow reached                          |
+| 6015 | InvalidTokenAccountPair     | Token account pair validation failed                          |
+| 6016 | UnsupportedAccountVersion   | Account version not supported by this program                 |
+| 6017 | DuplicateAccounts           | Same account passed multiple times                            |
+| 6018 | SessionKeyLimitReached      | Maximum session keys per escrow reached                       |
+| 6019 | InvalidEd25519Instruction   | Ed25519 instruction malformed or missing required data        |
+| 6020 | InvalidRecipient            | Recipient is not a valid token account for the specified mint |
+| 6021 | ForceCloseTimeoutNotExpired | Cannot force close before extended timeout (2x deadman)       |
 
 ## Event Emission
 
@@ -1354,11 +1411,11 @@ Facilitators submitting multiple authorizations for the same escrow must handle 
 
 **Race Conditions:**
 
-| Scenario | Risk | Mitigation |
-|----------|------|------------|
-| Concurrent submissions with same nonce | One fails with `InvalidNonce` | Use atomic nonce assignment |
-| Pending limit reached mid-batch | Later submissions fail with `PendingLimitReached` | Check `pending_count` before batching |
-| Balance changes between validation and submission | Fails with `InsufficientBalance` | Re-validate in same transaction or use conservative holds |
+| Scenario                                          | Risk                                              | Mitigation                                                |
+| ------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------- |
+| Concurrent submissions with same nonce            | One fails with `InvalidNonce`                     | Use atomic nonce assignment                               |
+| Pending limit reached mid-batch                   | Later submissions fail with `PendingLimitReached` | Check `pending_count` before batching                     |
+| Balance changes between validation and submission | Fails with `InsufficientBalance`                  | Re-validate in same transaction or use conservative holds |
 
 **Recommended Patterns:**
 
@@ -1370,6 +1427,7 @@ Facilitators submitting multiple authorizations for the same escrow must handle 
 **Transaction Ordering:**
 
 When multiple transactions target the same escrow, Solana provides no ordering guarantees. If transaction A (nonce 5) and transaction B (nonce 6) are submitted concurrently, B may land first, causing A to fail with `InvalidNonce`. Facilitators should either:
+
 - Submit sequentially and await confirmation
 - Accept that some transactions may fail and retry with fresh nonces
 
@@ -1377,33 +1435,35 @@ When multiple transactions target the same escrow, Solana provides no ordering g
 
 The initial implementation targets SPL Token (Token Program). Token-2022 support requires additional considerations:
 
-| Extension | Impact | Handling |
-|-----------|--------|----------|
-| Transfer fees | Settlement amount reduced by fee | Facilitator must account for fees in settle_amount |
-| Transfer hooks | Additional CPI during transfer | Increased compute budget required (~50,000 CU extra) |
-| Confidential transfers | Encrypted balances | Not supported in initial implementation |
-| Non-transferable | Tokens cannot be moved | Reject at deposit time |
-| Permanent delegate | Third party can transfer | Security risk; reject at deposit time |
+| Extension              | Impact                           | Handling                                             |
+| ---------------------- | -------------------------------- | ---------------------------------------------------- |
+| Transfer fees          | Settlement amount reduced by fee | Facilitator must account for fees in settle_amount   |
+| Transfer hooks         | Additional CPI during transfer   | Increased compute budget required (~50,000 CU extra) |
+| Confidential transfers | Encrypted balances               | Not supported in initial implementation              |
+| Non-transferable       | Tokens cannot be moved           | Reject at deposit time                               |
+| Permanent delegate     | Third party can transfer         | Security risk; reject at deposit time                |
 
 **Recommended approach:**
+
 1. Initial release: SPL Token only (validate `token_program == TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`)
 2. Future release: Add Token-2022 support with extension validation
 3. Reject mints with dangerous extensions (permanent delegate, non-transferable)
 
 **Compute budget for Token-2022:**
+
 - Base transfer: ~25,000 CU
 - With transfer hook: ~75,000 CU
 - Facilitators should request higher compute budget when settling Token-2022 tokens
 
 ### Account Versioning
 
-All account structures include a `version: u8` field (currently set to `1`) to facilitate future migrations. The Anchor discriminator identifies account *type*; the version field identifies *schema version* within a type.
+All account structures include a `version: u8` field (currently set to `1`) to facilitate future migrations. The Anchor discriminator identifies account _type_; the version field identifies _schema version_ within a type.
 
-| Scenario | Approach |
-|----------|----------|
-| Additive fields only | Append new fields; old accounts work with defaults |
+| Scenario               | Approach                                              |
+| ---------------------- | ----------------------------------------------------- |
+| Additive fields only   | Append new fields; old accounts work with defaults    |
 | Breaking layout change | Deploy new program version with migration instruction |
-| Emergency deprecation | Reject old versions with clear error message |
+| Emergency deprecation  | Reject old versions with clear error message          |
 
 For breaking changes with pending settlements, drain all pending settlements (finalize or void) before migration to avoid time-sensitive constraint issues.
 

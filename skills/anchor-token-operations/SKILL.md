@@ -68,27 +68,32 @@ token::transfer(
 ### Token Program Overview
 
 The SPL Token program provides:
+
 - **Mints:** Token type definitions (like ERC-20 contracts)
 - **Token Accounts:** Hold tokens for a specific mint and owner
 - **Instructions:** Transfer, mint, burn, approve, etc.
 
 **Program IDs:**
+
 - SPL Token: `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`
 - Token-2022 (Token Extensions): `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`
 
 ### Account Types
 
 **Mint Account:**
+
 - Defines a token type
 - Stores supply, decimals, authorities
 - Owned by Token Program
 
 **Token Account:**
+
 - Holds tokens of a specific mint
 - Has an owner (can be user or PDA)
 - Owned by Token Program
 
 **Associated Token Account (ATA):**
+
 - Special token account with deterministic address
 - Derived from owner + mint
 - One per owner per mint
@@ -147,6 +152,7 @@ pub mint: Account<'info, Mint>,
 ```
 
 **Ensures:**
+
 - Token account holds tokens of correct mint
 - Owner has authority over account
 - Account is mutable for transfers
@@ -209,6 +215,7 @@ pub mint: Account<'info, Mint>,
 **Sets:** Number of decimal places for token amounts
 
 **Common values:**
+
 - Native SOL: 9 decimals
 - USDC: 6 decimals
 - USDT: 6 decimals
@@ -261,6 +268,7 @@ pub struct CreateATA<'info> {
 ```
 
 **Creates ATA with address:**
+
 ```
 find_program_address(
     &[
@@ -285,6 +293,7 @@ pub user_ata: Account<'info, TokenAccount>,
 ```
 
 **Behavior:**
+
 - If ATA doesn't exist: Creates it
 - If ATA exists: Uses existing account
 
@@ -303,6 +312,7 @@ pub user_ata: Account<'info, TokenAccount>,
 ```
 
 **Validates:**
+
 - Account is an ATA for this mint and authority
 - Account exists and is correctly derived
 
@@ -338,6 +348,7 @@ pub struct InitializeVault<'info> {
 ```
 
 **Benefits of Token Account PDAs:**
+
 - Program controls the tokens
 - Deterministic address derivation
 - No need for user to create account
@@ -359,7 +370,7 @@ pub fn withdraw_from_vault(
         &[ctx.accounts.vault_bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -376,6 +387,7 @@ pub fn withdraw_from_vault(
 ```
 
 **Pattern for escrow:**
+
 - Vault PDA holds tokens
 - Escrow PDA is vault authority
 - Escrow PDA signs transfers using seeds
@@ -431,7 +443,7 @@ pub fn safe_transfer(
         ctx.accounts.from.amount >= amount,
         ErrorCode::InsufficientBalance
     );
-    
+
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -452,7 +464,7 @@ pub fn safe_transfer(
 ```rust
 pub fn finalize_settlement(ctx: Context<Finalize>) -> Result<()> {
     let amount = ctx.accounts.pending.amount;
-    
+
     // Vault PDA signs the transfer
     let seeds = &[
         b"vault".as_ref(),
@@ -461,7 +473,7 @@ pub fn finalize_settlement(ctx: Context<Finalize>) -> Result<()> {
         &[ctx.accounts.vault_bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -473,7 +485,7 @@ pub fn finalize_settlement(ctx: Context<Finalize>) -> Result<()> {
         ).with_signer(signer_seeds),
         amount
     )?;
-    
+
     Ok(())
 }
 ```
@@ -502,6 +514,7 @@ pub struct SecureTokenOp<'info> {
 ```
 
 **Account<'info, TokenAccount> checks:**
+
 1. Account owner is SPL Token program
 2. Account data deserializes to TokenAccount struct
 3. No fake token accounts accepted
@@ -566,6 +579,7 @@ pub struct Deposit<'info> {
 ```
 
 **Validates:**
+
 - User owns source token account
 - Vault is correct PDA for escrow + mint
 - Escrow PDA controls vault
@@ -660,7 +674,7 @@ pub fn submit_authorization(
         ctx.accounts.vault.amount >= amount,
         ErrorCode::InsufficientBalance
     );
-    
+
     // Create pending settlement
     // ...
     Ok(())
@@ -685,6 +699,7 @@ pub vault: Account<'info, TokenAccount>,
 ```
 
 **Benefits:**
+
 - Single escrow supports multiple token types
 - Vaults created lazily as needed
 - Deterministic vault addresses
@@ -714,14 +729,17 @@ pub struct Finalize<'info> {
 ## Skill Loading Guidance
 
 ### Always Load With
+
 - **anchor-core** - Core patterns prerequisite
 - **anchor-security** - Owner checks (pattern 3)
 
 ### Commonly Paired With
+
 - **anchor-cpis** - Token transfer CPIs
 - **anchor-pdas** - Token account PDAs
 
 ### Load This Skill When
+
 - Working with SPL tokens
 - Implementing token transfers
 - Creating vaults or escrow accounts
@@ -729,6 +747,7 @@ pub struct Finalize<'info> {
 - Validating token account ownership
 
 ### Related Skills
+
 - **anchor-core** - For constraint syntax
 - **anchor-security** - For owner checks and validation
 - **anchor-cpis** - For transfer implementation
@@ -737,12 +756,14 @@ pub struct Finalize<'info> {
 ## Reference Links
 
 ### Official Documentation
+
 - [Anchor Token Constraints](https://www.anchor-lang.com/docs/references/account-constraints#spl-constraints)
 - [SPL Token Documentation](https://spl.solana.com/token)
 - [Token-2022 Documentation](https://spl.solana.com/token-2022)
 - [Associated Token Account](https://spl.solana.com/associated-token-account)
 
 ### Source Material
+
 - [Anchor Account Constraints](https://www.anchor-lang.com/docs/references/account-constraints)
 - [Sealevel Attacks - Owner Checks](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/2-owner-checks)
 - [Sealevel Attacks - Arbitrary CPI](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/5-arbitrary-cpi)

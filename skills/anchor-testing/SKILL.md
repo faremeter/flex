@@ -46,11 +46,8 @@ await program.methods
 
 ```typescript
 const [pda, bump] = await PublicKey.findProgramAddress(
-  [
-    Buffer.from("seed"),
-    user.publicKey.toBuffer(),
-  ],
-  program.programId
+  [Buffer.from("seed"), user.publicKey.toBuffer()],
+  program.programId,
 );
 ```
 
@@ -86,6 +83,7 @@ describe("my-program", () => {
 ```
 
 **What provider gives you:**
+
 - Connection to Solana cluster
 - Wallet for signing transactions
 - Configuration for tests
@@ -94,7 +92,8 @@ describe("my-program", () => {
 
 ```typescript
 const puppetProgram = anchor.workspace.Puppet as Program<Puppet>;
-const puppetMasterProgram = anchor.workspace.PuppetMaster as Program<PuppetMaster>;
+const puppetMasterProgram = anchor.workspace
+  .PuppetMaster as Program<PuppetMaster>;
 ```
 
 **Use when:** Testing CPIs between programs
@@ -116,15 +115,13 @@ const authority = Keypair.generate();
 
 ```typescript
 const [userStatsPDA, bump] = await PublicKey.findProgramAddress(
-  [
-    Buffer.from("user-stats"),
-    user.publicKey.toBuffer(),
-  ],
-  program.programId
+  [Buffer.from("user-stats"), user.publicKey.toBuffer()],
+  program.programId,
 );
 ```
 
 **Seed encoding:**
+
 - Strings: `Buffer.from("string")` or `anchor.utils.bytes.utf8.encode("string")`
 - Pubkeys: `.toBuffer()`
 - Numbers: `Buffer.from(num.toString())` or converted to bytes
@@ -137,13 +134,10 @@ const [userStatsPDA, bump] = await PublicKey.findProgramAddress(
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 // Request airdrop (localnet/devnet only)
-await provider.connection.requestAirdrop(
-  keypair.publicKey,
-  LAMPORTS_PER_SOL
-);
+await provider.connection.requestAirdrop(keypair.publicKey, LAMPORTS_PER_SOL);
 
 // Wait for confirmation
-await new Promise(resolve => setTimeout(resolve, 1000));
+await new Promise((resolve) => setTimeout(resolve, 1000));
 ```
 
 ## Calling Instructions
@@ -152,13 +146,13 @@ await new Promise(resolve => setTimeout(resolve, 1000));
 
 ```typescript
 await program.methods
-  .initialize(arg1, arg2)  // Handler function name and args
+  .initialize(arg1, arg2) // Handler function name and args
   .accounts({
     account1: publicKey1,
     account2: publicKey2,
     systemProgram: anchor.web3.SystemProgram.programId,
   })
-  .rpc();  // Send and confirm transaction
+  .rpc(); // Send and confirm transaction
 ```
 
 ### With Signers
@@ -170,7 +164,7 @@ await program.methods
     newAccount: myKeypair.publicKey,
     user: provider.wallet.publicKey,
   })
-  .signers([myKeypair])  // Additional signers beyond wallet
+  .signers([myKeypair]) // Additional signers beyond wallet
   .rpc();
 ```
 
@@ -211,7 +205,7 @@ describe("game", async () => {
         anchor.utils.bytes.utf8.encode("user-stats"),
         provider.wallet.publicKey.toBuffer(),
       ],
-      program.programId
+      program.programId,
     );
 
     // Initialize
@@ -225,7 +219,7 @@ describe("game", async () => {
 
     // Verify
     expect((await program.account.userStats.fetch(userStatsPDA)).name).to.equal(
-      "brian"
+      "brian",
     );
 
     // Update
@@ -239,13 +233,14 @@ describe("game", async () => {
 
     // Verify again
     expect((await program.account.userStats.fetch(userStatsPDA)).name).to.equal(
-      "tom"
+      "tom",
     );
   });
 });
 ```
 
 **Key patterns:**
+
 - PDA derived client-side
 - Same PDA used for init and update
 - Fetch account to verify state changes
@@ -298,13 +293,14 @@ describe("puppet", () => {
     expect(
       (
         await puppetProgram.account.data.fetch(puppetKeypair.publicKey)
-      ).data.toNumber()
+      ).data.toNumber(),
     ).to.equal(42);
   });
 });
 ```
 
 **Validates:**
+
 - CPI correctly invokes target program
 - State changes persist across programs
 - Correct program IDs used
@@ -333,10 +329,10 @@ const accounts = await program.account.myAccount.all();
 const accounts = await program.account.myAccount.all([
   {
     memcmp: {
-      offset: 8,  // After discriminator
+      offset: 8, // After discriminator
       bytes: anchor.utils.bytes.bs58.encode(authorityPublicKey.toBuffer()),
-    }
-  }
+    },
+  },
 ]);
 ```
 
@@ -353,9 +349,7 @@ import { expect } from "chai";
 expect(account.value).to.equal(42);
 
 // Pubkey equality
-expect(account.authority.toString()).to.equal(
-  authority.publicKey.toString()
-);
+expect(account.authority.toString()).to.equal(authority.publicKey.toString());
 
 // Boolean
 expect(account.initialized).to.be.true;
@@ -389,7 +383,7 @@ try {
     .invalidOperation()
     .accounts({...})
     .rpc();
-  
+
   assert.fail("Expected error was not thrown");
 } catch (error) {
   // Error was thrown as expected
@@ -406,7 +400,7 @@ it("Fails with InvalidAmount error", async () => {
       .transfer(0)  // Invalid amount
       .accounts({...})
       .rpc();
-    
+
     assert.fail("Should have thrown InvalidAmount error");
   } catch (error) {
     // Check error code
@@ -422,7 +416,7 @@ it("Fails with InvalidAmount error", async () => {
 ```typescript
 it("Fails when unauthorized", async () => {
   const unauthorizedKeypair = Keypair.generate();
-  
+
   try {
     await program.methods
       .restrictedOperation()
@@ -432,7 +426,7 @@ it("Fails when unauthorized", async () => {
       })
       .signers([unauthorizedKeypair])
       .rpc();
-    
+
     assert.fail("Should have failed authorization check");
   } catch (error) {
     expect(error).to.exist;
@@ -447,11 +441,8 @@ it("Fails when unauthorized", async () => {
 ```typescript
 it("Creates escrow account", async () => {
   const [escrowPDA] = await PublicKey.findProgramAddress(
-    [
-      Buffer.from("escrow"),
-      owner.publicKey.toBuffer(),
-    ],
-    program.programId
+    [Buffer.from("escrow"), owner.publicKey.toBuffer()],
+    program.programId,
   );
 
   await program.methods
@@ -466,7 +457,9 @@ it("Creates escrow account", async () => {
 
   const escrow = await program.account.escrowAccount.fetch(escrowPDA);
   expect(escrow.owner.toString()).to.equal(owner.publicKey.toString());
-  expect(escrow.facilitator.toString()).to.equal(facilitator.publicKey.toString());
+  expect(escrow.facilitator.toString()).to.equal(
+    facilitator.publicKey.toString(),
+  );
   expect(escrow.pendingCount.toNumber()).to.equal(0);
 });
 ```
@@ -476,21 +469,21 @@ it("Creates escrow account", async () => {
 ```typescript
 it("Registers session key", async () => {
   const sessionKey = Keypair.generate();
-  
+
   const [sessionKeyPDA] = await PublicKey.findProgramAddress(
     [
       Buffer.from("session"),
       escrowPDA.toBuffer(),
       sessionKey.publicKey.toBuffer(),
     ],
-    program.programId
+    program.programId,
   );
 
   await program.methods
     .registerSessionKey(
       sessionKey.publicKey,
-      null,  // No expiration
-      1000   // Grace period
+      null, // No expiration
+      1000, // Grace period
     )
     .accounts({
       escrow: escrowPDA,
@@ -501,7 +494,8 @@ it("Registers session key", async () => {
     .signers([owner])
     .rpc();
 
-  const sessionKeyAccount = await program.account.sessionKey.fetch(sessionKeyPDA);
+  const sessionKeyAccount =
+    await program.account.sessionKey.fetch(sessionKeyPDA);
   expect(sessionKeyAccount.active).to.be.true;
 });
 ```
@@ -525,7 +519,7 @@ it("Enforces monotonic nonces", async () => {
       .submitAuthorization(/* ... */, invalidNonce, /* ... */)
       .accounts({...})
       .rpc();
-    
+
     assert.fail("Should have rejected invalid nonce");
   } catch (error) {
     expect(error.error.errorCode.code).to.equal("InvalidNonce");
@@ -549,7 +543,7 @@ it("Enforces refund window", async () => {
       .finalize()
       .accounts({...})
       .rpc();
-    
+
     assert.fail("Should enforce refund window");
   } catch (error) {
     expect(error.error.errorCode.code).to.equal("RefundWindowNotExpired");
@@ -614,11 +608,11 @@ describe("escrow-program", () => {
 ```typescript
 async function createEscrow(
   owner: Keypair,
-  facilitator: Keypair
+  facilitator: Keypair,
 ): Promise<PublicKey> {
   const [escrowPDA] = await PublicKey.findProgramAddress(
     [Buffer.from("escrow"), owner.publicKey.toBuffer()],
-    program.programId
+    program.programId,
   );
 
   await program.methods
@@ -636,7 +630,7 @@ async function createEscrow(
 
 async function registerSessionKey(
   escrowPDA: PublicKey,
-  owner: Keypair
+  owner: Keypair,
 ): Promise<PublicKey> {
   // Helper implementation
 }
@@ -681,6 +675,7 @@ Rust-native testing (not TypeScript):
 ### Test Coverage
 
 Cover these scenarios:
+
 - **Happy path:** Normal operation
 - **Edge cases:** Boundary conditions
 - **Error cases:** Invalid inputs, unauthorized access
@@ -690,6 +685,7 @@ Cover these scenarios:
 ### Independent Tests
 
 Each test should:
+
 - Set up its own state
 - Not depend on other tests
 - Clean up after itself (or use fresh accounts)
@@ -713,13 +709,13 @@ it("Updates account value", async () => {
   // Arrange - set up
   const account = await createAccount();
   const newValue = 42;
-  
+
   // Act - perform action
   await program.methods
     .update(newValue)
     .accounts({ account: account.publicKey })
     .rpc();
-  
+
   // Assert - verify result
   const updatedAccount = await program.account.data.fetch(account.publicKey);
   expect(updatedAccount.value).to.equal(newValue);
@@ -729,6 +725,7 @@ it("Updates account value", async () => {
 ## Skill Loading Guidance
 
 ### Load This Skill When
+
 - Writing tests for Anchor programs
 - Reviewing test coverage
 - Debugging test failures
@@ -736,6 +733,7 @@ it("Updates account value", async () => {
 - Testing complex scenarios (escrow, vaults, etc.)
 
 ### Related Skills
+
 - **anchor-core** - For understanding program structure being tested
 - **anchor-pdas** - For testing PDA derivation
 - **anchor-cpis** - For testing cross-program invocations
@@ -744,16 +742,19 @@ it("Updates account value", async () => {
 ## Reference Links
 
 ### Official Documentation
+
 - [Anchor Testing Documentation](https://www.anchor-lang.com/docs/testing)
 - [Anchor Testing - LiteSVM](https://www.anchor-lang.com/docs/testing/litesvm)
 - [Anchor Testing - Mollusk](https://www.anchor-lang.com/docs/testing/mollusk)
 
 ### Source Material
+
 - [Anchor Book - Testing Examples](https://github.com/coral-xyz/anchor-book) - Working test examples throughout
 - [Anchor Book - PDA Tests](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/PDAs.md)
 - [Anchor Book - CPI Tests](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/CPIs.md)
 
 ### Testing Frameworks
+
 - [Mocha Documentation](https://mochajs.org/)
 - [Chai Assertion Library](https://www.chaijs.com/)
 

@@ -11,6 +11,7 @@ Glob pattern: `skills/*/SKILL.md`
 ## Source Material
 
 Skills are built from:
+
 - [Anchor Documentation](https://www.anchor-lang.com/docs)
 - [Anchor Book](https://github.com/coral-xyz/anchor-book)
 - [Sealevel Attacks](https://github.com/coral-xyz/sealevel-attacks)
@@ -19,6 +20,7 @@ Skills are built from:
 ## Maintenance
 
 Update skills when:
+
 - Anchor framework introduces new patterns
 - New security vulnerabilities are discovered
 - Project requirements change
