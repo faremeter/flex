@@ -48,7 +48,7 @@ The middleware and facilitator may be the same service or separate services that
 
    f. **Settlement Request**: After completing the work, the middleware reports the actual amount consumed to the facilitator. The hold converts to a pending settlement for the actual amount used.
 
-6. **Authorization Submission**: The facilitator collects the client's signed authorizations and can batch multiple authorizations before submitting them on-chain. This allows for faster and optimistic settlement strategies where the middleware grants access before on-chain confirmation. When submitted, each authorization creates a pending settlement with a configurable refund timeout. The authorization specifies the token mint, recipient (merchant), and amount.
+6. **Authorization Submission**: The facilitator collects the client's signed authorizations and can batch multiple authorizations before submitting them on-chain. This allows for faster and optimistic settlement strategies where the middleware grants access before on-chain confirmation. When submitted, each authorization creates a pending settlement with a configurable refund timeout. The authorization specifies the token mint, amount, and a split distribution describing how funds are divided among recipients at finalization.
 
 7. **Refund Window**: During the refund timeout period, the facilitator can reduce or cancel the pending settlement (e.g., if the merchant did not deliver the service). The middleware authorizes refunds off-chain; the facilitator submits them on-chain.
 
@@ -66,9 +66,17 @@ Session keys enable clients to authorize payments without needing the escrow acc
 
 1. **Registration**: The client registers a session key with the escrow account via an on-chain transaction.
 
-2. **Authorization**: The client signs payment authorizations using the session key. Each authorization specifies the token mint, recipient, amount, and a monotonically increasing nonce.
+2. **Authorization**: The client signs payment authorizations using the session key. Each authorization specifies the token mint, split distribution, amount, and a monotonically increasing nonce.
 
 3. **Revocation**: The client can revoke a session key at any time. A grace period allows the facilitator to settle any outstanding authorizations before the key becomes fully invalid.
+
+### Split Payments
+
+Authorizations support split payments, where funds are distributed to multiple recipients at finalization. Instead of specifying a single recipient, each authorization includes a splits vector: a list of (recipient, basis points) pairs that must sum to 10000 (100%).
+
+A single-recipient payment is simply a split with one entry at 10000 bps. Multi-recipient splits enable use cases like platform fees, referral commissions, royalty distributions, and facilitator fees without requiring multiple separate transactions.
+
+Splits are part of the client-signed authorization message. The facilitator cannot alter the distribution -- clients must explicitly agree to every recipient and proportion. At finalization, the on-chain program distributes tokens proportionally according to the signed splits.
 
 ## Comparison with Exact Scheme
 
@@ -109,7 +117,7 @@ Each escrow account has a single facilitator. The client creates a separate escr
 ## Security Considerations
 
 - **Dual authorization**: The on-chain contract requires signatures from both the client (via session key) and facilitator for any transfer out of the escrow account. Neither party can unilaterally move funds (except via deadman switch).
-- **Client-initiated transfers**: The client signs authorizations specifying the token mint, recipient (merchant), and amount. The facilitator can only submit authorizations the client has signed.
+- **Client-initiated transfers**: The client signs authorizations specifying the token mint, amount, and split distribution (recipients and proportions). The facilitator can only submit authorizations the client has signed.
 - **Balance verification**: The facilitator verifies on-chain balances before accepting authorizations.
 - **Replay protection**: A global nonce on the escrow account ensures each authorization can only be used once. Nonces must be strictly increasing.
 - **Refund window**: Pending settlements cannot be finalized until the refund timeout expires, giving time to cancel erroneous or disputed charges.
