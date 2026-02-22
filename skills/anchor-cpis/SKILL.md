@@ -87,11 +87,11 @@ use anchor_lang::prelude::*;
 #[program]
 pub mod puppet {
     use super::*;
-    
+
     pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
         Ok(())
     }
-    
+
     pub fn set_data(ctx: Context<SetData>, data: u64) -> Result<()> {
         let puppet = &mut ctx.accounts.puppet;
         puppet.data = data;
@@ -131,7 +131,7 @@ use puppet::{self, Data};
 #[program]
 mod puppet_master {
     use super::*;
-    
+
     pub fn pull_strings(ctx: Context<PullStrings>, data: u64) -> Result<()> {
         let cpi_program = ctx.accounts.puppet_program.to_account_info();
         let cpi_accounts = SetData {
@@ -162,6 +162,7 @@ puppet = { path = "../puppet", features = ["cpi"] }
 ```
 
 This generates:
+
 - `puppet::cpi` module with CPI helper functions
 - `puppet::cpi::accounts` with instruction builder structs
 - Type-safe CPI invocation
@@ -192,6 +193,7 @@ puppet::cpi::set_data(cpi_ctx, data)?;
 ```
 
 The `puppet::cpi::set_data` function:
+
 - Takes same arguments as `puppet::set_data` handler
 - Except uses `CpiContext` instead of `Context`
 - Handles low-level Solana syscalls
@@ -302,7 +304,7 @@ PDAs allow programs to sign CPIs, enabling programs to have authority over asset
 pub fn pull_strings(ctx: Context<PullStrings>, bump: u8, data: u64) -> Result<()> {
     let seeds = &[&[bump]];
     let signer_seeds = &[&seeds[..]];
-    
+
     puppet::cpi::set_data(
         ctx.accounts.set_data_ctx().with_signer(signer_seeds),
         data
@@ -383,13 +385,13 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 pub fn withdraw_tokens(ctx: Context<WithdrawTokens>) -> Result<()> {
     let amount = ctx.accounts.vault.amount;
-    
+
     let seeds = &[
         ctx.accounts.pool.withdraw_destination.as_ref(),
         &[ctx.accounts.pool.bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         ctx.accounts.transfer_ctx().with_signer(signer_seeds),
         amount
@@ -476,6 +478,7 @@ impl<'info> PullStrings<'info> {
 ```
 
 **Benefits:**
+
 - Handler focuses on business logic
 - CPI setup reusable if needed multiple times
 - Clearer code organization
@@ -528,7 +531,7 @@ pub fn withdraw_from_vault(ctx: Context<WithdrawFromVault>, amount: u64) -> Resu
         &[ctx.accounts.vault_bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         ctx.accounts.transfer_ctx().with_signer(signer_seeds),
         amount
@@ -546,7 +549,7 @@ pub fn initialize_token_account(ctx: Context<InitTokenAccount>) -> Result<()> {
     // Anchor handles this with constraints:
     // #[account(init, token::mint = mint, token::authority = authority)]
     // But manual CPI would look like:
-    
+
     token::initialize_account(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -634,12 +637,12 @@ When a CPI modifies an account, the caller's deserialized copy doesn't auto-upda
 ```rust
 pub fn pull_strings_and_check(ctx: Context<PullStrings>, data: u64) -> Result<()> {
     puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)?;
-    
+
     // This fails! puppet.data still has old value
     if ctx.accounts.puppet.data != 42 {
         panic!();
     }
-    
+
     Ok(())
 }
 ```
@@ -651,20 +654,21 @@ pub fn pull_strings_and_check(ctx: Context<PullStrings>, data: u64) -> Result<()
 ```rust
 pub fn pull_strings_and_check(ctx: Context<PullStrings>, data: u64) -> Result<()> {
     puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)?;
-    
+
     // Reload the account to get updated data
     ctx.accounts.puppet.reload()?;
-    
+
     // Now this works!
     if ctx.accounts.puppet.data != 42 {
         panic!();
     }
-    
+
     Ok(())
 }
 ```
 
 **What reload() does:**
+
 1. Re-reads account data from memory
 2. Re-deserializes into struct
 3. Updates the `Account<'info, T>` value
@@ -672,6 +676,7 @@ pub fn pull_strings_and_check(ctx: Context<PullStrings>, data: u64) -> Result<()
 ### When to Use reload()
 
 Call `reload()` when you need to:
+
 - Read account data modified by a CPI
 - Verify CPI results
 - Use updated values in subsequent logic
@@ -702,10 +707,10 @@ pub fn set_data(ctx: Context<SetData>, data: u64) -> Result<u64> {
 // In puppet-master program
 pub fn pull_strings(ctx: Context<PullStrings>, data: u64) -> Result<()> {
     let result = puppet::cpi::set_data(ctx.accounts.set_data_ctx(), data)?;
-    
+
     // Call .get() to retrieve return data
     let return_data = result.get();
-    
+
     msg!("Puppet returned: {}", return_data);
     Ok(())
 }
@@ -757,7 +762,7 @@ When making CPIs:
 ```rust
 pub fn finalize_settlement(ctx: Context<Finalize>) -> Result<()> {
     let amount = ctx.accounts.pending.amount;
-    
+
     // PDA signs the transfer
     let seeds = &[
         b"vault".as_ref(),
@@ -766,12 +771,12 @@ pub fn finalize_settlement(ctx: Context<Finalize>) -> Result<()> {
         &[ctx.accounts.vault_bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         ctx.accounts.transfer_ctx().with_signer(signer_seeds),
         amount
     )?;
-    
+
     Ok(())
 }
 
@@ -800,11 +805,11 @@ pub fn close_pending_manual(ctx: Context<ClosePending>) -> Result<()> {
         .checked_add(ctx.accounts.pending.to_account_info().lamports())
         .unwrap();
     **ctx.accounts.pending.to_account_info().lamports.borrow_mut() = 0;
-    
+
     // Zero data
     ctx.accounts.pending.to_account_info().assign(&system_program::ID);
     ctx.accounts.pending.to_account_info().realloc(0, false)?;
-    
+
     Ok(())
 }
 ```
@@ -819,14 +824,17 @@ pub pending: Account<'info, PendingSettlement>,
 ## Skill Loading Guidance
 
 ### Always Load With
+
 - **anchor-core** - Core patterns prerequisite
 - **anchor-security** - CPI security (arbitrary CPI pattern)
 
 ### Commonly Paired With
+
 - **anchor-pdas** - PDA signing in CPIs
 - **anchor-token-operations** - Token transfer CPIs
 
 ### Load This Skill When
+
 - Implementing token transfers
 - Making cross-program calls
 - Working with program-controlled assets
@@ -834,6 +842,7 @@ pub pending: Account<'info, PendingSettlement>,
 - Creating or closing accounts via CPI
 
 ### Related Skills
+
 - **anchor-core** - For CpiContext and basic patterns
 - **anchor-security** - For CPI security (pattern 6: Arbitrary CPI)
 - **anchor-pdas** - For PDA signing patterns
@@ -842,10 +851,12 @@ pub pending: Account<'info, PendingSettlement>,
 ## Reference Links
 
 ### Official Documentation
+
 - [Anchor CPI Documentation](https://www.anchor-lang.com/docs/basics/cpi)
 - [Solana CPI Documentation](https://docs.solana.com/developing/programming-model/calling-between-programs)
 
 ### Source Material
+
 - [Anchor Book - Cross-Program Invocations](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/CPIs.md) - Complete CPI tutorial
 - [Anchor Book - PDAs Programs as Signers](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/PDAs.md#programs-as-signers) - PDA signing
 - [Sealevel Attacks - Arbitrary CPI](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/5-arbitrary-cpi) - CPI security

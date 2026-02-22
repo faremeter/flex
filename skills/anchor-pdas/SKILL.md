@@ -54,11 +54,8 @@ token::transfer(
 
 ```typescript
 const [userStatsPDA, bump] = await PublicKey.findProgramAddress(
-  [
-    Buffer.from("user-stats"),
-    user.publicKey.toBuffer(),
-  ],
-  program.programId
+  [Buffer.from("user-stats"), user.publicKey.toBuffer()],
+  program.programId,
 );
 ```
 
@@ -75,6 +72,7 @@ PDAs (Program Derived Addresses) are addresses with special properties:
 3. **Program-specific** - Derived from seeds + program ID
 
 **Two primary use cases:**
+
 1. Creating hashmap-like structures on-chain
 2. Allowing programs to sign instructions
 
@@ -108,6 +106,7 @@ The first bump that results in a PDA is called the **canonical bump**.
 ### Canonical Bump
 
 **Always use the canonical bump** (first valid bump) for consistency:
+
 - Prevents multiple PDAs from same seeds
 - Security best practice
 - Anchor finds canonical bump automatically with empty `bump` constraint
@@ -126,7 +125,7 @@ use anchor_lang::prelude::*;
 #[program]
 mod game {
     use super::*;
-    
+
     pub fn create_user_stats(ctx: Context<CreateUserStats>, name: String) -> Result<()> {
         let user_stats = &mut ctx.accounts.user_stats;
         user_stats.level = 0;
@@ -163,6 +162,7 @@ pub struct CreateUserStats<'info> {
 ```
 
 **Key points:**
+
 - Empty `bump` constraint tells Anchor to find canonical bump
 - Access found bump via `ctx.bumps.<account_name>`
 - **Best practice:** Store bump in account data for efficiency
@@ -192,6 +192,7 @@ pub fn change_user_name(ctx: Context<ChangeUserName>, new_name: String) -> Resul
 ```
 
 **Why store bumps?**
+
 - **Efficiency:** Using stored bump avoids re-searching for canonical bump
 - **Performance:** Significantly faster verification (single hash vs up to 256)
 - **Standard pattern:** Recommended by Anchor documentation
@@ -201,6 +202,7 @@ pub fn change_user_name(ctx: Context<ChangeUserName>, new_name: String) -> Resul
 ### The Problem PDAs Solve
 
 Without PDAs, linking accounts requires either:
+
 1. Storing addresses in a global registry (expensive, complex)
 2. Clients tracking relationships off-chain (fragile, unreliable)
 
@@ -217,6 +219,7 @@ let (pda, bump) = find_pda(seeds, program_id);
 ```
 
 **Now the mapping is deterministic:**
+
 - Input: User address
 - Output: User stats PDA (always the same)
 - **No storage needed** - just recompute the derivation
@@ -308,11 +311,8 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
 const [userStatsPDA, bump] = await PublicKey.findProgramAddress(
-  [
-    anchor.utils.bytes.utf8.encode("user-stats"),
-    user.publicKey.toBuffer(),
-  ],
-  program.programId
+  [anchor.utils.bytes.utf8.encode("user-stats"), user.publicKey.toBuffer()],
+  program.programId,
 );
 
 // Use the PDA in instruction
@@ -342,6 +342,7 @@ CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds)
 ```
 
 When the CPI is invoked:
+
 1. Runtime checks: `hash(seeds, current_program_id) == account address`
 2. If match, sets account's `is_signer` flag to true
 3. Target program sees account as having signed
@@ -359,12 +360,12 @@ use puppet::{self, Data};
 #[program]
 mod puppet_master {
     use super::*;
-    
+
     pub fn pull_strings(ctx: Context<PullStrings>, bump: u8, data: u64) -> Result<()> {
         let bump = &[bump];
         let seeds = &[&bump[..]];
         let signer_seeds = &[&seeds[..]];
-        
+
         puppet::cpi::set_data(
             ctx.accounts.set_data_ctx().with_signer(signer_seeds),
             data,
@@ -443,13 +444,13 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 pub fn withdraw_tokens(ctx: Context<WithdrawTokens>) -> Result<()> {
     let amount = ctx.accounts.vault.amount;
-    
+
     let seeds = &[
         ctx.accounts.pool.withdraw_destination.as_ref(),
         &[ctx.accounts.pool.bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         ctx.accounts.transfer_ctx().with_signer(signer_seeds),
         amount
@@ -543,6 +544,7 @@ seeds = [b"pending", &nonce.to_be_bytes()]
 **Collision risk:** Different seed combinations that hash to same address.
 
 **Prevention strategies:**
+
 1. Use typed prefixes (different byte literals)
 2. Include account type in seeds
 3. Order seeds consistently
@@ -699,16 +701,19 @@ pub struct UpdatePDA<'info> {
 ```
 
 **Why this matters:**
+
 - Non-canonical bumps could create multiple PDAs from same seeds
 - Using stored canonical bump ensures consistency
 - More efficient than re-searching for canonical bump
 
 **Note from source material:**
+
 > When using a PDA, it's usually recommend to store the bump seed in the account data, so that you can use it as demonstrated in 2), which will provide a more efficient check.
 
 ## Advanced: Combining State and Signing
 
 A PDA can serve both purposes simultaneously:
+
 1. Store program state
 2. Sign CPIs
 
@@ -731,14 +736,14 @@ pub fn withdraw_from_pool(ctx: Context<WithdrawFromPool>, amount: u64) -> Result
     // Pool account is used for both:
     // 1. Storing and checking state (has_one = vault)
     // 2. Signing the token transfer CPI
-    
+
     let seeds = &[
         b"pool".as_ref(),
         &ctx.accounts.pool.id.to_le_bytes(),
         &[ctx.accounts.pool.bump],
     ];
     let signer_seeds = &[&seeds[..]];
-    
+
     token::transfer(
         ctx.accounts.transfer_ctx().with_signer(signer_seeds),
         amount
@@ -752,14 +757,17 @@ pub fn withdraw_from_pool(ctx: Context<WithdrawFromPool>, amount: u64) -> Result
 ## Skill Loading Guidance
 
 ### Always Load With
+
 - **anchor-core** - Core Anchor patterns are prerequisite
 - **anchor-security** - Security implications of PDAs
 
 ### Commonly Paired With
+
 - **anchor-cpis** - PDAs often used for program signing in CPIs
 - **anchor-token-operations** - Token account PDAs
 
 ### Load This Skill When
+
 - Implementing account derivation logic
 - Creating hashmap-like data structures
 - Implementing program signing for CPIs
@@ -768,6 +776,7 @@ pub fn withdraw_from_pool(ctx: Context<WithdrawFromPool>, amount: u64) -> Result
 - Building multi-account hierarchies
 
 ### Related Skills
+
 - **anchor-core** - For basic constraints and account types
 - **anchor-security** - For PDA security patterns (bump canonicalization, PDA sharing)
 - **anchor-cpis** - For using PDAs as signers in cross-program invocations
@@ -777,16 +786,19 @@ pub fn withdraw_from_pool(ctx: Context<WithdrawFromPool>, amount: u64) -> Result
 ## Reference Links
 
 ### Official Documentation
+
 - [Anchor PDA Documentation](https://www.anchor-lang.com/docs/basics/pda)
 - [Solana PDA Documentation](https://docs.solana.com/developing/programming-model/calling-between-programs#program-derived-addresses)
 - [Anchor Account Constraints - Seeds & Bump](https://www.anchor-lang.com/docs/references/account-constraints#seeds-bump)
 
 ### Source Material
+
 - [Anchor Book - PDAs Chapter](https://github.com/coral-xyz/anchor-book/blob/master/src/anchor_in_depth/PDAs.md) - Complete PDA tutorial with working examples
 - [Sealevel Attacks - Bump Seed Canonicalization](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/7-bump-seed-canonicalization) - Canonical bump security
 - [Sealevel Attacks - PDA Sharing](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/8-pda-sharing) - PDA validation patterns
 
 ### Additional Resources
+
 - [Pencilflip's Twitter Thread on PDAs](https://twitter.com/pencilflip/status/1455948263853600768) - Conceptual explanation
 - [Jarry Xiao's Talk on PDAs and CPIs](https://www.youtube.com/watch?v=iMWaQRyjpl4) - Video explanation
 - [PaulX's Guide to Solana Programming](https://paulx.dev/blog/2021/01/14/programming-on-solana-an-introduction/) - Comprehensive Solana guide
