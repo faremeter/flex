@@ -152,6 +152,33 @@ A facilitator could intentionally delay settlement until just before grace perio
 
 Clients should set `revocation_grace_period_slots` to at least 2x the facilitator's documented submission latency to account for network variability.
 
+### Split Entry
+
+A split entry describes one recipient in a split payment. Authorizations use a vector of split entries to distribute funds to multiple recipients at finalize time.
+
+```rust
+pub struct SplitEntry {
+    /// Recipient token account (must match settlement mint)
+    pub recipient: Pubkey,
+
+    /// Basis points allocated to this recipient (1-10000)
+    pub bps: u16,
+}
+```
+
+**Constant:** `MAX_SPLITS = 5` (covers platform fee + merchant + referral + royalties; keeps finalize batch-friendly)
+
+**Invariants:**
+
+- `splits.len() >= 1 && splits.len() <= MAX_SPLITS`
+- `sum(splits[*].bps) == 10000`
+- `splits[*].bps > 0` for each entry
+- All recipients are unique (no duplicate pubkeys)
+
+A single-recipient payment is expressed as `splits: [{recipient, 10000}]` (one entry at 100%).
+
+Facilitator fees are also expressed as split entries. The facilitator and merchant agree on a fee off-chain, and the merchant includes the facilitator's token account in their declared split policy. For example, a 5% facilitator fee would appear as a 500 bps entry alongside the merchant's 9500 bps entry.
+
 ### Pending Settlement
 
 ```rust
@@ -164,9 +191,6 @@ pub struct PendingSettlement {
 
     /// Token mint for this settlement
     pub mint: Pubkey,
-
-    /// Recipient (merchant) token account
-    pub recipient: Pubkey,
 
     /// Current amount (can be reduced by refunds)
     pub amount: u64,
@@ -185,6 +209,12 @@ pub struct PendingSettlement {
 
     /// Session key that signed this authorization
     pub session_key: Pubkey,
+
+    /// Number of valid entries in splits (1-5)
+    pub split_count: u8,
+
+    /// Fixed-size split array; first split_count entries are valid
+    pub splits: [SplitEntry; 5],
 
     /// PDA bump seed
     pub bump: u8,
@@ -433,28 +463,28 @@ pub fn register_session_key(
 
 Session keys authorize payments, but clients control all payment parameters in the signed message:
 
-- **`recipient`**: Who receives payment (client specifies)
+- **`splits`**: Who receives payment and in what proportion (client specifies)
 - **`max_amount`**: Maximum amount for this authorization (client specifies)
 - **`mint`**: Which token to pay (client specifies)
 
-The facilitator can only submit what the client signed. They cannot modify the recipient, increase the amount, or change the token. This means each authorization's exposure is limited to what the client explicitly approved.
+The facilitator can only submit what the client signed. They cannot modify the splits (recipients or proportions), increase the amount, or change the token. This means each authorization's exposure is limited to what the client explicitly approved.
 
-| Compromised Parties                 | Severity     | Attack Vector                                            | Funds at Risk                               |
-| ----------------------------------- | ------------ | -------------------------------------------------------- | ------------------------------------------- |
-| Session key + Facilitator collusion | **CRITICAL** | Client signs to attacker recipient; facilitator submits  | Up to signed `max_amount` per authorization |
-| Session key alone                   | LOW          | Attacker can sign authorizations, but cannot submit them | None without facilitator cooperation        |
-| Middleware alone                    | NONE         | Middleware cannot sign; can only pass authorizations     | None                                        |
+| Compromised Parties                 | Severity     | Attack Vector                                                    | Funds at Risk                               |
+| ----------------------------------- | ------------ | ---------------------------------------------------------------- | ------------------------------------------- |
+| Session key + Facilitator collusion | **CRITICAL** | Client signs splits with attacker recipient; facilitator submits | Up to signed `max_amount` per authorization |
+| Session key alone                   | LOW          | Attacker can sign authorizations, but cannot submit them         | None without facilitator cooperation        |
+| Middleware alone                    | NONE         | Middleware cannot sign; can only pass authorizations             | None                                        |
 
 **Key insight:** A compromised session key alone cannot drain an escrow. The attacker would need to either:
 
 1. Collude with the facilitator to submit fraudulent authorizations, OR
 2. Trick an honest facilitator into submitting authorizations to attacker-controlled recipients
 
-An honest facilitator performing proper validation (checking that recipients are known merchants) provides defense-in-depth against session key compromise.
+An honest facilitator performing proper validation (checking that all split recipients are known merchants) provides defense-in-depth against session key compromise.
 
 **Recommended Client-Side Practices:**
 
-- **Verify recipients**: Confirm `recipient` is a known merchant before signing
+- **Verify recipients**: Confirm all split recipients are known merchants before signing
 - **Short-lived keys**: Set `expires_at_slot` to limit exposure window
 - **Appropriate funding**: Fund escrow based on expected usage patterns
 - **Balance monitoring**: Alert on unexpected pending settlements
@@ -522,10 +552,10 @@ Submits a client-signed authorization, creating a pending settlement.
 pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
     mint: Pubkey,
-    recipient: Pubkey,
     max_amount: u64,
     settle_amount: u64,
     nonce: u64,
+    splits: Vec<SplitEntry>,
     signature: [u8; 64],
 ) -> Result<()>
 ```
@@ -545,51 +575,57 @@ pub fn submit_authorization(
 **Parameters**:
 
 - `max_amount`: The maximum amount the client authorized (what was signed)
-- `settle_amount`: The actual amount to settle (must be ≤ `max_amount`)
+- `settle_amount`: The actual amount to settle (must be <= `max_amount`)
+- `splits`: The split distribution (recipients and basis points, signed by client)
 
 **Validation**:
 
 1. Verify `escrow.pending_count < 16` (pending limit not reached)
 2. Verify `nonce > escrow.last_nonce` (replay protection)
-3. Verify Ed25519 signature over `(escrow, mint, recipient, max_amount, nonce)`
+3. Verify Ed25519 signature over `(program_id, escrow, mint, max_amount, nonce, splits)`
 4. Verify `settle_amount <= max_amount`
 5. Verify `session_key.escrow == escrow.key()` (session key belongs to this escrow)
 6. Verify session key is active (not expired, not revoked past grace period)
 7. Verify token account has sufficient balance for `settle_amount`
-8. Verify `recipient` is a valid SPL token account with matching mint (returns `InvalidRecipient` if not)
+8. Verify `splits.len() >= 1 && splits.len() <= MAX_SPLITS` (returns `InvalidSplitCount` if not)
+9. Verify `sum(splits[*].bps) == 10000` (returns `InvalidSplitBps` if not)
+10. Verify `splits[*].bps > 0` for each entry (returns `SplitBpsZero` if not)
+11. Verify all `splits[*].recipient` are unique (returns `DuplicateSplitRecipient` if not)
+
+Recipient token accounts are NOT validated at submit time. Validation is deferred to finalize to keep submit lean; the facilitator validates recipient accounts off-chain before submission.
 
 **Effects**:
 
-1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`, `amount = settle_amount`, `max_amount = max_amount`
+1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`, `amount = settle_amount`, `max_amount = max_amount`, `split_count`, and `splits`
 2. Update `escrow.last_nonce = nonce`
 3. Update `escrow.last_activity_slot`
 4. Increment `escrow.pending_count`
 
 **Notes**: The separation of `max_amount` and `settle_amount` enables the off-chain hold workflow. The client signs an authorization for up to `max_amount`, and the facilitator settles for the actual amount consumed (`settle_amount`). This allows the middleware to request a hold, perform work, then settle for less than the hold without requiring a new client signature.
 
-**Recipient Validation**: The `recipient` address is part of the client-signed authorization, preventing facilitators from redirecting funds. On-chain validation confirms the recipient is a valid SPL token account with the correct mint. If invalid, the transaction fails with `InvalidRecipient`.
+**Split Validation**: The `splits` vector is part of the client-signed authorization, preventing facilitators from altering the payment distribution. The client specifies all recipients and their proportions. BPS sum validation prevents tokens from being silently lost (sum < 10000) or over-transferred (sum > 10000). Duplicate recipients are rejected to keep finalize simple (each remaining account maps 1:1 to a split entry).
 
-**Timing considerations:** Between off-chain validation and on-chain finalization, the recipient account state may change:
+**Timing considerations:** Between off-chain validation and on-chain finalization, a recipient account's state may change:
 
-| State Change   | When Detected          | Impact                                                                     |
-| -------------- | ---------------------- | -------------------------------------------------------------------------- |
-| Account closed | `submit_authorization` | Fails with `InvalidRecipient`; no pending settlement created               |
-| Account frozen | `finalize`             | Transfer CPI fails; pending settlement remains until refund window expires |
+| State Change   | When Detected | Impact                                    |
+| -------------- | ------------- | ----------------------------------------- |
+| Account closed | `finalize`    | Transfer CPI fails; entire finalize fails |
+| Account frozen | `finalize`    | Transfer CPI fails; entire finalize fails |
 
-A frozen recipient creates a pending settlement that cannot finalize. The facilitator must issue a full refund before the refund window expires, or the funds remain locked until the client can void via deadman switch.
+With splits, finalize is all-or-nothing: if ANY recipient token account is frozen, closed, or invalid, the entire finalize fails. The facilitator must issue a full refund before the refund window expires, or the funds remain locked until the client can void via deadman switch.
 
-**Frozen Recipient Recovery:** When a `finalize` fails due to a frozen recipient, the facilitator has limited time to respond:
+**Frozen/Invalid Recipient Recovery:** When a `finalize` fails due to a problematic recipient, the facilitator has limited time to respond:
 
-| Scenario                                | Action Required                | Deadline                                          |
-| --------------------------------------- | ------------------------------ | ------------------------------------------------- |
-| Recipient frozen, refund window open    | Issue full refund via `refund` | Before `submitted_at_slot + refund_timeout_slots` |
-| Recipient frozen, refund window expired | No recovery possible           | Funds locked until deadman switch                 |
+| Scenario                                            | Action Required                | Deadline                                          |
+| --------------------------------------------------- | ------------------------------ | ------------------------------------------------- |
+| Any recipient frozen/invalid, refund window open    | Issue full refund via `refund` | Before `submitted_at_slot + refund_timeout_slots` |
+| Any recipient frozen/invalid, refund window expired | No recovery possible           | Funds locked until deadman switch                 |
 
-Facilitators should monitor `finalize` failures and alert on frozen recipient errors. The recommended `refund_timeout_slots` should account for facilitator response time to frozen recipient incidents (e.g., if facilitator SLA is 1 hour response time, refund timeout should be at least 2 hours of slots).
+Facilitators should monitor `finalize` failures and alert on recipient errors. The recommended `refund_timeout_slots` should account for facilitator response time to recipient incidents (e.g., if facilitator SLA is 1 hour response time, refund timeout should be at least 2 hours of slots).
 
 **Recommendations:**
 
-- Facilitators should re-validate recipient accounts before submission
+- Facilitators must validate ALL split recipient accounts off-chain (not just the first) against the merchant's declared policy
 - Prefer Associated Token Accounts (ATAs) as recipients since they are deterministic and unlikely to be closed
 - Facilitators may want to check freeze authority status for high-value settlements
 
@@ -627,9 +663,11 @@ pub fn refund(
 
 **Notes**: A full refund closes the pending settlement immediately rather than leaving a zero-amount settlement to be finalized later. This saves a transaction and returns rent to the facilitator promptly.
 
+**Refund and Splits**: Refund reduces `pending.amount`. The split percentages (bps) remain constant. The reduced amount is distributed proportionally at finalize time. For example, if a 100-token settlement with a 70/30 split is partially refunded to 50 tokens, finalize distributes 35 tokens (70%) and 15 tokens (30%).
+
 #### `finalize`
 
-Finalizes a pending settlement after the refund window expires.
+Finalizes a pending settlement after the refund window expires. Distributes funds to all split recipients proportionally.
 
 ```rust
 pub fn finalize(
@@ -644,18 +682,29 @@ pub fn finalize(
 - `escrow` (mut) - The escrow account (for updating `pending_count`)
 - `pending` (mut, close) - The pending settlement to finalize
 - `token_account` (mut) - Escrow's token account PDA for the settlement's mint
-- `recipient` (mut) - Merchant's token account (must match `pending.recipient`)
 - `facilitator` (mut) - Receives rent from closed pending settlement PDA
 - `token_program` - SPL Token program
+- Remaining accounts: `split_count` recipient token accounts (mut)
 
 **Constraints**: `current_slot >= submitted_at_slot + escrow.refund_timeout_slots`
 
+**Remaining Accounts**: The caller must pass exactly `pending.split_count` recipient token accounts as remaining accounts, in the same order as the `splits` array. Each account must be a valid SPL token account with a mint matching the settlement's mint.
+
 **Effects**:
 
-1. Transfer `pending_settlement.amount` from token account to `pending_settlement.recipient`
-2. Close PendingSettlement PDA
-3. Return rent to `escrow.facilitator`
-4. Decrement `escrow.pending_count`
+1. Validate `remaining_accounts.len() == pending.split_count`
+2. Validate each `remaining_accounts[i].key() == pending.splits[i].recipient` (prevents fund redirection)
+3. Validate each recipient is a valid token account with matching mint
+4. For each split `i` in `0..split_count`:
+   - Compute `transfer_amount = pending.amount * splits[i].bps / 10000`
+   - If `i == split_count - 1`: assign remainder (`pending.amount - sum_of_previous_transfers`) to avoid rounding dust
+   - Skip if `transfer_amount == 0` (can happen after heavy refunds)
+   - Execute SPL token transfer CPI from vault to recipient
+5. Close PendingSettlement PDA
+6. Return rent to `escrow.facilitator`
+7. Decrement `escrow.pending_count`
+
+**All-or-Nothing**: If any recipient token account is frozen, closed, or otherwise invalid, the entire finalize fails. There is no partial distribution. The facilitator must issue a full refund if any recipient becomes unavailable.
 
 **Notes**: The facilitator is incentivized to call finalize to reclaim their rent. Merchants can also call finalize to receive their funds promptly.
 
@@ -793,12 +842,14 @@ This two-phase approach:
 - **Maximum pending settlements**: 16 per escrow (enforced at `submit_authorization`)
 - **Maximum mints**: 8 per escrow (enforced at `deposit`)
 - **Maximum session keys**: Configurable per escrow (enforced at `register_session_key`)
+- **Maximum splits**: 5 per authorization (enforced at `submit_authorization`)
 
-| Resource            | Limit                      | Rationale                                                   |
-| ------------------- | -------------------------- | ----------------------------------------------------------- |
-| `pending_count`     | 16                         | Keeps void phase to ~4 transactions max                     |
-| `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction |
-| `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                     |
+| Resource            | Limit                      | Rationale                                                                               |
+| ------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| `pending_count`     | 16                         | Keeps void phase to ~4 transactions max                                                 |
+| `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction                             |
+| `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                                                 |
+| `MAX_SPLITS`        | 5                          | Covers practical use cases (platform + merchant + referral + royalties); batch-friendly |
 
 **Implication**: When `pending_count` reaches 16, `submit_authorization` returns `PendingLimitReached` error. Facilitators must finalize existing settlements before submitting new ones. This creates back-pressure that prevents unbounded accumulation.
 
@@ -895,18 +946,18 @@ pub struct PaymentAuthorization {
     /// Token mint
     pub mint: Pubkey,
 
-    /// Recipient (merchant) token account
-    pub recipient: Pubkey,
-
     /// Maximum amount authorized for this payment (in token base units)
     pub max_amount: u64,
 
     /// Monotonically increasing nonce (global, not per-recipient or per-mint)
     pub nonce: u64,
+
+    /// Split distribution (1-5 entries, bps must sum to 10000)
+    pub splits: Vec<SplitEntry>,
 }
 ```
 
-The message is serialized using Borsh and signed with the session key's Ed25519 private key.
+The message is serialized using Borsh and signed with the session key's Ed25519 private key. Because `splits` is a variable-length `Vec`, the serialized message includes a 4-byte length prefix followed by the split entries.
 
 **Why `program_id` is included:** Without the program ID in the signed message, an authorization signed for a devnet escrow could theoretically be submitted on mainnet if the same escrow address and session key exist on both chains. Including the program ID binds the authorization to a specific deployment.
 
@@ -942,7 +993,7 @@ When `submit_authorization` executes, it must find and validate the correspondin
    - Number of signatures (u8)
    - For each signature: pubkey offset, signature offset, message offset, message length
 
-5. **Validate message content**: Reconstruct the expected `PaymentAuthorization` message from the `submit_authorization` parameters (program_id, escrow, mint, recipient, max_amount, nonce) and serialize it with Borsh. The message in the Ed25519 instruction must match exactly.
+5. **Validate message content**: Reconstruct the expected `PaymentAuthorization` message from the `submit_authorization` parameters (program_id, escrow, mint, max_amount, nonce, splits) and serialize it with Borsh. The message in the Ed25519 instruction must match exactly. Because `splits` is variable-length, the message size varies; the Ed25519 instruction's message length field indicates the actual size.
 
 6. **Validate pubkey**: Confirm the verified pubkey matches the `session_key` account passed to `submit_authorization`.
 
@@ -1005,11 +1056,11 @@ The escrow account tracks a global `last_nonce`. Each authorization must have a 
 
 **Nonce Gap Consideration:** If a client signs authorizations with nonces 1, 2, 3 but the facilitator only submits nonce 3, nonces 1 and 2 become permanently unusable. This is by design - skipped authorizations cannot be submitted, so funds remain safe. Clients should track signed nonces and detect anomalies:
 
-| Condition                       | Severity | Action                                           |
-| ------------------------------- | -------- | ------------------------------------------------ |
-| Many consecutive skipped nonces | Warning  | Review facilitator behavior; consider new escrow |
-| Unknown pending settlements     | Critical | Revoke session key immediately                   |
-| Pending for unknown recipient   | Critical | Revoke session key; investigate compromise       |
+| Condition                             | Severity | Action                                           |
+| ------------------------------------- | -------- | ------------------------------------------------ |
+| Many consecutive skipped nonces       | Warning  | Review facilitator behavior; consider new escrow |
+| Unknown pending settlements           | Critical | Revoke session key immediately                   |
+| Pending with unknown split recipients | Critical | Revoke session key; investigate compromise       |
 
 ### Refund Window
 
@@ -1062,11 +1113,12 @@ Instructions that accept multiple accounts of the same type must validate that t
 
 **Instructions requiring duplicate checks:**
 
-| Instruction          | Accounts to Check            | Constraint                                  |
-| -------------------- | ---------------------------- | ------------------------------------------- |
-| `close_escrow`       | Token account pairs          | Each source/destination pair must be unique |
-| `emergency_close`    | Pending settlements          | Each pending PDA must be unique             |
-| `finalize` (batched) | Multiple pending settlements | Each settlement must be unique              |
+| Instruction          | Accounts to Check            | Constraint                                          |
+| -------------------- | ---------------------------- | --------------------------------------------------- |
+| `close_escrow`       | Token account pairs          | Each source/destination pair must be unique         |
+| `emergency_close`    | Pending settlements          | Each pending PDA must be unique                     |
+| `finalize`           | Split recipient accounts     | Each recipient in remaining_accounts must be unique |
+| `finalize` (batched) | Multiple pending settlements | Each settlement must be unique                      |
 
 **Implementation pattern:**
 
@@ -1107,13 +1159,13 @@ let tx = Transaction::new_with_payer(
     &[
         // Verification and submission for authorization 1
         ed25519_verify(session_key_1, message_1, sig_1),
-        submit_authorization(mint_1, recipient_1, max_1, settle_1, nonce_1, sig_1),
+        submit_authorization(mint_1, max_1, settle_1, nonce_1, splits_1, sig_1),
         // Verification and submission for authorization 2
         ed25519_verify(session_key_2, message_2, sig_2),
-        submit_authorization(mint_2, recipient_2, max_2, settle_2, nonce_2, sig_2),
+        submit_authorization(mint_2, max_2, settle_2, nonce_2, splits_2, sig_2),
         // Verification and submission for authorization 3
         ed25519_verify(session_key_3, message_3, sig_3),
-        submit_authorization(mint_1, recipient_3, max_3, settle_3, nonce_3, sig_3),
+        submit_authorization(mint_1, max_3, settle_3, nonce_3, splits_3, sig_3),
     ],
     Some(&facilitator.pubkey()),
 );
@@ -1135,7 +1187,17 @@ The following are practical considerations for implementers, not protocol-level 
 | With Address Lookup Tables | ~256 accounts | ~30+ submit_authorizations  |
 | Compute units              | 1,400,000 max | ~50 operations              |
 
-Transaction size is typically the binding constraint for `submit_authorization` since each creates a new PDA. `finalize` operations are more compact since they close PDAs.
+Transaction size is typically the binding constraint for `submit_authorization` since each creates a new PDA. `finalize` operations with splits require additional remaining accounts (one per split recipient), reducing the batch size for multi-recipient settlements.
+
+**Finalize Batching with Splits:**
+
+Each additional SPL token transfer CPI adds ~5,000 CU. The base `finalize` overhead (account deserialization, validation, PDA close) is ~20,000 CU, plus ~5,000 CU per transfer.
+
+| Metric              | Single Recipient | 5-Way Split |
+| ------------------- | ---------------- | ----------- |
+| finalize CU         | ~25,000          | ~45,000     |
+| finalize accounts   | 6                | 10          |
+| Finalize batch size | ~8-10            | ~6-7        |
 
 ## Integration with x402
 
@@ -1150,6 +1212,11 @@ Transaction size is typically the binding constraint for `submit_authorization` 
 The flex scheme extends standard x402 payment requirements with escrow-specific fields:
 
 ```typescript
+type SplitEntry = {
+  recipient: string; // token account pubkey (base58)
+  bps: number; // basis points (1-10000, must sum to 10000)
+};
+
 type FlexPaymentRequirements = {
   // Standard x402 fields
   scheme: "@faremeter/flex";
@@ -1164,6 +1231,9 @@ type FlexPaymentRequirements = {
   estimatedAmount: string; // Estimated cost (decimal string)
   maxAmount?: string; // Maximum authorized amount (decimal string)
   mint: string; // Preferred mint for this request (base58)
+
+  // Split policy
+  splits: SplitEntry[]; // Merchant's declared split distribution
 };
 ```
 
@@ -1187,9 +1257,9 @@ type FlexPaymentPayload = {
 
   // Authorization details (matches PaymentAuthorization struct)
   mint: string; // Token mint (base58)
-  recipient: string; // Merchant token account (base58)
   maxAmount: string; // Maximum amount authorized (decimal string)
   nonce: string; // Monotonic nonce (decimal string)
+  splits: SplitEntry[]; // Split distribution (replaces single recipient)
 
   // Session key signature
   sessionKey: string; // Session key pubkey (base58)
@@ -1224,18 +1294,18 @@ The facilitator batches settlements and submits them on-chain via `submit_author
 
 Estimated compute units per instruction (excluding transaction overhead):
 
-| Instruction            | Compute Units   | Notes                                         |
-| ---------------------- | --------------- | --------------------------------------------- |
-| `create_escrow`        | ~15,000 CU      | PDA derivation + account init                 |
-| `deposit`              | ~25,000 CU      | Token transfer CPI; +15,000 if init_if_needed |
-| `close_escrow`         | ~20,000 CU base | +10,000 per token account closed              |
-| `register_session_key` | ~12,000 CU      | PDA derivation + account init                 |
-| `revoke_session_key`   | ~8,000 CU       | Account update only                           |
-| `close_session_key`    | ~10,000 CU      | Account close                                 |
-| `submit_authorization` | ~35,000 CU      | Ed25519 introspection + PDA init              |
-| `refund`               | ~12,000 CU      | +5,000 if full refund (close)                 |
-| `finalize`             | ~25,000 CU      | Token transfer CPI + account close            |
-| `emergency_close`      | ~30,000 CU base | +15,000 per pending settlement closed         |
+| Instruction            | Compute Units     | Notes                                         |
+| ---------------------- | ----------------- | --------------------------------------------- |
+| `create_escrow`        | ~15,000 CU        | PDA derivation + account init                 |
+| `deposit`              | ~25,000 CU        | Token transfer CPI; +15,000 if init_if_needed |
+| `close_escrow`         | ~20,000 CU base   | +10,000 per token account closed              |
+| `register_session_key` | ~12,000 CU        | PDA derivation + account init                 |
+| `revoke_session_key`   | ~8,000 CU         | Account update only                           |
+| `close_session_key`    | ~10,000 CU        | Account close                                 |
+| `submit_authorization` | ~35,000 CU        | Ed25519 introspection + PDA init              |
+| `refund`               | ~12,000 CU        | +5,000 if full refund (close)                 |
+| `finalize`             | ~25,000-45,000 CU | ~20,000 base + ~5,000 per split recipient     |
+| `emergency_close`      | ~30,000 CU base   | +15,000 per pending settlement closed         |
 
 ## Rent Considerations
 
@@ -1244,7 +1314,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | Escrow Account     | ~170 bytes     | ~0.002 SOL          |
 | Token Account      | 165 bytes      | ~0.002 SOL          |
 | Session Key        | ~120 bytes     | ~0.001 SOL          |
-| Pending Settlement | ~170 bytes     | ~0.002 SOL          |
+| Pending Settlement | ~310 bytes     | ~0.003 SOL          |
 
 **Rent payers and recipients:**
 
@@ -1262,30 +1332,34 @@ Estimated compute units per instruction (excluding transaction overhead):
 
 ## Error Codes
 
-| Code | Name                        | Description                                                   |
-| ---- | --------------------------- | ------------------------------------------------------------- |
-| 6000 | SessionKeyExpired           | Session key has expired                                       |
-| 6001 | SessionKeyRevoked           | Session key revoked and grace period elapsed                  |
-| 6002 | InvalidNonce                | Nonce not strictly greater than last nonce                    |
-| 6003 | InvalidSignature            | Ed25519 signature verification failed                         |
-| 6004 | InsufficientBalance         | Token account balance insufficient                            |
-| 6005 | DeadmanNotExpired           | Cannot emergency close before timeout                         |
-| 6006 | UnauthorizedFacilitator     | Signer is not the registered facilitator                      |
-| 6007 | SessionKeyGracePeriodActive | Cannot close session key during grace period                  |
-| 6008 | PendingSettlementsExist     | Cannot close escrow with pending settlements                  |
-| 6009 | RefundWindowNotExpired      | Cannot finalize before refund timeout                         |
-| 6010 | RefundWindowExpired         | Cannot refund after refund timeout                            |
-| 6011 | RefundExceedsAmount         | Cannot refund more than pending amount                        |
-| 6012 | PendingCountMismatch        | Remaining accounts count does not match pending_count         |
-| 6013 | PendingLimitReached         | Maximum pending settlements (16) reached                      |
-| 6014 | MintLimitReached            | Maximum mints (8) per escrow reached                          |
-| 6015 | InvalidTokenAccountPair     | Token account pair validation failed                          |
-| 6016 | UnsupportedAccountVersion   | Account version not supported by this program                 |
-| 6017 | DuplicateAccounts           | Same account passed multiple times                            |
-| 6018 | SessionKeyLimitReached      | Maximum session keys per escrow reached                       |
-| 6019 | InvalidEd25519Instruction   | Ed25519 instruction malformed or missing required data        |
-| 6020 | InvalidRecipient            | Recipient is not a valid token account for the specified mint |
-| 6021 | ForceCloseTimeoutNotExpired | Cannot force close before extended timeout (2x deadman)       |
+| Code | Name                        | Description                                                                         |
+| ---- | --------------------------- | ----------------------------------------------------------------------------------- |
+| 6000 | SessionKeyExpired           | Session key has expired                                                             |
+| 6001 | SessionKeyRevoked           | Session key revoked and grace period elapsed                                        |
+| 6002 | InvalidNonce                | Nonce not strictly greater than last nonce                                          |
+| 6003 | InvalidSignature            | Ed25519 signature verification failed                                               |
+| 6004 | InsufficientBalance         | Token account balance insufficient                                                  |
+| 6005 | DeadmanNotExpired           | Cannot emergency close before timeout                                               |
+| 6006 | UnauthorizedFacilitator     | Signer is not the registered facilitator                                            |
+| 6007 | SessionKeyGracePeriodActive | Cannot close session key during grace period                                        |
+| 6008 | PendingSettlementsExist     | Cannot close escrow with pending settlements                                        |
+| 6009 | RefundWindowNotExpired      | Cannot finalize before refund timeout                                               |
+| 6010 | RefundWindowExpired         | Cannot refund after refund timeout                                                  |
+| 6011 | RefundExceedsAmount         | Cannot refund more than pending amount                                              |
+| 6012 | PendingCountMismatch        | Remaining accounts count does not match pending_count                               |
+| 6013 | PendingLimitReached         | Maximum pending settlements (16) reached                                            |
+| 6014 | MintLimitReached            | Maximum mints (8) per escrow reached                                                |
+| 6015 | InvalidTokenAccountPair     | Token account pair validation failed                                                |
+| 6016 | UnsupportedAccountVersion   | Account version not supported by this program                                       |
+| 6017 | DuplicateAccounts           | Same account passed multiple times                                                  |
+| 6018 | SessionKeyLimitReached      | Maximum session keys per escrow reached                                             |
+| 6019 | InvalidEd25519Instruction   | Ed25519 instruction malformed or missing required data                              |
+| 6020 | InvalidSplitRecipient       | Recipient is not a valid token account for the specified mint (checked at finalize) |
+| 6021 | ForceCloseTimeoutNotExpired | Cannot force close before extended timeout (2x deadman)                             |
+| 6022 | InvalidSplitCount           | splits.len() < 1 or > MAX_SPLITS                                                    |
+| 6023 | InvalidSplitBps             | Split bps do not sum to 10000                                                       |
+| 6024 | SplitBpsZero                | A split entry has bps == 0                                                          |
+| 6025 | DuplicateSplitRecipient     | Same recipient appears more than once in splits                                     |
 
 ## Event Emission
 
@@ -1344,7 +1418,7 @@ pub struct AuthorizationSubmitted {
     pub escrow: Pubkey,
     pub nonce: u64,
     pub mint: Pubkey,
-    pub recipient: Pubkey,
+    pub splits: Vec<SplitEntry>,
     pub max_amount: u64,
     pub settle_amount: u64,
     pub session_key: Pubkey,
@@ -1363,8 +1437,8 @@ pub struct Finalized {
     pub escrow: Pubkey,
     pub nonce: u64,
     pub mint: Pubkey,
-    pub recipient: Pubkey,
-    pub amount: u64,
+    pub splits: Vec<SplitEntry>,
+    pub total_amount: u64,
 }
 ```
 
