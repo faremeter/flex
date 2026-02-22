@@ -77,6 +77,7 @@ pub authority: AccountInfo<'info>,
 ### Critical Use Cases
 
 Always verify signatures when:
+
 - Transferring funds
 - Modifying account data
 - Closing accounts
@@ -136,6 +137,7 @@ authority: Signer<'info>,
 ### Critical Use Cases
 
 Always validate relationships when:
+
 - Checking account ownership
 - Verifying token account authority
 - Validating vault ownership
@@ -218,6 +220,7 @@ For SPL Token accounts, Anchor validates owner is `TokenkegQfeZyiNwAJbNbGKPFXCWu
 ### Critical Use Cases
 
 Always use typed accounts for:
+
 - SPL token accounts (`TokenAccount`, `Mint`)
 - Program-owned accounts
 - Associated token accounts
@@ -270,10 +273,12 @@ pub struct Metadata {
 ```
 
 **Why it works:** The `#[account]` macro adds an 8-byte discriminator:
+
 - User discriminator: `hash("account:User")`
 - Metadata discriminator: `hash("account:Metadata")`
 
 When using `Account<'info, User>`, Anchor:
+
 1. Reads first 8 bytes
 2. Compares to User discriminator
 3. Rejects if mismatch
@@ -291,6 +296,7 @@ Metadata discriminator: hash("account:Metadata")[..8]
 ### Critical Use Cases
 
 Discriminators protect against:
+
 - Malicious account substitution
 - Accidental type confusion
 - Cross-account type attacks
@@ -350,6 +356,7 @@ pub struct User {
 ```
 
 **Why it works:** The `init` constraint:
+
 1. Checks account doesn't exist (lamports == 0 or data is empty)
 2. Creates account via system program CPI
 3. Sets discriminator
@@ -364,12 +371,12 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
     // Check if already initialized by verifying discriminator
     let discriminator = User::discriminator();
     let account_discriminator = &ctx.accounts.user.to_account_info().data.borrow()[..8];
-    
+
     require!(
         account_discriminator != discriminator,
         ErrorCode::AlreadyInitialized
     );
-    
+
     // Now safe to initialize
     ctx.accounts.user.authority = ctx.accounts.authority.key();
     Ok(())
@@ -381,6 +388,7 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
 ### Critical Use Cases
 
 Use `init` for:
+
 - Account creation
 - First-time setup
 - Escrow account creation
@@ -463,6 +471,7 @@ The function automatically validates program ID matches expected address.
 ### Critical Use Cases
 
 Always validate program addresses for:
+
 - Token transfers
 - Associated token account creation
 - System program calls
@@ -535,7 +544,7 @@ pub fn update(ctx: Context<Update>, a: u64, b: u64) -> ProgramResult {
         ctx.accounts.user_b.key(),
         ErrorCode::DuplicateAccounts
     );
-    
+
     ctx.accounts.user_a.data = a;
     ctx.accounts.user_b.data = b;
     Ok(())
@@ -556,6 +565,7 @@ pub account: Account<'info, Data>,
 ### Critical Use Cases
 
 Check for duplicates when:
+
 - Multiple accounts of same type
 - Transfer between accounts
 - Batch operations on accounts
@@ -714,6 +724,7 @@ pub struct TokenPool {
 ```
 
 **Why it works:**
+
 - `has_one = vault` checks `pool.vault == vault.key()`
 - `has_one = withdraw_destination` checks `pool.withdraw_destination == withdraw_destination.key()`
 - `seeds` constraint validates PDA derivation
@@ -733,6 +744,7 @@ pub pending: Account<'info, PendingSettlement>,
 ```
 
 **Validates:**
+
 1. Pending settlement belongs to correct escrow
 2. Uses correct session key
 3. Derived with correct seeds
@@ -774,11 +786,13 @@ pub struct Data {
 ```
 
 **What `close` does:**
+
 1. Transfers all lamports to `destination`
 2. Zeroes all account data
 3. Sets account owner to system program
 
 **Prevents:**
+
 - Account revival attacks
 - Data leakage after closure
 - Rent not being returned
@@ -790,19 +804,19 @@ If manually closing (avoid if possible):
 ```rust
 pub fn close_manually(ctx: Context<CloseManual>) -> Result<()> {
     let dest_starting_lamports = ctx.accounts.destination.lamports();
-    
+
     // Transfer lamports
     **ctx.accounts.destination.lamports.borrow_mut() = dest_starting_lamports
         .checked_add(ctx.accounts.account.to_account_info().lamports())
         .unwrap();
     **ctx.accounts.account.to_account_info().lamports.borrow_mut() = 0;
-    
+
     // Zero data
     let mut data = ctx.accounts.account.to_account_info().data.borrow_mut();
     for byte in data.deref_mut().iter_mut() {
         *byte = 0;
     }
-    
+
     Ok(())
 }
 ```
@@ -823,6 +837,7 @@ pub escrow: Account<'info, EscrowAccount>,
 ```
 
 **Ensures:**
+
 - No pending settlements remain
 - Rent returned to owner
 - Account properly closed
@@ -890,6 +905,7 @@ Sysvar<'info, Rent>
 ### Critical Use Cases
 
 Validate sysvar addresses when using:
+
 - Clock (for time-based logic)
 - Rent (for rent calculations)
 - Slot hashes
@@ -945,7 +961,7 @@ pub fn submit_authorization(
         nonce > ctx.accounts.escrow.last_nonce,
         ErrorCode::InvalidNonce
     );
-    
+
     ctx.accounts.escrow.last_nonce = nonce;
     // ...
 }
@@ -1023,6 +1039,7 @@ require!(
 Use this comprehensive checklist when reviewing Anchor programs:
 
 ### Account Validation
+
 - [ ] All authorities use `Signer<'info>` type
 - [ ] Account relationships verified with `has_one` or `constraint`
 - [ ] Account owners validated (use `Account<'info, T>` for program accounts)
@@ -1030,6 +1047,7 @@ Use this comprehensive checklist when reviewing Anchor programs:
 - [ ] All accounts have appropriate type (not just `AccountInfo`)
 
 ### PDA Security
+
 - [ ] PDAs use canonical bumps (empty `bump` on init, stored bump on use)
 - [ ] PDA seeds properly validated with `seeds` constraint
 - [ ] PDA relationships verified with `has_one`
@@ -1037,6 +1055,7 @@ Use this comprehensive checklist when reviewing Anchor programs:
 - [ ] Cross-program PDAs use `seeds::program` if needed
 
 ### Initialization and Lifecycle
+
 - [ ] Accounts initialized with `init` constraint
 - [ ] No manual initialization without discriminator check
 - [ ] Account closure uses `close` constraint
@@ -1045,12 +1064,14 @@ Use this comprehensive checklist when reviewing Anchor programs:
 - [ ] Revival attacks prevented
 
 ### CPI Security
+
 - [ ] CPI target programs validated with `Program<'info, T>`
 - [ ] No arbitrary CPIs to unverified programs
 - [ ] CPI signers properly configured with seeds
 - [ ] Privilege extension understood and intentional
 
 ### Input Validation
+
 - [ ] No duplicate mutable accounts (unless intentional with `dup`)
 - [ ] Numeric bounds checked (amounts, indices, etc.)
 - [ ] Nonces monotonically increasing
@@ -1058,17 +1079,20 @@ Use this comprehensive checklist when reviewing Anchor programs:
 - [ ] String/Vec lengths bounded
 
 ### Sysvar Usage
+
 - [ ] Sysvar accounts use `Sysvar<'info, T>` type
 - [ ] Sysvar addresses validated with `address` constraint
 - [ ] Clock used correctly for time-based logic
 
 ### Error Handling
+
 - [ ] All errors have descriptive messages
 - [ ] Custom error codes start at 6000
 - [ ] Constraints use custom errors where appropriate
 - [ ] Critical conditions checked with `require!`
 
 ### State Management
+
 - [ ] Counter fields updated atomically
 - [ ] State transitions validated
 - [ ] Account relationships maintained
@@ -1077,15 +1101,18 @@ Use this comprehensive checklist when reviewing Anchor programs:
 ## Skill Loading Guidance
 
 ### ALWAYS Load With
+
 - **anchor-core** - Core patterns prerequisite
 - **This skill should ALWAYS be loaded** - Security is not optional
 
 ### Load Before Writing
+
 - Any Anchor program code
 - Any Anchor program review
 - Any security-critical operation
 
 ### Related Skills
+
 - **anchor-core** - For constraint syntax and account types
 - **anchor-pdas** - For PDA security (canonical bumps, validation)
 - **anchor-cpis** - For CPI security (program validation)
@@ -1094,10 +1121,12 @@ Use this comprehensive checklist when reviewing Anchor programs:
 ## Reference Links
 
 ### Official Documentation
+
 - [Anchor Security Documentation](https://www.anchor-lang.com/docs/references/security-exploits)
 - [Solana Security Best Practices](https://docs.solana.com/developing/programming-model/security)
 
 ### Source Material
+
 - [Sealevel Attacks Repository](https://github.com/coral-xyz/sealevel-attacks) - Complete security examples
   - [0-Signer Authorization](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/0-signer-authorization)
   - [1-Account Data Matching](https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/1-account-data-matching)

@@ -222,6 +222,7 @@ account_info.is_writable // bool
 ## Slot-Based Timing
 
 **Why slots instead of timestamps?**
+
 - More predictable
 - Tied to chain state
 - No clock drift issues
@@ -240,14 +241,14 @@ let current_slot = clock.slot;
 ```rust
 pub fn finalize(ctx: Context<Finalize>) -> Result<()> {
     let clock = Clock::get()?;
-    
+
     // Check timeout elapsed
     require!(
-        clock.slot >= ctx.accounts.pending.submitted_at_slot 
+        clock.slot >= ctx.accounts.pending.submitted_at_slot
             + ctx.accounts.escrow.refund_timeout_slots,
         ErrorCode::RefundWindowNotExpired
     );
-    
+
     // Proceed with finalization
     Ok(())
 }
@@ -345,17 +346,17 @@ pub fn submit_authorization(
         amount,
         nonce,
     };
-    
+
     // Serialize for verification
     let message_bytes = message.try_to_vec()?;
-    
+
     // Verify signature (implementation below)
     verify_ed25519_signature(
         &message_bytes,
         &signature,
         ctx.accounts.session_key.key.as_ref(),
     )?;
-    
+
     Ok(())
 }
 ```
@@ -372,10 +373,10 @@ use anchor_lang::solana_program::sysvar::instructions;
 pub fn submit_with_ed25519_ix(ctx: Context<Submit>) -> Result<()> {
     // Get instructions sysvar
     let ix_sysvar = &ctx.accounts.instruction_sysvar;
-    
+
     // Verify Ed25519 instruction exists and validates
     // (Implementation details depend on instruction format)
-    
+
     Ok(())
 }
 
@@ -404,11 +405,11 @@ fn verify_signature(
     let pubkey = PublicKey::from_bytes(public_key)
         .map_err(|_| error!(ErrorCode::InvalidPublicKey))?;
     let sig = Signature::from_bytes(signature);
-    
+
     pubkey
         .verify(message, &sig)
         .map_err(|_| error!(ErrorCode::InvalidSignature))?;
-    
+
     Ok(())
 }
 ```
@@ -435,6 +436,7 @@ let bytes = id.to_le_bytes();  // [u8; 4]
 ```
 
 **Why little-endian?**
+
 - Solana uses little-endian architecture
 - Consistency with on-chain data layout
 - Standard in Solana ecosystem
@@ -518,17 +520,19 @@ pub struct Dynamic {
 ```
 
 **String:** 4 bytes length + max bytes  
-**Vec:** 4 bytes length + (max count * item size)
+**Vec:** 4 bytes length + (max count \* item size)
 
 ## Compute Unit Optimization
 
 ### Understanding Compute Units (CU)
 
 Solana transactions have compute budget:
+
 - Default: 200,000 CU per transaction
 - Maximum: 1,400,000 CU (with compute budget program)
 
 **Common operation costs:**
+
 - Account read: ~1,000 CU
 - Ed25519 verify: ~25,000 CU
 - SHA256 hash: ~500 CU
@@ -620,11 +624,13 @@ pub struct LargeAccount {
 ```
 
 **Benefits:**
+
 - No deserialization cost
 - Direct memory access
 - Lower compute usage
 
 **Trade-offs:**
+
 - Unsafe access patterns
 - Manual validation needed
 
@@ -635,6 +641,7 @@ pub struct LargeAccount {
 ### When to Use AccountInfo
 
 Use `AccountInfo` when you need:
+
 - Direct lamport manipulation
 - Raw data access
 - Owner changes
@@ -687,7 +694,7 @@ pub fn submit_authorization(
         ctx.accounts.escrow.key().as_ref(),
         &nonce.to_le_bytes(),  // u64 → [u8; 8]
     ];
-    
+
     Ok(())
 }
 ```
@@ -717,13 +724,13 @@ let bytes = message.try_to_vec()?;
 ```rust
 pub fn finalize(ctx: Context<Finalize>) -> Result<()> {
     let clock = Clock::get()?;
-    
+
     require!(
-        clock.slot >= ctx.accounts.pending.submitted_at_slot 
+        clock.slot >= ctx.accounts.pending.submitted_at_slot
             + ctx.accounts.escrow.refund_timeout_slots,
         ErrorCode::RefundWindowNotExpired
     );
-    
+
     // Finalize settlement
     Ok(())
 }
@@ -732,6 +739,7 @@ pub fn finalize(ctx: Context<Finalize>) -> Result<()> {
 ## Skill Loading Guidance
 
 ### Load This Skill When
+
 - Implementing signature verification
 - Working with slot-based timing
 - Optimizing compute usage
@@ -739,6 +747,7 @@ pub fn finalize(ctx: Context<Finalize>) -> Result<()> {
 - Working with low-level account operations
 
 ### Related Skills
+
 - **anchor-core** - For integration with Anchor patterns
 - **anchor-pdas** - For byte conversions in seeds
 - **anchor-security** - For security implications of timing
@@ -746,16 +755,19 @@ pub fn finalize(ctx: Context<Finalize>) -> Result<()> {
 ## Reference Links
 
 ### Official Documentation
+
 - [Solana Rust Documentation](https://docs.rs/solana-program/latest/solana_program/)
 - [Solana Clock Sysvar](https://docs.rs/solana-program/latest/solana_program/clock/struct.Clock.html)
 - [Borsh Specification](https://borsh.io/)
 - [Anchor Zero-Copy](https://www.anchor-lang.com/docs/features/zero-copy)
 
 ### Solana Architecture
+
 - [Solana BPF](https://docs.solana.com/developing/on-chain-programs/overview)
 - [Solana Compute Budget](https://docs.solana.com/developing/programming-model/runtime#compute-budget)
 
 ### Source Material
+
 - Design document: `/docs/flex-solana.md` - Escrow-specific patterns
 - Solana Program Library examples
 

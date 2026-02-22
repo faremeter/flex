@@ -114,10 +114,10 @@ Code should be self-documenting. Do not add comments that describe what the code
 ```typescript
 // Bad - obvious comments
 // Base configuration type for all backends
-BaseConfigArgs = { level: LogLevel }
+BaseConfigArgs = { level: LogLevel };
 
 // Good - let code speak for itself
-BaseConfigArgs = { level: LogLevel }
+BaseConfigArgs = { level: LogLevel };
 ```
 
 Decorative comment blocks (ASCII art dividers, section headers) add visual noise without providing meaningful information.
@@ -642,25 +642,25 @@ Run `cargo fmt` or `make format-anchor` to auto-format Rust files.
 
 #### Files and Modules
 
-| Type           | Convention  | Example                            |
-| -------------- | ----------- | ---------------------------------- |
-| Modules        | snake_case  | `escrow_account.rs`, `session.rs`  |
-| Test files     | snake_case  | `escrow_test.rs`                   |
+| Type       | Convention | Example                           |
+| ---------- | ---------- | --------------------------------- |
+| Modules    | snake_case | `escrow_account.rs`, `session.rs` |
+| Test files | snake_case | `escrow_test.rs`                  |
 
 #### Functions and Variables
 
-| Pattern              | Use Case              | Example                              |
-| -------------------- | --------------------- | ------------------------------------ |
-| `snake_case`         | Functions, variables  | `create_escrow`, `last_nonce`        |
-| `SCREAMING_SNAKE`    | Constants             | `MAX_TIMEOUT_SLOTS`, `SEED_PREFIX`   |
-| `_` prefix           | Unused parameters     | `_ctx`, `_bump`                      |
+| Pattern           | Use Case             | Example                            |
+| ----------------- | -------------------- | ---------------------------------- |
+| `snake_case`      | Functions, variables | `create_escrow`, `last_nonce`      |
+| `SCREAMING_SNAKE` | Constants            | `MAX_TIMEOUT_SLOTS`, `SEED_PREFIX` |
+| `_` prefix        | Unused parameters    | `_ctx`, `_bump`                    |
 
 #### Types
 
-| Pattern      | Use Case                    | Example                                |
-| ------------ | --------------------------- | -------------------------------------- |
-| `CamelCase`  | Structs, enums, traits      | `EscrowAccount`, `SessionKey`          |
-| `CamelCase`  | Type aliases                | `Result<T>`, `ProgramResult`           |
+| Pattern     | Use Case               | Example                       |
+| ----------- | ---------------------- | ----------------------------- |
+| `CamelCase` | Structs, enums, traits | `EscrowAccount`, `SessionKey` |
+| `CamelCase` | Type aliases           | `Result<T>`, `ProgramResult`  |
 
 #### Acronyms in Names
 

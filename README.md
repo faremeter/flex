@@ -72,13 +72,13 @@ Session keys enable clients to authorize payments without needing the escrow acc
 
 ## Comparison with Exact Scheme
 
-| Aspect | Exact Scheme | Flex Scheme |
-|--------|--------------|-------------|
-| Payment timing | Per-request, upfront | Post-request, from prepaid balance |
-| Amount knowledge | Must know before request | Determined after request |
-| On-chain transactions | One per request | Batched settlements |
-| Client complexity | Build and sign transactions | Fund account once, authenticate requests |
-| Use cases | Fixed-price APIs | Metered usage, streaming, variable pricing |
+| Aspect                | Exact Scheme                | Flex Scheme                                |
+| --------------------- | --------------------------- | ------------------------------------------ |
+| Payment timing        | Per-request, upfront        | Post-request, from prepaid balance         |
+| Amount knowledge      | Must know before request    | Determined after request                   |
+| On-chain transactions | One per request             | Batched settlements                        |
+| Client complexity     | Build and sign transactions | Fund account once, authenticate requests   |
+| Use cases             | Fixed-price APIs            | Metered usage, streaming, variable pricing |
 
 ## Refunds
 
@@ -96,6 +96,7 @@ The facilitator pays on-chain transaction fees when batching settlements. This c
 ## Chain Support
 
 The flex scheme is designed to work on any chain that supports:
+
 - Multi-signature or shared-authority token accounts
 - Payment channel primitives (or equivalent escrow mechanisms)
 
