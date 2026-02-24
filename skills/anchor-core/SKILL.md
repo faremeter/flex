@@ -522,7 +522,7 @@ Resizes account at beginning of instruction.
 
 ```rust
 #[account(
-    seeds = [b"escrow", owner.key().as_ref()],
+    seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
     bump
 )]
 pub escrow: Account<'info, EscrowAccount>,
@@ -535,7 +535,7 @@ pub escrow: Account<'info, EscrowAccount>,
     init,
     payer = owner,
     space = 8 + EscrowAccount::INIT_SPACE,
-    seeds = [b"escrow", owner.key().as_ref()],
+    seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()],
     bump
 )]
 ```
@@ -546,7 +546,7 @@ Access the bump: `ctx.bumps.escrow`
 
 ```rust
 #[account(
-    seeds = [b"escrow", owner.key().as_ref()],
+    seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
     bump = escrow.bump
 )]
 pub escrow: Account<'info, EscrowAccount>,
@@ -854,7 +854,7 @@ Order constraints logically:
     space = 8 + EscrowAccount::INIT_SPACE,
 
     // 2. PDA (seeds, bump)
-    seeds = [b"escrow", owner.key().as_ref()],
+    seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()],
     bump,
 
     // 3. Validation (mut, has_one, constraint)
@@ -874,7 +874,7 @@ pub struct SubmitAuthorization<'info> {
     #[account(
         mut,
         has_one = facilitator,
-        seeds = [b"escrow", owner.key().as_ref()],
+        seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump,
     )]
     pub escrow: Account<'info, EscrowAccount>,

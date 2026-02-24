@@ -258,8 +258,8 @@ seeds = [b"achievements", user.key().as_ref()]
 Derive accounts from other account addresses:
 
 ```rust
-// Escrow account (per owner)
-seeds = [b"escrow", owner.key().as_ref()]
+// Escrow account (per owner, per index)
+seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()]
 
 // Token account (per escrow, per mint)
 seeds = [b"token", escrow.key().as_ref(), mint.key().as_ref()]
@@ -517,8 +517,8 @@ seeds = [b"pending", ...]        // Pending settlement account
 Use account addresses or unique identifiers:
 
 ```rust
-// Per-user account
-seeds = [b"escrow", owner.key().as_ref()]
+// Per-user, per-index account
+seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()]
 
 // Per-escrow, per-mint account
 seeds = [b"token", escrow.key().as_ref(), mint.key().as_ref()]
@@ -590,7 +590,7 @@ pub struct CreateEscrow<'info> {
         init,
         payer = owner,
         space = 8 + EscrowAccount::INIT_SPACE,
-        seeds = [b"escrow", owner.key().as_ref()],
+        seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()],
         bump
     )]
     pub escrow: Account<'info, EscrowAccount>,
@@ -632,7 +632,7 @@ pub struct InitializeVault<'info> {
 pub struct CreatePendingSettlement<'info> {
     #[account(
         mut,
-        seeds = [b"escrow", owner.key().as_ref()],
+        seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>,

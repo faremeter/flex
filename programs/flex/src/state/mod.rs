@@ -16,6 +16,7 @@ pub struct EscrowAccount {
     pub version: u8,
     pub owner: Pubkey,
     pub facilitator: Pubkey,
+    pub index: u64,
     pub last_nonce: u64,
     pub pending_count: u64,
     pub mint_count: u64,

@@ -335,7 +335,7 @@ pub struct InitializeVault<'info> {
     )]
     pub vault: Account<'info, TokenAccount>,
     #[account(
-        seeds = [b"escrow", owner.key().as_ref()],
+        seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>,
@@ -568,7 +568,7 @@ pub struct Deposit<'info> {
     )]
     pub vault: Account<'info, TokenAccount>,
     #[account(
-        seeds = [b"escrow", user.key().as_ref()],
+        seeds = [b"escrow", user.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>,

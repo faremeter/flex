@@ -452,7 +452,7 @@ let bytes = pubkey.as_ref();  // &[u8; 32]
 let bytes = pubkey.to_bytes();  // [u8; 32]
 
 // In seeds
-seeds = [b"escrow", owner.key().as_ref()]
+seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()]
 ```
 
 ### Strings to Bytes
