@@ -625,7 +625,7 @@ Key rules and their implications:
 
 ### Cargo Configuration
 
-The project uses Rust edition 2024 with strict clippy settings.
+The project uses Rust edition 2021 with strict clippy settings.
 
 ### Code Formatting
 
