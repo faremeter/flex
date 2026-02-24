@@ -1,0 +1,19 @@
+[toolchain]
+anchor_version = "0.32.0"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+flex = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "bun test"
