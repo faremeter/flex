@@ -7,6 +7,7 @@ pub struct EscrowCreated {
     pub escrow: Pubkey,
     pub owner: Pubkey,
     pub facilitator: Pubkey,
+    pub index: u64,
     pub refund_timeout_slots: u64,
     pub deadman_timeout_slots: u64,
 }
@@ -15,6 +16,7 @@ pub struct EscrowCreated {
 pub struct EscrowClosed {
     pub escrow: Pubkey,
     pub owner: Pubkey,
+    pub index: u64,
     pub emergency: bool,
 }
 

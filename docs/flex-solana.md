@@ -11,7 +11,7 @@ The Solana implementation uses a custom Anchor program to manage escrow accounts
 ### Account Hierarchy
 
 ```
-Escrow Account (per client)
+Escrow Account (per client, indexed)
 ├── Owner: Client pubkey
 ├── Facilitator: Single authorized facilitator
 ├── Token Accounts: One PDA per mint
@@ -23,10 +23,29 @@ Escrow Account (per client)
 
 | Account Type       | Seeds                                                               | Authority            |
 | ------------------ | ------------------------------------------------------------------- | -------------------- |
-| Escrow Account     | `[b"escrow", owner.key().as_ref()]`                                 | Owner + Facilitator  |
+| Escrow Account     | `[b"escrow", owner.key().as_ref(), &index.to_le_bytes()]`           | Owner + Facilitator  |
 | Token Account      | `[b"token", escrow.key().as_ref(), mint.key().as_ref()]`            | Program (PDA signer) |
 | Session Key        | `[b"session", escrow.key().as_ref(), session_key.as_ref()]`         | Owner                |
 | Pending Settlement | `[b"pending", escrow.key().as_ref(), nonce.to_le_bytes().as_ref()]` | Facilitator          |
+
+### Client Discovery
+
+Because the escrow PDA includes a numeric `index`, clients cannot derive a single canonical address. Instead, clients discover their escrow accounts using `getProgramAccounts` with `memcmp` filters on the serialized account data.
+
+**Byte offsets** (after the 8-byte Anchor discriminator):
+
+| Field       | Type   | Offset | Size |
+| ----------- | ------ | ------ | ---- |
+| version     | u8     | 8      | 1    |
+| owner       | Pubkey | 9      | 32   |
+| facilitator | Pubkey | 41     | 32   |
+| index       | u64    | 73     | 8    |
+
+Common queries:
+
+- **All escrows for an owner:** `memcmp` at offset 9 with the owner's pubkey (32 bytes).
+- **Escrow for a specific owner + facilitator:** Two `memcmp` filters, one at offset 9 (owner) and one at offset 41 (facilitator).
+- **Escrow by owner + index:** `memcmp` at offset 9 (owner) and `memcmp` at offset 73 (index as 8-byte little-endian).
 
 ### Dual Authorization Model
 
@@ -54,6 +73,9 @@ pub struct EscrowAccount {
 
     /// Authorized facilitator
     pub facilitator: Pubkey,
+
+    /// Numeric index allowing multiple escrows per owner
+    pub index: u64,
 
     /// Global nonce for replay protection
     pub last_nonce: u64,
@@ -1373,6 +1395,7 @@ pub struct EscrowCreated {
     pub escrow: Pubkey,
     pub owner: Pubkey,
     pub facilitator: Pubkey,
+    pub index: u64,
     pub refund_timeout_slots: u64,
     pub deadman_timeout_slots: u64,
 }
@@ -1381,6 +1404,7 @@ pub struct EscrowCreated {
 pub struct EscrowClosed {
     pub escrow: Pubkey,
     pub owner: Pubkey,
+    pub index: u64,
     /// True if closed via emergency_close, false if normal close
     pub emergency: bool,
 }
