@@ -440,8 +440,13 @@ it("Fails when unauthorized", async () => {
 
 ```typescript
 it("Creates escrow account", async () => {
+  const index = new anchor.BN(0);
   const [escrowPDA] = await PublicKey.findProgramAddress(
-    [Buffer.from("escrow"), owner.publicKey.toBuffer()],
+    [
+      Buffer.from("escrow"),
+      owner.publicKey.toBuffer(),
+      index.toArrayLike(Buffer, "le", 8),
+    ],
     program.programId,
   );
 
@@ -610,8 +615,13 @@ async function createEscrow(
   owner: Keypair,
   facilitator: Keypair,
 ): Promise<PublicKey> {
+  const index = new anchor.BN(0);
   const [escrowPDA] = await PublicKey.findProgramAddress(
-    [Buffer.from("escrow"), owner.publicKey.toBuffer()],
+    [
+      Buffer.from("escrow"),
+      owner.publicKey.toBuffer(),
+      index.toArrayLike(Buffer, "le", 8),
+    ],
     program.programId,
   );
 

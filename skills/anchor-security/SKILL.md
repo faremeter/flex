@@ -149,7 +149,7 @@ Always validate relationships when:
 ```rust
 #[account(
     has_one = facilitator,
-    seeds = [b"escrow", owner.key().as_ref()],
+    seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
     bump = escrow.bump
 )]
 pub escrow: Account<'info, EscrowAccount>,
@@ -940,7 +940,7 @@ pub struct SubmitAuthorization<'info> {
     #[account(
         mut,
         has_one = facilitator,  // Validates facilitator relationship
-        seeds = [b"escrow", owner.key().as_ref()],
+        seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>,

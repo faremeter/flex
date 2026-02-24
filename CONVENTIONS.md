@@ -693,7 +693,7 @@ pub struct CreateEscrow<'info> {
         init,
         payer = owner,
         space = 8 + EscrowAccount::INIT_SPACE,
-        seeds = [b"escrow", owner.key().as_ref()],
+        seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()],
         bump,
     )]
     pub escrow: Account<'info, EscrowAccount>,
@@ -724,7 +724,7 @@ Store PDA bumps in account data and use canonical bumps:
 
 ```rust
 #[account(
-    seeds = [b"escrow", owner.key().as_ref()],
+    seeds = [b"escrow", owner.key().as_ref(), &escrow.index.to_le_bytes()],
     bump = escrow.bump,
 )]
 pub escrow: Account<'info, EscrowAccount>,
