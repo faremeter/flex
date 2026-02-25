@@ -290,7 +290,7 @@ pub fn deposit(
 - `escrow` (mut) - The escrow account (for updating `mint_count`)
 - `depositor` (signer, mut) - Party depositing tokens; pays rent if token account is created
 - `mint` - SPL token mint
-- `token_account` (init_if_needed, PDA) - Created lazily if it doesn't exist
+- `token_account` (unchecked, mut, PDA) - Passed as `UncheckedAccount`; created via CPI if empty, validated if existing
 - `source` - Depositor's token account (must have sufficient balance)
 - `token_program` - SPL Token program
 - `system_program` - System program (for account creation)
@@ -301,17 +301,16 @@ pub fn deposit(
 - `amount > 0`
 
 **Token Account Creation**:
-When the token account PDA does not exist:
+The token account PDA is passed as an `UncheckedAccount` with seed validation. The handler checks `data_is_empty()` on the account to determine whether it needs to be created:
 
-1. The depositor pays rent (~0.002 SOL) for the new token account
-2. `escrow.mint_count` is incremented
-3. Token account is initialized with:
-   - Mint: the provided mint
-   - Owner/Authority: escrow PDA (program signs for transfers)
+- **If empty** (account does not exist): the handler creates the token account via CPI (`create_account` + `initialize_account3`), with the depositor as payer and the escrow PDA as token authority. `escrow.mint_count` is incremented after validating the mint limit.
+- **If not empty** (account exists): the handler deserializes the account as a `TokenAccount` and validates that its mint and authority match the expected values.
+
+This approach avoids `init_if_needed`, which hides whether the account was created or already existed. Without reliable creation detection, `mint_count` could be incorrectly incremented when depositing into a vault that was previously drained to zero by `finalize` -- making the escrow uncloseable.
 
 **Effects**:
 
-1. If token account doesn't exist: create it, increment `mint_count`
+1. If token account doesn't exist: create it via CPI, increment `mint_count`
 2. Transfer `amount` tokens from `source` to escrow token account PDA
 3. Emit `Deposited` event
 
