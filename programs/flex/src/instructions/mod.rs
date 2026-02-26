@@ -1,14 +1,20 @@
 pub mod close_escrow;
+pub mod close_session_key;
 pub mod close_token_accounts;
 pub mod create_escrow;
 pub mod deposit;
 pub mod emergency_close;
 pub mod force_close;
+pub mod register_session_key;
+pub mod revoke_session_key;
 pub mod void_pending;
 
 pub use close_escrow::*;
+pub use close_session_key::*;
 pub use create_escrow::*;
 pub use deposit::*;
 pub use emergency_close::*;
 pub use force_close::*;
+pub use register_session_key::*;
+pub use revoke_session_key::*;
 pub use void_pending::*;

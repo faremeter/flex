@@ -79,4 +79,10 @@ pub enum FlexError {
 
     #[msg("Duplicate recipient in splits")]
     DuplicateSplitRecipient,
+
+    #[msg("Session key must be revoked before closing")]
+    SessionKeyStillActive,
+
+    #[msg("Session key count underflow")]
+    SessionKeyCountUnderflow,
 }

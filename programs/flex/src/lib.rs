@@ -39,6 +39,28 @@ pub mod flex {
         instructions::deposit(ctx, amount)
     }
 
+    pub fn register_session_key(
+        ctx: Context<RegisterSessionKey>,
+        session_key: Pubkey,
+        expires_at_slot: Option<u64>,
+        revocation_grace_period_slots: u64,
+    ) -> Result<()> {
+        instructions::register_session_key(
+            ctx,
+            session_key,
+            expires_at_slot,
+            revocation_grace_period_slots,
+        )
+    }
+
+    pub fn revoke_session_key(ctx: Context<RevokeSessionKey>) -> Result<()> {
+        instructions::revoke_session_key(ctx)
+    }
+
+    pub fn close_session_key(ctx: Context<CloseSessionKey>) -> Result<()> {
+        instructions::close_session_key(ctx)
+    }
+
     pub fn close_escrow<'info>(ctx: Context<'_, '_, '_, 'info, CloseEscrow<'info>>) -> Result<()> {
         instructions::close_escrow(ctx)
     }
