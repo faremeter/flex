@@ -1381,6 +1381,8 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6023 | InvalidSplitBps             | Split bps do not sum to 10000                                                       |
 | 6024 | SplitBpsZero                | A split entry has bps == 0                                                          |
 | 6025 | DuplicateSplitRecipient     | Same recipient appears more than once in splits                                     |
+| 6026 | SessionKeyStillActive       | Session key must be revoked before closing                                          |
+| 6027 | SessionKeyCountUnderflow    | Session key count underflow                                                         |
 
 ## Event Emission
 
