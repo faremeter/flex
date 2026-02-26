@@ -89,6 +89,14 @@ pub mod flex {
         instructions::void_pending(ctx)
     }
 
+    pub fn refund(ctx: Context<Refund>, refund_amount: u64) -> Result<()> {
+        instructions::refund(ctx, refund_amount)
+    }
+
+    pub fn finalize<'info>(ctx: Context<'_, '_, '_, 'info, Finalize<'info>>) -> Result<()> {
+        instructions::finalize(ctx)
+    }
+
     pub fn emergency_close<'info>(
         ctx: Context<'_, '_, '_, 'info, EmergencyClose<'info>>,
     ) -> Result<()> {
