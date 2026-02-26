@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 #[error_code]
 pub enum FlexError {
     #[msg("Session key has expired")]
-    SessionKeyExpired = 6000,
+    SessionKeyExpired,
 
     #[msg("Session key revoked and grace period elapsed")]
     SessionKeyRevoked,
