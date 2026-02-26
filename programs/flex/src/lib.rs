@@ -65,6 +65,26 @@ pub mod flex {
         instructions::close_escrow(ctx)
     }
 
+    pub fn submit_authorization(
+        ctx: Context<SubmitAuthorization>,
+        mint: Pubkey,
+        max_amount: u64,
+        settle_amount: u64,
+        nonce: u64,
+        splits: Vec<state::SplitEntry>,
+        signature: [u8; 64],
+    ) -> Result<()> {
+        instructions::submit_authorization(
+            ctx,
+            mint,
+            max_amount,
+            settle_amount,
+            nonce,
+            splits,
+            signature,
+        )
+    }
+
     pub fn void_pending(ctx: Context<VoidPending>) -> Result<()> {
         instructions::void_pending(ctx)
     }
