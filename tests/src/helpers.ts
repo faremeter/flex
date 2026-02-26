@@ -6,8 +6,18 @@ import {
   LAMPORTS_PER_SOL,
   Ed25519Program,
   SYSVAR_INSTRUCTIONS_PUBKEY,
+  Transaction,
+  SystemProgram,
 } from "@solana/web3.js";
-import { createMint, createAccount, mintTo } from "@solana/spl-token";
+import {
+  createMint,
+  createInitializeAccountInstruction,
+  createInitializeMint2Instruction,
+  createMintToInstruction,
+  ACCOUNT_SIZE,
+  MINT_SIZE,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import type { Flex } from "../../target/types/flex";
 
 export async function fundKeypair(
@@ -78,24 +88,33 @@ export async function createFundedTokenAccount(
   amount: number | bigint,
 ): Promise<PublicKey> {
   const keypair = Keypair.generate();
-  const account = await createAccount(
-    provider.connection,
-    mintAuthority,
-    mint,
-    owner,
-    keypair,
+  const lamports =
+    await provider.connection.getMinimumBalanceForRentExemption(ACCOUNT_SIZE);
+
+  const tx = new Transaction().add(
+    SystemProgram.createAccount({
+      fromPubkey: mintAuthority.publicKey,
+      newAccountPubkey: keypair.publicKey,
+      lamports,
+      space: ACCOUNT_SIZE,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    createInitializeAccountInstruction(keypair.publicKey, mint, owner),
   );
+
   if (BigInt(amount) > 0n) {
-    await mintTo(
-      provider.connection,
-      mintAuthority,
-      mint,
-      account,
-      mintAuthority,
-      amount,
+    tx.add(
+      createMintToInstruction(
+        mint,
+        keypair.publicKey,
+        mintAuthority.publicKey,
+        BigInt(amount),
+      ),
     );
   }
-  return account;
+
+  await provider.sendAndConfirm(tx, [mintAuthority, keypair]);
+  return keypair.publicKey;
 }
 
 export async function createEscrowHelper(
@@ -181,6 +200,317 @@ export function serializePaymentAuthorization(args: {
   }
 
   return buf;
+}
+
+export type EscrowWithPending = {
+  escrowPDA: PublicKey;
+  mint: PublicKey;
+  vaultPDA: PublicKey;
+  sessionKey: Keypair;
+  sessionKeyPDA: PublicKey;
+  pendingPDA: PublicKey;
+  splits: Array<{ recipient: PublicKey; bps: number }>;
+};
+
+export async function setupEscrowWithPending(
+  program: Program<Flex>,
+  provider: anchor.AnchorProvider,
+  owner: Keypair,
+  facilitator: Keypair,
+  payer: Keypair,
+  index: number,
+  opts?: {
+    refundTimeoutSlots?: number;
+    deadmanTimeoutSlots?: number;
+    depositAmount?: number;
+    settleAmount?: number;
+    nonce?: number;
+    splits?: Array<{ recipient: PublicKey; bps: number }>;
+  },
+): Promise<EscrowWithPending> {
+  const connection = provider.connection;
+  const depositAmount = opts?.depositAmount ?? 1_000_000;
+
+  const [escrowPDA] = deriveEscrowPDA(
+    owner.publicKey,
+    index,
+    program.programId,
+  );
+  const mintKeypair = Keypair.generate();
+  const mint = mintKeypair.publicKey;
+  const sourceKeypair = Keypair.generate();
+  const recipientKeypair = opts?.splits ? null : Keypair.generate();
+  const [vaultPDA] = deriveVaultPDA(escrowPDA, mint, program.programId);
+  const sessionKey = Keypair.generate();
+  const [sessionKeyPDA] = deriveSessionKeyPDA(
+    escrowPDA,
+    sessionKey.publicKey,
+    program.programId,
+  );
+
+  const [mintRent, accountRent] = await Promise.all([
+    connection.getMinimumBalanceForRentExemption(MINT_SIZE),
+    connection.getMinimumBalanceForRentExemption(ACCOUNT_SIZE),
+  ]);
+
+  // Phase 1: createEscrow + token setup in parallel
+  const tokenSetupTx = new Transaction();
+  tokenSetupTx.add(
+    SystemProgram.createAccount({
+      fromPubkey: payer.publicKey,
+      newAccountPubkey: mintKeypair.publicKey,
+      lamports: mintRent,
+      space: MINT_SIZE,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    createInitializeMint2Instruction(
+      mintKeypair.publicKey,
+      6,
+      payer.publicKey,
+      null,
+    ),
+  );
+
+  tokenSetupTx.add(
+    SystemProgram.createAccount({
+      fromPubkey: payer.publicKey,
+      newAccountPubkey: sourceKeypair.publicKey,
+      lamports: accountRent,
+      space: ACCOUNT_SIZE,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    createInitializeAccountInstruction(
+      sourceKeypair.publicKey,
+      mint,
+      owner.publicKey,
+    ),
+    createMintToInstruction(
+      mint,
+      sourceKeypair.publicKey,
+      payer.publicKey,
+      depositAmount,
+    ),
+  );
+
+  const tokenSetupSigners: Keypair[] = [payer, mintKeypair, sourceKeypair];
+  if (recipientKeypair) {
+    tokenSetupTx.add(
+      SystemProgram.createAccount({
+        fromPubkey: payer.publicKey,
+        newAccountPubkey: recipientKeypair.publicKey,
+        lamports: accountRent,
+        space: ACCOUNT_SIZE,
+        programId: TOKEN_PROGRAM_ID,
+      }),
+      createInitializeAccountInstruction(
+        recipientKeypair.publicKey,
+        mint,
+        facilitator.publicKey,
+      ),
+    );
+    tokenSetupSigners.push(recipientKeypair);
+  }
+
+  await Promise.all([
+    program.methods
+      .createEscrow(
+        new anchor.BN(index),
+        facilitator.publicKey,
+        new anchor.BN(opts?.refundTimeoutSlots ?? 100),
+        new anchor.BN(opts?.deadmanTimeoutSlots ?? 1000),
+        10,
+      )
+      .accounts({
+        owner: owner.publicKey,
+        escrow: escrowPDA,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([owner])
+      .rpc(),
+    provider.sendAndConfirm(tokenSetupTx, tokenSetupSigners),
+  ]);
+
+  // Phase 2: deposit + registerSessionKey in one transaction
+  const [depositIx, registerIx] = await Promise.all([
+    program.methods
+      .deposit(new anchor.BN(depositAmount))
+      .accounts({
+        depositor: owner.publicKey,
+        escrow: escrowPDA,
+        mint,
+        vault: vaultPDA,
+        source: sourceKeypair.publicKey,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction(),
+    program.methods
+      .registerSessionKey(sessionKey.publicKey, null, new anchor.BN(0))
+      .accounts({
+        owner: owner.publicKey,
+        escrow: escrowPDA,
+        sessionKeyAccount: sessionKeyPDA,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction(),
+  ]);
+
+  await provider.sendAndConfirm(new Transaction().add(depositIx, registerIx), [
+    owner,
+  ]);
+
+  // Phase 3: submitAuthorization
+  const nonce = opts?.nonce ?? 1;
+  const settleAmount = opts?.settleAmount ?? 100_000;
+  const splits = opts?.splits ?? [
+    { recipient: recipientKeypair!.publicKey, bps: 10_000 },
+  ];
+
+  const pendingPDA = await submitAuthorizationHelper(
+    program,
+    escrowPDA,
+    facilitator,
+    sessionKey,
+    sessionKeyPDA,
+    mint,
+    vaultPDA,
+    nonce,
+    settleAmount,
+    splits,
+  );
+
+  return {
+    escrowPDA,
+    mint,
+    vaultPDA,
+    sessionKey,
+    sessionKeyPDA,
+    pendingPDA,
+    splits,
+  };
+}
+
+export type EscrowForAuth = {
+  escrowPDA: PublicKey;
+  mint: PublicKey;
+  vaultPDA: PublicKey;
+  sessionKey: Keypair;
+  sessionKeyPDA: PublicKey;
+};
+
+export async function setupEscrowForAuth(
+  program: Program<Flex>,
+  provider: anchor.AnchorProvider,
+  owner: Keypair,
+  facilitator: Keypair,
+  payer: Keypair,
+  index: number,
+  opts?: {
+    refundTimeoutSlots?: number;
+    deadmanTimeoutSlots?: number;
+    depositAmount?: number;
+  },
+): Promise<EscrowForAuth> {
+  const depositAmount = opts?.depositAmount ?? 1_000_000;
+  const escrowPDA = await createEscrowHelper(
+    program,
+    owner,
+    facilitator,
+    index,
+    opts,
+  );
+
+  const mint = await createTestMint(provider, payer);
+  const source = await createFundedTokenAccount(
+    provider,
+    mint,
+    owner.publicKey,
+    payer,
+    depositAmount,
+  );
+  const [vaultPDA] = deriveVaultPDA(escrowPDA, mint, program.programId);
+
+  const sessionKey = Keypair.generate();
+  const [sessionKeyPDA] = deriveSessionKeyPDA(
+    escrowPDA,
+    sessionKey.publicKey,
+    program.programId,
+  );
+
+  const [depositIx, registerIx] = await Promise.all([
+    program.methods
+      .deposit(new anchor.BN(depositAmount))
+      .accounts({
+        depositor: owner.publicKey,
+        escrow: escrowPDA,
+        mint,
+        vault: vaultPDA,
+        source,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction(),
+    program.methods
+      .registerSessionKey(sessionKey.publicKey, null, new anchor.BN(0))
+      .accounts({
+        owner: owner.publicKey,
+        escrow: escrowPDA,
+        sessionKeyAccount: sessionKeyPDA,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction(),
+  ]);
+
+  await provider.sendAndConfirm(new Transaction().add(depositIx, registerIx), [
+    owner,
+  ]);
+
+  return { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA };
+}
+
+export async function refundHelper(
+  program: Program<Flex>,
+  escrowPDA: PublicKey,
+  facilitator: Keypair,
+  pendingPDA: PublicKey,
+  refundAmount: number,
+): Promise<void> {
+  await program.methods
+    .refund(new anchor.BN(refundAmount))
+    .accounts({
+      escrow: escrowPDA,
+      facilitator: facilitator.publicKey,
+      pending: pendingPDA,
+    })
+    .signers([facilitator])
+    .rpc();
+}
+
+export async function finalizeHelper(
+  program: Program<Flex>,
+  escrowPDA: PublicKey,
+  facilitator: PublicKey,
+  pendingPDA: PublicKey,
+  vaultPDA: PublicKey,
+  recipientAccounts: PublicKey[],
+): Promise<void> {
+  await program.methods
+    .finalize()
+    .accounts({
+      escrow: escrowPDA,
+      facilitator,
+      pending: pendingPDA,
+      tokenAccount: vaultPDA,
+      tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+    })
+    .remainingAccounts(
+      recipientAccounts.map((pubkey) => ({
+        pubkey,
+        isSigner: false,
+        isWritable: true,
+      })),
+    )
+    .rpc();
 }
 
 export async function submitAuthorizationHelper(
