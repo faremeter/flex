@@ -7,6 +7,7 @@ pub mod emergency_close;
 pub mod force_close;
 pub mod register_session_key;
 pub mod revoke_session_key;
+pub mod submit_authorization;
 pub mod void_pending;
 
 pub use close_escrow::*;
@@ -17,4 +18,5 @@ pub use emergency_close::*;
 pub use force_close::*;
 pub use register_session_key::*;
 pub use revoke_session_key::*;
+pub use submit_authorization::*;
 pub use void_pending::*;
