@@ -8,7 +8,8 @@
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
-    "chai": "^5.2.0"
+    "chai": "5.2.0"
   }
 }
