@@ -12,6 +12,7 @@ import {
   createFundedTokenAccount,
   createEscrowHelper,
   submitAuthorizationHelper,
+  expectAnchorError,
 } from "./helpers";
 
 describe("create_escrow", () => {
@@ -210,10 +211,7 @@ describe("deposit", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("MintLimitReached");
+      expectAnchorError(err, "MintLimitReached");
     }
   }, 30_000);
 
@@ -464,10 +462,7 @@ describe("close_escrow", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("PendingSettlementsExist");
+      expectAnchorError(err, "PendingSettlementsExist");
     }
   }, 30_000);
 
@@ -572,10 +567,7 @@ describe("close_escrow", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("DuplicateAccounts");
+      expectAnchorError(err, "DuplicateAccounts");
     }
   });
 
@@ -620,10 +612,7 @@ describe("close_escrow", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("InvalidTokenAccountPair");
+      expectAnchorError(err, "InvalidTokenAccountPair");
     }
   });
 });

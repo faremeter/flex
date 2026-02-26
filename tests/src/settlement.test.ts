@@ -12,6 +12,7 @@ import {
   setupEscrowForAuth,
   refundHelper,
   finalizeHelper,
+  expectAnchorError,
 } from "./helpers";
 
 describe("submit_authorization", () => {
@@ -122,10 +123,7 @@ describe("submit_authorization", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("InvalidNonce");
+      expectAnchorError(err, "InvalidNonce");
     }
   });
 
@@ -180,10 +178,7 @@ describe("submit_authorization", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("PendingLimitReached");
+      expectAnchorError(err, "PendingLimitReached");
     }
   }, 60_000);
 
@@ -222,10 +217,7 @@ describe("submit_authorization", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("InsufficientBalance");
+      expectAnchorError(err, "InsufficientBalance");
     }
   });
 
@@ -273,10 +265,7 @@ describe("submit_authorization", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("InvalidSplitBps");
+      expectAnchorError(err, "InvalidSplitBps");
     }
   });
 
@@ -324,10 +313,7 @@ describe("submit_authorization", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("SplitBpsZero");
+      expectAnchorError(err, "SplitBpsZero");
     }
   });
 
@@ -368,10 +354,7 @@ describe("submit_authorization", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("DuplicateSplitRecipient");
+      expectAnchorError(err, "DuplicateSplitRecipient");
     }
   });
 
@@ -523,10 +506,7 @@ describe("refund", () => {
       await refundHelper(program, escrowPDA, facilitator, pendingPDA, 10_000);
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("RefundWindowExpired");
+      expectAnchorError(err, "RefundWindowExpired");
     }
   });
 
@@ -545,10 +525,7 @@ describe("refund", () => {
       await refundHelper(program, escrowPDA, facilitator, pendingPDA, 60_000);
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("RefundExceedsAmount");
+      expectAnchorError(err, "RefundExceedsAmount");
     }
   });
 });
@@ -767,10 +744,7 @@ describe("finalize", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("RefundWindowNotExpired");
+      expectAnchorError(err, "RefundWindowNotExpired");
     }
   });
 
@@ -805,10 +779,7 @@ describe("finalize", () => {
       );
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("InvalidSplitRecipient");
+      expectAnchorError(err, "InvalidSplitRecipient");
     }
   });
 });

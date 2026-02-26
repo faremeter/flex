@@ -10,6 +10,7 @@ import {
   submitAuthorizationHelper,
   setupEscrowWithPending,
   setupEscrowForAuth,
+  expectAnchorError,
 } from "./helpers";
 
 describe("void_pending", () => {
@@ -92,10 +93,7 @@ describe("void_pending", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("DeadmanNotExpired");
+      expectAnchorError(err, "DeadmanNotExpired");
     }
   });
 });
@@ -257,10 +255,7 @@ describe("emergency_close", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("DeadmanNotExpired");
+      expectAnchorError(err, "DeadmanNotExpired");
     }
   });
 
@@ -299,10 +294,7 @@ describe("emergency_close", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("PendingSettlementsExist");
+      expectAnchorError(err, "PendingSettlementsExist");
     }
   });
 });
@@ -399,10 +391,7 @@ describe("force_close", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("ForceCloseTimeoutNotExpired");
+      expectAnchorError(err, "ForceCloseTimeoutNotExpired");
     }
   });
 });

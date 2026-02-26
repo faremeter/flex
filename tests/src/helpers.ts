@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import * as anchor from "@coral-xyz/anchor";
 import type { Program } from "@coral-xyz/anchor";
 import {
@@ -19,6 +20,16 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import type { Flex } from "../../target/types/flex";
+
+export function expectAnchorError(err: unknown, code: string): void {
+  if (err instanceof Error && err.message === "should have thrown") throw err;
+  if (!(err instanceof anchor.AnchorError)) {
+    throw new Error(
+      `Expected AnchorError with code "${code}" but got: ${String(err)}`,
+    );
+  }
+  expect(err.error.errorCode.code).toBe(code);
+}
 
 export async function fundKeypair(
   provider: anchor.AnchorProvider,

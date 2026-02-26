@@ -7,6 +7,7 @@ import {
   fundKeypair,
   deriveSessionKeyPDA,
   createEscrowHelper,
+  expectAnchorError,
 } from "./helpers";
 
 describe("register_session_key", () => {
@@ -104,10 +105,7 @@ describe("register_session_key", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("SessionKeyLimitReached");
+      expectAnchorError(err, "SessionKeyLimitReached");
     }
   });
 
@@ -260,10 +258,7 @@ describe("revoke_session_key", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("SessionKeyRevoked");
+      expectAnchorError(err, "SessionKeyRevoked");
     }
   });
 });
@@ -312,10 +307,7 @@ describe("close_session_key", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe("SessionKeyStillActive");
+      expectAnchorError(err, "SessionKeyStillActive");
     }
   });
 
@@ -405,12 +397,7 @@ describe("close_session_key", () => {
         .rpc();
       throw new Error("should have thrown");
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const anchorErr = err as anchor.AnchorError;
-      expect(anchorErr.error.errorCode.code).toBe(
-        "SessionKeyGracePeriodActive",
-      );
+      expectAnchorError(err, "SessionKeyGracePeriodActive");
     }
   }, 15_000);
 
