@@ -85,4 +85,10 @@ pub enum FlexError {
 
     #[msg("Session key count underflow")]
     SessionKeyCountUnderflow,
+
+    #[msg("Settle amount exceeds max authorized amount")]
+    SettleExceedsMax,
+
+    #[msg("Settle amount must be greater than zero")]
+    SettleAmountZero,
 }

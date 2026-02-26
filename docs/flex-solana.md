@@ -604,14 +604,15 @@ pub fn submit_authorization(
 1. Verify `escrow.pending_count < 16` (pending limit not reached)
 2. Verify `nonce > escrow.last_nonce` (replay protection)
 3. Verify Ed25519 signature over `(program_id, escrow, mint, max_amount, nonce, splits)`
-4. Verify `settle_amount <= max_amount`
-5. Verify `session_key.escrow == escrow.key()` (session key belongs to this escrow)
-6. Verify session key is active (not expired, not revoked past grace period)
-7. Verify token account has sufficient balance for `settle_amount`
-8. Verify `splits.len() >= 1 && splits.len() <= MAX_SPLITS` (returns `InvalidSplitCount` if not)
-9. Verify `sum(splits[*].bps) == 10000` (returns `InvalidSplitBps` if not)
-10. Verify `splits[*].bps > 0` for each entry (returns `SplitBpsZero` if not)
-11. Verify all `splits[*].recipient` are unique (returns `DuplicateSplitRecipient` if not)
+4. Verify `settle_amount > 0` (returns `SettleAmountZero` if not)
+5. Verify `settle_amount <= max_amount`
+6. Verify `session_key.escrow == escrow.key()` (session key belongs to this escrow)
+7. Verify session key is active (not expired, not revoked past grace period)
+8. Verify token account has sufficient balance for `settle_amount`
+9. Verify `splits.len() >= 1 && splits.len() <= MAX_SPLITS` (returns `InvalidSplitCount` if not)
+10. Verify `sum(splits[*].bps) == 10000` (returns `InvalidSplitBps` if not)
+11. Verify `splits[*].bps > 0` for each entry (returns `SplitBpsZero` if not)
+12. Verify all `splits[*].recipient` are unique (returns `DuplicateSplitRecipient` if not)
 
 Recipient token accounts are NOT validated at submit time. Validation is deferred to finalize to keep submit lean; the facilitator validates recipient accounts off-chain before submission.
 
@@ -998,7 +999,7 @@ The program uses Solana's native Ed25519 program for signature verification via 
 
 This approach leverages Solana's native Ed25519 program rather than performing signature verification in the program itself, which would be prohibitively expensive.
 
-**Sysvar Access:** The `submit_authorization` instruction accesses the Instructions sysvar via `Sysvar<'info, Instructions>` (passed as an account) to introspect preceding instructions. This is validated by Anchor's `Sysvar` type, which checks the account address matches `sysvar::instructions::ID`.
+**Sysvar Access:** The `submit_authorization` instruction accesses the Instructions sysvar via an `UncheckedAccount` with an `address = sysvar::instructions::ID` constraint. The Instructions sysvar does not implement the standard `Sysvar` trait for deserialization; it is accessed via `load_current_index_checked` and `load_instruction_at_checked` functions that take `AccountInfo` directly.
 
 ### Introspection Matching Algorithm
 
