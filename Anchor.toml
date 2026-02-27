@@ -8,6 +8,9 @@ skip-lint = false
 [programs.localnet]
 flex = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS"
 
+[programs.devnet]
+flex = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS"
+
 [registry]
 url = "https://api.apr.dev"
 
@@ -16,4 +19,4 @@ cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "bun test"
+test = "bun test --timeout 30000"

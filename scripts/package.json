@@ -5,5 +5,10 @@
   "type": "module",
   "scripts": {
     "tsc": "tsc --build"
+  },
+  "devDependencies": {
+    "@codama/nodes-from-anchor": "^1.3.9",
+    "@codama/renderers-js": "^2.0.3",
+    "codama": "^1.5.1"
   }
 }
