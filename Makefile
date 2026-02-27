@@ -34,6 +34,10 @@ scripts: FORCE
 tests: FORCE
 	cd tests && bun run tsc
 
+# Codama client generation
+generate-client: build-anchor
+	bun scripts/src/generate-client.ts
+
 # Rust/Anchor targets
 build-anchor:
 	anchor build
