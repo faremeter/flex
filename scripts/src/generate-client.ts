@@ -1,4 +1,4 @@
-import { rootNodeFromAnchor } from "@codama/nodes-from-anchor";
+import { rootNodeFromAnchor, type AnchorIdl } from "@codama/nodes-from-anchor";
 import { renderVisitor } from "@codama/renderers-js";
 import { createFromRoot, updateInstructionsVisitor } from "codama";
 import * as fs from "node:fs";
@@ -8,7 +8,7 @@ const root = path.resolve(import.meta.dirname, "../..");
 const idlPath = path.join(root, "target/idl/flex.json");
 const outDir = path.join(root, "packages/flex-solana");
 
-const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
+const idl = JSON.parse(fs.readFileSync(idlPath, "utf8")) as AnchorIdl;
 const rootNode = rootNodeFromAnchor(idl);
 const codama = createFromRoot(rootNode);
 
@@ -29,4 +29,4 @@ codama.update(
   }),
 );
 
-codama.accept(renderVisitor(outDir));
+await codama.accept(renderVisitor(outDir));
