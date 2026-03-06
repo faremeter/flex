@@ -1,0 +1,40 @@
+{
+  "name": "@faremeter/flex-solana",
+  "version": "0.1.0",
+  "description": "Flex Payment Scheme SDK for Solana",
+  "license": "LGPL-3.0-only",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "require": "./dist/src/index.js",
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
+    },
+    "./client": {
+      "require": "./dist/src/client/index.js",
+      "import": "./dist/src/client/index.js",
+      "types": "./dist/src/client/index.d.ts"
+    },
+    "./facilitator": {
+      "require": "./dist/src/facilitator/index.js",
+      "import": "./dist/src/facilitator/index.js",
+      "types": "./dist/src/facilitator/index.d.ts"
+    }
+  },
+  "scripts": {
+    "tsc": "tsc --build"
+  },
+  "dependencies": {
+    "@faremeter/info": "^0.17.1",
+    "@faremeter/logs": "^0.17.1",
+    "@faremeter/types": "^0.17.1",
+    "@solana/kit": "^6.1.0",
+    "@solana/program-client-core": "^6.1.0",
+    "arktype": "^2.1.0"
+  }
+}
