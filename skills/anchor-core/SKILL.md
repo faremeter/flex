@@ -557,7 +557,7 @@ pub escrow: Account<'info, EscrowAccount>,
 - Byte literals: `b"escrow"`
 - Account keys: `owner.key().as_ref()`
 - Numbers: `&id.to_le_bytes()`
-- Account data: `escrow.nonce.to_le_bytes()`
+- Account data: `escrow.index.to_le_bytes()`
 
 **See:** `anchor-pdas` skill for comprehensive PDA patterns.
 
@@ -714,8 +714,8 @@ pub enum ErrorCode {
     InvalidAmount,
     #[msg("Session key has expired")]
     SessionKeyExpired,
-    #[msg("Nonce must be strictly greater than last nonce")]
-    InvalidNonce,
+    #[msg("Authorization has expired")]
+    AuthorizationExpired,
     #[msg("Insufficient balance in escrow account")]
     InsufficientBalance,
 }
@@ -883,7 +883,7 @@ pub struct SubmitAuthorization<'info> {
         init,
         payer = facilitator,
         space = 8 + PendingSettlement::INIT_SPACE,
-        seeds = [b"pending", escrow.key().as_ref(), &nonce.to_le_bytes()],
+        seeds = [b"pending", escrow.key().as_ref(), &authorization_id.to_le_bytes()],
         bump,
     )]
     pub pending: Account<'info, PendingSettlement>,
@@ -906,24 +906,31 @@ pub fn submit_authorization(
     mint: Pubkey,
     recipient: Pubkey,
     amount: u64,
-    nonce: u64,
+    authorization_id: u64,
+    expires_at_slot: u64,
     signature: [u8; 64],
 ) -> Result<()> {
+    let clock = Clock::get()?;
+
     // 1. Validate inputs
-    require!(nonce > ctx.accounts.escrow.last_nonce, ErrorCode::InvalidNonce);
+    require!(clock.slot < expires_at_slot, ErrorCode::AuthorizationExpired);
+    require!(
+        expires_at_slot <= clock.slot + ctx.accounts.escrow.refund_timeout_slots,
+        ErrorCode::AuthorizationExpired
+    );
     require!(amount > 0, ErrorCode::InvalidAmount);
 
     // 2. Verify signature
     // (signature verification logic)
 
-    // 3. Update state
+    // 3. Update state (PDA init enforces authorization_id uniqueness)
     let escrow = &mut ctx.accounts.escrow;
-    escrow.last_nonce = nonce;
     escrow.pending_count += 1;
 
     let pending = &mut ctx.accounts.pending;
     pending.amount = amount;
-    pending.nonce = nonce;
+    pending.authorization_id = authorization_id;
+    pending.expires_at_slot = expires_at_slot;
     // ... set other fields
 
     Ok(())

@@ -21,12 +21,12 @@ Escrow Account (per client, indexed)
 
 ### Program-Derived Addresses
 
-| Account Type       | Seeds                                                               | Authority            |
-| ------------------ | ------------------------------------------------------------------- | -------------------- |
-| Escrow Account     | `[b"escrow", owner.key().as_ref(), &index.to_le_bytes()]`           | Owner + Facilitator  |
-| Token Account      | `[b"token", escrow.key().as_ref(), mint.key().as_ref()]`            | Program (PDA signer) |
-| Session Key        | `[b"session", escrow.key().as_ref(), session_key.as_ref()]`         | Owner                |
-| Pending Settlement | `[b"pending", escrow.key().as_ref(), nonce.to_le_bytes().as_ref()]` | Facilitator          |
+| Account Type       | Seeds                                                                          | Authority            |
+| ------------------ | ------------------------------------------------------------------------------ | -------------------- |
+| Escrow Account     | `[b"escrow", owner.key().as_ref(), &index.to_le_bytes()]`                      | Owner + Facilitator  |
+| Token Account      | `[b"token", escrow.key().as_ref(), mint.key().as_ref()]`                       | Program (PDA signer) |
+| Session Key        | `[b"session", escrow.key().as_ref(), session_key.as_ref()]`                    | Owner                |
+| Pending Settlement | `[b"pending", escrow.key().as_ref(), authorization_id.to_le_bytes().as_ref()]` | Facilitator          |
 
 ### Client Discovery
 
@@ -76,9 +76,6 @@ pub struct EscrowAccount {
 
     /// Numeric index allowing multiple escrows per owner
     pub index: u64,
-
-    /// Global nonce for replay protection
-    pub last_nonce: u64,
 
     /// Number of open pending settlements
     pub pending_count: u64,
@@ -223,8 +220,11 @@ pub struct PendingSettlement {
     /// Maximum amount authorized by the client (for audit trail)
     pub max_amount: u64,
 
-    /// Authorization nonce
-    pub nonce: u64,
+    /// Unique authorization identifier (random u64)
+    pub authorization_id: u64,
+
+    /// Slot at which this authorization expires
+    pub expires_at_slot: u64,
 
     /// Slot when submitted
     pub submitted_at_slot: u64,
@@ -575,7 +575,8 @@ pub fn submit_authorization(
     mint: Pubkey,
     max_amount: u64,
     settle_amount: u64,
-    nonce: u64,
+    authorization_id: u64,
+    expires_at_slot: u64,
     splits: Vec<SplitEntry>,
     signature: [u8; 64],
 ) -> Result<()>
@@ -602,26 +603,26 @@ pub fn submit_authorization(
 **Validation**:
 
 1. Verify `escrow.pending_count < 16` (pending limit not reached)
-2. Verify `nonce > escrow.last_nonce` (replay protection)
-3. Verify Ed25519 signature over `(program_id, escrow, mint, max_amount, nonce, splits)`
-4. Verify `settle_amount > 0` (returns `SettleAmountZero` if not)
-5. Verify `settle_amount <= max_amount`
-6. Verify `session_key.escrow == escrow.key()` (session key belongs to this escrow)
-7. Verify session key is active (not expired, not revoked past grace period)
-8. Verify token account has sufficient balance for `settle_amount`
-9. Verify `splits.len() >= 1 && splits.len() <= MAX_SPLITS` (returns `InvalidSplitCount` if not)
-10. Verify `sum(splits[*].bps) == 10000` (returns `InvalidSplitBps` if not)
-11. Verify `splits[*].bps > 0` for each entry (returns `SplitBpsZero` if not)
-12. Verify all `splits[*].recipient` are unique (returns `DuplicateSplitRecipient` if not)
+2. Verify `clock.slot < expires_at_slot` (authorization not expired)
+3. Verify `expires_at_slot <= clock.slot + escrow.refund_timeout_slots` (expiry not too far in the future)
+4. Verify Ed25519 signature over `(program_id, escrow, mint, max_amount, authorization_id, expires_at_slot, splits)`
+5. Verify `settle_amount > 0` (returns `SettleAmountZero` if not)
+6. Verify `settle_amount <= max_amount`
+7. Verify `session_key.escrow == escrow.key()` (session key belongs to this escrow)
+8. Verify session key is active (not expired, not revoked past grace period)
+9. Verify token account has sufficient balance for `settle_amount`
+10. Verify `splits.len() >= 1 && splits.len() <= MAX_SPLITS` (returns `InvalidSplitCount` if not)
+11. Verify `sum(splits[*].bps) == 10000` (returns `InvalidSplitBps` if not)
+12. Verify `splits[*].bps > 0` for each entry (returns `SplitBpsZero` if not)
+13. Verify all `splits[*].recipient` are unique (returns `DuplicateSplitRecipient` if not)
 
 Recipient token accounts are NOT validated at submit time. Validation is deferred to finalize to keep submit lean; the facilitator validates recipient accounts off-chain before submission.
 
 **Effects**:
 
-1. Create PendingSettlement PDA with `submitted_at_slot = current_slot`, `amount = settle_amount`, `max_amount = max_amount`, `split_count`, and `splits`
-2. Update `escrow.last_nonce = nonce`
-3. Update `escrow.last_activity_slot`
-4. Increment `escrow.pending_count`
+1. Create PendingSettlement PDA with `authorization_id`, `expires_at_slot`, `submitted_at_slot = current_slot`, `amount = settle_amount`, `max_amount = max_amount`, `split_count`, and `splits`
+2. Update `escrow.last_activity_slot`
+3. Increment `escrow.pending_count`
 
 **Notes**: The separation of `max_amount` and `settle_amount` enables the off-chain hold workflow. The client signs an authorization for up to `max_amount`, and the facilitator settles for the actual amount consumed (`settle_amount`). This allows the middleware to request a hold, perform work, then settle for less than the hold without requiring a new client signature.
 
@@ -883,7 +884,7 @@ The on-chain program does not track holds explicitly. Instead, holds are managed
 
 1. **Hold Request**: The middleware responds to a client request with a hold amount (the estimated or maximum cost).
 
-2. **Client Authorization**: The client signs a `PaymentAuthorization` with `max_amount` set to the hold ceiling (which may exceed the requested hold to reduce round-trips for variable costs). The authorization includes a unique nonce.
+2. **Client Authorization**: The client signs a `PaymentAuthorization` with `max_amount` set to the hold ceiling (which may exceed the requested hold to reduce round-trips for variable costs). The authorization includes a random `authorization_id` and an `expires_at_slot`.
 
 3. **Hold Validation (off-chain)**: The facilitator:
    - Verifies the Ed25519 signature
@@ -931,11 +932,11 @@ Clients should monitor their escrow's `last_activity_slot` and compare against t
 If the middleware requires more than the initially authorized `max_amount` during service delivery, it requests a new authorization from the client:
 
 1. The middleware sends the additional amount needed to the client
-2. The client signs a new `PaymentAuthorization` with a new nonce and the additional `max_amount`
+2. The client signs a new `PaymentAuthorization` with a new `authorization_id` and the additional `max_amount`
 3. The facilitator validates and records the new hold
 4. Service delivery continues
 
-The original authorization remains valid and can still be settled for up to its `max_amount`. The new authorization covers the additional amount. Both settlements are independent and use separate nonces.
+The original authorization remains valid and can still be settled for up to its `max_amount`. The new authorization covers the additional amount. Both settlements are independent and use separate `authorization_id` values.
 
 To minimize round-trips, clients can authorize a higher ceiling than initially requested. For example, if the middleware requests a 100 token hold, the client might authorize 150 tokens to allow for 50% cost overrun without requiring additional authorization.
 
@@ -950,7 +951,7 @@ On-chain holds would require:
 The off-chain approach achieves the same user experience with lower costs and simpler on-chain logic. The security model remains intact because:
 
 - The client's signature caps the maximum amount
-- The on-chain nonce prevents replay
+- PDA uniqueness and expiry prevent replay
 - The facilitator can only settle up to what was authorized
 
 ## Authorization Message Format
@@ -971,8 +972,11 @@ pub struct PaymentAuthorization {
     /// Maximum amount authorized for this payment (in token base units)
     pub max_amount: u64,
 
-    /// Monotonically increasing nonce (global, not per-recipient or per-mint)
-    pub nonce: u64,
+    /// Unique authorization identifier (random u64)
+    pub authorization_id: u64,
+
+    /// Slot at which this authorization expires
+    pub expires_at_slot: u64,
 
     /// Split distribution (1-5 entries, bps must sum to 10000)
     pub splits: Vec<SplitEntry>,
@@ -1015,7 +1019,7 @@ When `submit_authorization` executes, it must find and validate the correspondin
    - Number of signatures (u8)
    - For each signature: pubkey offset, signature offset, message offset, message length
 
-5. **Validate message content**: Reconstruct the expected `PaymentAuthorization` message from the `submit_authorization` parameters (program_id, escrow, mint, max_amount, nonce, splits) and serialize it with Borsh. The message in the Ed25519 instruction must match exactly. Because `splits` is variable-length, the message size varies; the Ed25519 instruction's message length field indicates the actual size.
+5. **Validate message content**: Reconstruct the expected `PaymentAuthorization` message from the `submit_authorization` parameters (program_id, escrow, mint, max_amount, authorization_id, expires_at_slot, splits) and serialize it with Borsh. The message in the Ed25519 instruction must match exactly. Because `splits` is variable-length, the message size varies; the Ed25519 instruction's message length field indicates the actual size.
 
 6. **Validate pubkey**: Confirm the verified pubkey matches the `session_key` account passed to `submit_authorization`.
 
@@ -1029,17 +1033,17 @@ When `submit_authorization` executes, it must find and validate the correspondin
 **Required Transaction Structure**: Each `submit_authorization` must be immediately preceded by its Ed25519 verification:
 
 ```
-[Ed25519Verify(msg1), SubmitAuth(nonce1), Ed25519Verify(msg2), SubmitAuth(nonce2), ...]
+[Ed25519Verify(msg1), SubmitAuth(auth_id1), Ed25519Verify(msg2), SubmitAuth(auth_id2), ...]
 ```
 
 Any other ordering will fail. For example, these structures are invalid:
 
 ```
 // INVALID: Ed25519 instructions grouped at start
-[Ed25519Verify(msg1), Ed25519Verify(msg2), SubmitAuth(nonce1), SubmitAuth(nonce2)]
+[Ed25519Verify(msg1), Ed25519Verify(msg2), SubmitAuth(auth_id1), SubmitAuth(auth_id2)]
 
 // INVALID: Other instructions between Ed25519 and submit
-[Ed25519Verify(msg1), SomeOtherInstruction, SubmitAuth(nonce1)]
+[Ed25519Verify(msg1), SomeOtherInstruction, SubmitAuth(auth_id1)]
 ```
 
 **Failure modes:**
@@ -1071,18 +1075,20 @@ Neither party can unilaterally move funds (except via deadman switch after timeo
 
 ### Replay Protection
 
-The escrow account tracks a global `last_nonce`. Each authorization must have a nonce strictly greater than the last submitted nonce. This prevents:
+Replay protection uses two complementary mechanisms:
 
-- Replaying the same authorization multiple times
-- Submitting authorizations out of order in a way that could benefit an attacker
+1. **PDA uniqueness (during pending phase):** Each `PendingSettlement` PDA is derived from `[b"pending", escrow, authorization_id]`. Anchor's `init` constraint ensures that only one pending settlement per `authorization_id` can exist at a time. Attempting to reuse an `authorization_id` that has an active pending settlement fails at PDA creation.
 
-**Nonce Gap Consideration:** If a client signs authorizations with nonces 1, 2, 3 but the facilitator only submits nonce 3, nonces 1 and 2 become permanently unusable. This is by design - skipped authorizations cannot be submitted, so funds remain safe. Clients should track signed nonces and detect anomalies:
+2. **Expiry (after finalization):** Each authorization includes an `expires_at_slot` which is bounded by `clock.slot + escrow.refund_timeout_slots`. Once a pending settlement is finalized and its PDA is closed, the authorization cannot be replayed because `clock.slot >= expires_at_slot` by the time finalization occurs (the refund timeout must elapse before finalization). Any replay attempt fails with `AuthorizationExpired`.
 
-| Condition                             | Severity | Action                                           |
-| ------------------------------------- | -------- | ------------------------------------------------ |
-| Many consecutive skipped nonces       | Warning  | Review facilitator behavior; consider new escrow |
-| Unknown pending settlements           | Critical | Revoke session key immediately                   |
-| Pending with unknown split recipients | Critical | Revoke session key; investigate compromise       |
+This design enables parallel submission of authorizations since `authorization_id` values are random and independent rather than sequential.
+
+**Anomaly Detection:** Clients should monitor on-chain pending settlements for unexpected activity:
+
+| Condition                             | Severity | Action                                     |
+| ------------------------------------- | -------- | ------------------------------------------ |
+| Unknown pending settlements           | Critical | Revoke session key immediately             |
+| Pending with unknown split recipients | Critical | Revoke session key; investigate compromise |
 
 ### Refund Window
 
@@ -1168,7 +1174,7 @@ for account in ctx.remaining_accounts.iter() {
 }
 ```
 
-**Note:** PDA derivation with unique seeds (like nonce) naturally prevents duplicates for pending settlements, but explicit checks provide defense-in-depth.
+**Note:** PDA derivation with unique seeds (like `authorization_id`) naturally prevents duplicates for pending settlements, but explicit checks provide defense-in-depth.
 
 ## Transaction Batching
 
@@ -1181,13 +1187,13 @@ let tx = Transaction::new_with_payer(
     &[
         // Verification and submission for authorization 1
         ed25519_verify(session_key_1, message_1, sig_1),
-        submit_authorization(mint_1, max_1, settle_1, nonce_1, splits_1, sig_1),
+        submit_authorization(mint_1, max_1, settle_1, auth_id_1, expiry_1, splits_1, sig_1),
         // Verification and submission for authorization 2
         ed25519_verify(session_key_2, message_2, sig_2),
-        submit_authorization(mint_2, max_2, settle_2, nonce_2, splits_2, sig_2),
+        submit_authorization(mint_2, max_2, settle_2, auth_id_2, expiry_2, splits_2, sig_2),
         // Verification and submission for authorization 3
         ed25519_verify(session_key_3, message_3, sig_3),
-        submit_authorization(mint_1, max_3, settle_3, nonce_3, splits_3, sig_3),
+        submit_authorization(mint_1, max_3, settle_3, auth_id_3, expiry_3, splits_3, sig_3),
     ],
     Some(&facilitator.pubkey()),
 );
@@ -1195,7 +1201,7 @@ let tx = Transaction::new_with_payer(
 
 Each `submit_authorization` instruction introspects the Instructions sysvar to find and validate its corresponding Ed25519 verification. The program matches verifications to submissions by checking that the verified message data matches the authorization parameters.
 
-**Note**: Nonces must be strictly increasing within the batch (nonce_1 < nonce_2 < nonce_3). Clients must ensure atomic nonce generation to avoid gaps or conflicts when signing multiple authorizations concurrently.
+**Note**: Each authorization in the batch must have a unique `authorization_id`. Since IDs are random, there is no ordering constraint within a batch.
 
 Similarly, multiple `finalize` instructions can be batched to settle many pending payments at once.
 
@@ -1280,7 +1286,8 @@ type FlexPaymentPayload = {
   // Authorization details (matches PaymentAuthorization struct)
   mint: string; // Token mint (base58)
   maxAmount: string; // Maximum amount authorized (decimal string)
-  nonce: string; // Monotonic nonce (decimal string)
+  authorizationId: string; // Random authorization ID (decimal string)
+  expiresAtSlot: string; // Expiry slot (decimal string)
   splits: SplitEntry[]; // Split distribution (replaces single recipient)
 
   // Session key signature
@@ -1305,7 +1312,7 @@ After service delivery, the middleware reports actual usage to the facilitator:
 ```typescript
 type FlexSettlementRequest = {
   escrow: string; // Escrow account pubkey
-  nonce: string; // Authorization nonce
+  authorizationId: string; // Authorization ID
   settleAmount: string; // Actual amount to settle (<= maxAmount)
 };
 ```
@@ -1358,7 +1365,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | ---- | --------------------------- | ----------------------------------------------------------------------------------- |
 | 6000 | SessionKeyExpired           | Session key has expired                                                             |
 | 6001 | SessionKeyRevoked           | Session key revoked and grace period elapsed                                        |
-| 6002 | InvalidNonce                | Nonce not strictly greater than last nonce                                          |
+| 6002 | AuthorizationExpired        | Authorization has expired                                                           |
 | 6003 | InvalidSignature            | Ed25519 signature verification failed                                               |
 | 6004 | InsufficientBalance         | Token account balance insufficient                                                  |
 | 6005 | DeadmanNotExpired           | Cannot emergency close before timeout                                               |
@@ -1384,6 +1391,9 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6025 | DuplicateSplitRecipient     | Same recipient appears more than once in splits                                     |
 | 6026 | SessionKeyStillActive       | Session key must be revoked before closing                                          |
 | 6027 | SessionKeyCountUnderflow    | Session key count underflow                                                         |
+| 6028 | SettleExceedsMax            | Settle amount exceeds max authorized amount                                         |
+| 6029 | SettleAmountZero            | Settle amount must be greater than zero                                             |
+| 6030 | ExpiryTooFar                | Authorization expiry exceeds refund timeout                                         |
 
 ## Event Emission
 
@@ -1442,7 +1452,8 @@ pub struct SessionKeyClosed {
 #[event]
 pub struct AuthorizationSubmitted {
     pub escrow: Pubkey,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
     pub mint: Pubkey,
     pub splits: Vec<SplitEntry>,
     pub max_amount: u64,
@@ -1453,7 +1464,7 @@ pub struct AuthorizationSubmitted {
 #[event]
 pub struct Refunded {
     pub escrow: Pubkey,
-    pub nonce: u64,
+    pub authorization_id: u64,
     pub refund_amount: u64,
     pub remaining_amount: u64,
 }
@@ -1461,7 +1472,7 @@ pub struct Refunded {
 #[event]
 pub struct Finalized {
     pub escrow: Pubkey,
-    pub nonce: u64,
+    pub authorization_id: u64,
     pub mint: Pubkey,
     pub splits: Vec<SplitEntry>,
     pub total_amount: u64,
@@ -1501,11 +1512,11 @@ When `InsufficientBalance` (error 6004) occurs during `submit_authorization`, th
 
 **Rationale:** The facilitator's off-chain hold accounting (see [Hold Accounting](#hold-accounting)) should ensure sufficient balance before settlement. If this error occurs, it indicates a bug in hold tracking or a race condition from concurrent submissions.
 
-**Recovery:** The authorization remains unused (nonce not consumed). The client can sign a new authorization for a smaller amount, or the escrow can be topped up.
+**Recovery:** The authorization remains unused (no pending settlement created). The client can sign a new authorization for a smaller amount, or the escrow can be topped up.
 
 ### Concurrent Submission Handling
 
-Facilitators submitting multiple authorizations for the same escrow must handle concurrency carefully due to the global nonce and pending count constraints.
+Facilitators submitting multiple authorizations for the same escrow must handle concurrency carefully due to the pending count constraint.
 
 **Single-Facilitator Constraint:** Each escrow has exactly one registered facilitator. This eliminates cross-facilitator race conditions entirely. Only that facilitator can submit authorizations, so all concurrency issues are internal to a single facilitator's systems. This simplifies the concurrency model significantly compared to multi-facilitator designs.
 
@@ -1513,23 +1524,19 @@ Facilitators submitting multiple authorizations for the same escrow must handle 
 
 | Scenario                                          | Risk                                              | Mitigation                                                |
 | ------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------- |
-| Concurrent submissions with same nonce            | One fails with `InvalidNonce`                     | Use atomic nonce assignment                               |
+| Duplicate `authorization_id`                      | One fails at PDA init (account already exists)    | Use random u64 IDs (collision probability negligible)     |
 | Pending limit reached mid-batch                   | Later submissions fail with `PendingLimitReached` | Check `pending_count` before batching                     |
 | Balance changes between validation and submission | Fails with `InsufficientBalance`                  | Re-validate in same transaction or use conservative holds |
 
 **Recommended Patterns:**
 
-1. **Sequential submission per escrow**: Process one escrow's authorizations at a time to avoid nonce conflicts
-2. **Atomic nonce generation**: Assign nonces from a single-threaded counter per escrow
-3. **Batch size awareness**: Check `16 - pending_count` before building batch; submit only that many
-4. **Optimistic locking**: Track expected `last_nonce` and `pending_count`; retry on conflict
+1. **Parallel submission**: Since `authorization_id` values are random, multiple authorizations for the same escrow can be submitted concurrently in separate transactions
+2. **Batch size awareness**: Check `16 - pending_count` before building batch; submit only that many
+3. **Individual failure handling**: On failure, release only the failed hold (not all holds for the escrow)
 
 **Transaction Ordering:**
 
-When multiple transactions target the same escrow, Solana provides no ordering guarantees. If transaction A (nonce 5) and transaction B (nonce 6) are submitted concurrently, B may land first, causing A to fail with `InvalidNonce`. Facilitators should either:
-
-- Submit sequentially and await confirmation
-- Accept that some transactions may fail and retry with fresh nonces
+Since `authorization_id` values are random rather than sequential, there is no ordering constraint between transactions targeting the same escrow. Multiple transactions can be submitted concurrently without risk of ordering-related failures. The only constraint is the global `pending_count` limit of 16.
 
 ### Token-2022 Considerations
 

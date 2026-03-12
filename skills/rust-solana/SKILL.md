@@ -20,7 +20,8 @@ pub struct PaymentAuthorization {
     pub mint: Pubkey,
     pub recipient: Pubkey,
     pub amount: u64,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
 }
 ```
 
@@ -40,7 +41,7 @@ require!(
 // Numbers to bytes
 let seeds = [
     b"pending".as_ref(),
-    &nonce.to_le_bytes(),  // u64 to [u8; 8]
+    &authorization_id.to_le_bytes(),  // u64 to [u8; 8]
 ];
 
 // Pubkey to bytes
@@ -59,7 +60,8 @@ let message = PaymentAuthorization {
     mint,
     recipient,
     amount,
-    nonce,
+    authorization_id,
+    expires_at_slot,
 };
 let message_bytes = message.try_to_vec()?;
 
@@ -115,7 +117,8 @@ let data = PaymentAuthorization {
     mint: mint_pubkey,
     recipient: recipient_pubkey,
     amount: 1000,
-    nonce: 1,
+    authorization_id: 8372615,
+    expires_at_slot: 250_000,
 };
 
 // Serialize to Vec<u8>
@@ -130,7 +133,7 @@ let deserialized = PaymentAuthorization::try_from_slice(&serialized)?;
 **For PDA seeds (numbers):**
 
 ```rust
-&nonce.to_le_bytes()  // u64 → [u8; 8]
+&authorization_id.to_le_bytes()  // u64 → [u8; 8]
 ```
 
 **For signatures (messages):**
@@ -326,7 +329,8 @@ pub struct PaymentAuthorization {
     pub mint: Pubkey,
     pub recipient: Pubkey,
     pub amount: u64,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
 }
 
 // In handler
@@ -335,7 +339,8 @@ pub fn submit_authorization(
     mint: Pubkey,
     recipient: Pubkey,
     amount: u64,
-    nonce: u64,
+    authorization_id: u64,
+    expires_at_slot: u64,
     signature: [u8; 64],
 ) -> Result<()> {
     // Construct message
@@ -344,7 +349,8 @@ pub fn submit_authorization(
         mint,
         recipient,
         amount,
-        nonce,
+        authorization_id,
+        expires_at_slot,
     };
 
     // Serialize for verification
@@ -424,11 +430,11 @@ fn verify_signature(
 
 ```rust
 // u64 to bytes
-let nonce: u64 = 123;
-let bytes = nonce.to_le_bytes();  // [u8; 8]
+let authorization_id: u64 = 8372615;
+let bytes = authorization_id.to_le_bytes();  // [u8; 8]
 
 // In seeds
-seeds = [b"pending", &nonce.to_le_bytes()]
+seeds = [b"pending", &authorization_id.to_le_bytes()]
 
 // Other integer types
 let id: u32 = 456;
@@ -680,19 +686,20 @@ ctx.accounts.my_account.value = 42;
 
 ## Common Patterns for Escrow
 
-### Nonce Serialization
+### Authorization ID Serialization
 
 ```rust
 pub fn submit_authorization(
     ctx: Context<Submit>,
-    nonce: u64,
+    authorization_id: u64,
+    expires_at_slot: u64,
     // ...
 ) -> Result<()> {
     // Use in PDA derivation
     let seeds = [
         b"pending".as_ref(),
         ctx.accounts.escrow.key().as_ref(),
-        &nonce.to_le_bytes(),  // u64 → [u8; 8]
+        &authorization_id.to_le_bytes(),  // u64 → [u8; 8]
     ];
 
     Ok(())
@@ -708,7 +715,8 @@ pub struct PaymentAuthorization {
     pub mint: Pubkey,
     pub recipient: Pubkey,
     pub amount: u64,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
 }
 
 // Serialize for signing

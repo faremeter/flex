@@ -737,7 +737,7 @@ pub struct TokenPool {
 #[account(
     has_one = escrow,
     has_one = session_key,
-    seeds = [b"pending", escrow.key().as_ref(), &nonce.to_le_bytes()],
+    seeds = [b"pending", escrow.key().as_ref(), &pending.authorization_id.to_le_bytes()],
     bump = pending.bump
 )]
 pub pending: Account<'info, PendingSettlement>,
@@ -747,7 +747,7 @@ pub pending: Account<'info, PendingSettlement>,
 
 1. Pending settlement belongs to correct escrow
 2. Uses correct session key
-3. Derived with correct seeds
+3. Derived with correct seeds (authorization_id uniqueness enforced by PDA init)
 
 ## Security Pattern 10: Closing Accounts
 
@@ -949,20 +949,29 @@ pub struct SubmitAuthorization<'info> {
 }
 ```
 
-### Nonce Monotonicity
+### Authorization Expiry Validation
+
+Replay protection uses two mechanisms: PDA `init` uniqueness prevents duplicate `authorization_id` values while a pending settlement exists, and expiry prevents replay after finalization.
 
 ```rust
 pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
-    nonce: u64,
+    authorization_id: u64,
+    expires_at_slot: u64,
     // ... other params
 ) -> Result<()> {
+    let clock = Clock::get()?;
+
     require!(
-        nonce > ctx.accounts.escrow.last_nonce,
-        ErrorCode::InvalidNonce
+        clock.slot < expires_at_slot,
+        ErrorCode::AuthorizationExpired
+    );
+    require!(
+        expires_at_slot <= clock.slot + ctx.accounts.escrow.refund_timeout_slots,
+        ErrorCode::AuthorizationExpired
     );
 
-    ctx.accounts.escrow.last_nonce = nonce;
+    // PDA init with authorization_id in seeds prevents duplicate submissions
     // ...
 }
 ```
@@ -1074,7 +1083,7 @@ Use this comprehensive checklist when reviewing Anchor programs:
 
 - [ ] No duplicate mutable accounts (unless intentional with `dup`)
 - [ ] Numeric bounds checked (amounts, indices, etc.)
-- [ ] Nonces monotonically increasing
+- [ ] Authorization expiry validated (not expired, within refund_timeout_slots)
 - [ ] Time-based constraints enforced (slots, timeouts)
 - [ ] String/Vec lengths bounded
 
