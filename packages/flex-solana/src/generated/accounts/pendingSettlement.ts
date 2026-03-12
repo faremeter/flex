@@ -65,7 +65,8 @@ export type PendingSettlement = {
   amount: bigint;
   originalAmount: bigint;
   maxAmount: bigint;
-  nonce: bigint;
+  authorizationId: bigint;
+  expiresAtSlot: bigint;
   submittedAtSlot: bigint;
   sessionKey: Address;
   splitCount: number;
@@ -80,7 +81,8 @@ export type PendingSettlementArgs = {
   amount: number | bigint;
   originalAmount: number | bigint;
   maxAmount: number | bigint;
-  nonce: number | bigint;
+  authorizationId: number | bigint;
+  expiresAtSlot: number | bigint;
   submittedAtSlot: number | bigint;
   sessionKey: Address;
   splitCount: number;
@@ -99,7 +101,8 @@ export function getPendingSettlementEncoder(): FixedSizeEncoder<PendingSettlemen
       ["amount", getU64Encoder()],
       ["originalAmount", getU64Encoder()],
       ["maxAmount", getU64Encoder()],
-      ["nonce", getU64Encoder()],
+      ["authorizationId", getU64Encoder()],
+      ["expiresAtSlot", getU64Encoder()],
       ["submittedAtSlot", getU64Encoder()],
       ["sessionKey", getAddressEncoder()],
       ["splitCount", getU8Encoder()],
@@ -120,7 +123,8 @@ export function getPendingSettlementDecoder(): FixedSizeDecoder<PendingSettlemen
     ["amount", getU64Decoder()],
     ["originalAmount", getU64Decoder()],
     ["maxAmount", getU64Decoder()],
-    ["nonce", getU64Decoder()],
+    ["authorizationId", getU64Decoder()],
+    ["expiresAtSlot", getU64Decoder()],
     ["submittedAtSlot", getU64Decoder()],
     ["sessionKey", getAddressDecoder()],
     ["splitCount", getU8Decoder()],
@@ -204,5 +208,5 @@ export async function fetchAllMaybePendingSettlement(
 }
 
 export function getPendingSettlementSize(): number {
-  return 317;
+  return 325;
 }

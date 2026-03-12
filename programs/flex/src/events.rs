@@ -51,7 +51,8 @@ pub struct SessionKeyClosed {
 #[event]
 pub struct AuthorizationSubmitted {
     pub escrow: Pubkey,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
     pub mint: Pubkey,
     pub splits: Vec<SplitEntry>,
     pub max_amount: u64,
@@ -62,7 +63,7 @@ pub struct AuthorizationSubmitted {
 #[event]
 pub struct Refunded {
     pub escrow: Pubkey,
-    pub nonce: u64,
+    pub authorization_id: u64,
     pub refund_amount: u64,
     pub remaining_amount: u64,
 }
@@ -70,7 +71,7 @@ pub struct Refunded {
 #[event]
 pub struct Finalized {
     pub escrow: Pubkey,
-    pub nonce: u64,
+    pub authorization_id: u64,
     pub mint: Pubkey,
     pub splits: Vec<SplitEntry>,
     pub total_amount: u64,

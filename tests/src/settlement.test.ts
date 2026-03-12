@@ -3,7 +3,8 @@ import { generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
 import {
   fetchEscrowAccount,
   fetchPendingSettlement,
-  FLEX_ERROR__INVALID_NONCE,
+  FLEX_ERROR__AUTHORIZATION_EXPIRED,
+  FLEX_ERROR__EXPIRY_TOO_FAR,
   FLEX_ERROR__PENDING_LIMIT_REACHED,
   FLEX_ERROR__INSUFFICIENT_BALANCE,
   FLEX_ERROR__INVALID_SPLIT_BPS,
@@ -56,7 +57,8 @@ describe("submit_authorization", () => {
     expect(Number(pending.amount)).toBe(50_000);
     expect(Number(pending.originalAmount)).toBe(50_000);
     expect(Number(pending.maxAmount)).toBe(50_000);
-    expect(Number(pending.nonce)).toBe(1);
+    expect(Number(pending.authorizationId)).toBe(1);
+    expect(Number(pending.expiresAtSlot)).toBeGreaterThan(0);
     expect(Number(pending.submittedAtSlot)).toBeGreaterThan(0);
     expect(pending.sessionKey).toBe(sessionKey.address);
     expect(pending.splitCount).toBe(1);
@@ -67,24 +69,89 @@ describe("submit_authorization", () => {
     expect(pending.bump).toBeGreaterThan(0);
   });
 
-  it("updates last_nonce and last_activity_slot on escrow", async () => {
+  it("updates last_activity_slot on escrow", async () => {
     const { escrowPDA } = await setupEscrowWithPending(
       rpc,
       owner,
       facilitator,
       payer,
       101,
-      { nonce: 42 },
+      { authorizationId: 42 },
     );
 
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrow.lastNonce)).toBe(42);
     expect(Number(escrow.lastActivitySlot)).toBeGreaterThan(0);
   }, 15_000);
 
-  it("fails with invalid nonce", async () => {
+  it("fails when authorization has expired", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 103);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+          { expiresAtSlot: 1n },
+        ),
+      FLEX_ERROR__AUTHORIZATION_EXPIRED,
+    );
+  });
+
+  it("fails when expiry too far", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1030);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          2,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+          { expiresAtSlot: currentSlot + 10_000n },
+        ),
+      FLEX_ERROR__EXPIRY_TOO_FAR,
+    );
+  });
+
+  it("fails with duplicate authorization_id", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1031, {
+        depositAmount: 10_000_000,
+      });
 
     const recipient = await createFundedTokenAccount(
       rpc,
@@ -103,27 +170,29 @@ describe("submit_authorization", () => {
       sessionKeyPDA,
       mint,
       vaultPDA,
-      2,
+      999,
       100_000,
       splits,
     );
 
-    await expectToFail(
-      () =>
-        submitAuthorizationHelper(
-          rpc,
-          escrowPDA,
-          facilitator,
-          sessionKey,
-          sessionKeyPDA,
-          mint,
-          vaultPDA,
-          1,
-          100_000,
-          splits,
-        ),
-      FLEX_ERROR__INVALID_NONCE,
-    );
+    let threw = false;
+    try {
+      await submitAuthorizationHelper(
+        rpc,
+        escrowPDA,
+        facilitator,
+        sessionKey,
+        sessionKeyPDA,
+        mint,
+        vaultPDA,
+        999,
+        100_000,
+        splits,
+      );
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
   });
 
   it("fails when pending limit reached", async () => {
@@ -403,7 +472,7 @@ describe("refund", () => {
       facilitator,
       payer,
       120,
-      { refundTimeoutSlots: 100_000, settleAmount: 100_000 },
+      { refundTimeoutSlots: 1000_000, settleAmount: 100_000 },
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
@@ -428,7 +497,7 @@ describe("refund", () => {
       facilitator,
       payer,
       121,
-      { refundTimeoutSlots: 100_000, settleAmount: 50_000 },
+      { refundTimeoutSlots: 1000_000, settleAmount: 50_000 },
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
@@ -450,8 +519,10 @@ describe("refund", () => {
       facilitator,
       payer,
       122,
-      { refundTimeoutSlots: 0, settleAmount: 50_000 },
+      { refundTimeoutSlots: 10, settleAmount: 50_000 },
     );
+
+    await new Promise((r) => setTimeout(r, 5000));
 
     await expectToFail(
       () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 10_000),
@@ -466,7 +537,7 @@ describe("refund", () => {
       facilitator,
       payer,
       123,
-      { refundTimeoutSlots: 100_000, settleAmount: 50_000 },
+      { refundTimeoutSlots: 1000_000, settleAmount: 50_000 },
     );
 
     await expectToFail(
@@ -494,7 +565,7 @@ describe("finalize", () => {
   it("distributes to single recipient and decrements pending_count", async () => {
     const { escrowPDA, vaultPDA, pendingPDA, splits } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 130, {
-        refundTimeoutSlots: 0,
+        refundTimeoutSlots: 10,
         settleAmount: 100_000,
       });
 
@@ -504,6 +575,8 @@ describe("finalize", () => {
     const recipientAddr = defined(splits[0]).recipient;
     const recipientBefore = await fetchTokenBalance(rpc, recipientAddr);
     expect(Number(recipientBefore)).toBe(0);
+
+    await new Promise((r) => setTimeout(r, 5000));
 
     await finalizeHelper(
       rpc,
@@ -528,7 +601,7 @@ describe("finalize", () => {
   it("distributes to multiple recipients proportionally", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 131, {
-        refundTimeoutSlots: 0,
+        refundTimeoutSlots: 10,
       });
 
     const r1 = await createFundedTokenAccount(
@@ -562,7 +635,10 @@ describe("finalize", () => {
       1,
       100_000,
       splits,
+      { refundTimeoutSlots: 10 },
     );
+
+    await new Promise((r) => setTimeout(r, 5000));
 
     await finalizeHelper(
       rpc,
@@ -584,7 +660,7 @@ describe("finalize", () => {
   it("handles rounding dust for last recipient", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 132, {
-        refundTimeoutSlots: 0,
+        refundTimeoutSlots: 10,
       });
 
     const r1 = await createFundedTokenAccount(
@@ -626,7 +702,10 @@ describe("finalize", () => {
       1,
       100,
       splits,
+      { refundTimeoutSlots: 10 },
     );
+
+    await new Promise((r) => setTimeout(r, 5000));
 
     await finalizeHelper(
       rpc,
@@ -651,7 +730,7 @@ describe("finalize", () => {
   it("fails before refund window expires", async () => {
     const { escrowPDA, vaultPDA, pendingPDA, splits } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 133, {
-        refundTimeoutSlots: 100_000,
+        refundTimeoutSlots: 1000_000,
         settleAmount: 50_000,
       });
 
@@ -673,7 +752,7 @@ describe("finalize", () => {
   it("fails with wrong recipient accounts", async () => {
     const { escrowPDA, vaultPDA, pendingPDA, mint } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 134, {
-        refundTimeoutSlots: 0,
+        refundTimeoutSlots: 10,
         settleAmount: 50_000,
       });
 
@@ -684,6 +763,8 @@ describe("finalize", () => {
       payer,
       0n,
     );
+
+    await new Promise((r) => setTimeout(r, 5000));
 
     await expectToFail(
       () =>

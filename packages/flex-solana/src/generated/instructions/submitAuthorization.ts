@@ -110,7 +110,8 @@ export type SubmitAuthorizationInstructionData = {
   mint: Address;
   maxAmount: bigint;
   settleAmount: bigint;
-  nonce: bigint;
+  authorizationId: bigint;
+  expiresAtSlot: bigint;
   splits: Array<SplitEntry>;
   signature: ReadonlyUint8Array;
 };
@@ -119,7 +120,8 @@ export type SubmitAuthorizationInstructionDataArgs = {
   mint: Address;
   maxAmount: number | bigint;
   settleAmount: number | bigint;
-  nonce: number | bigint;
+  authorizationId: number | bigint;
+  expiresAtSlot: number | bigint;
   splits: Array<SplitEntryArgs>;
   signature: ReadonlyUint8Array;
 };
@@ -131,7 +133,8 @@ export function getSubmitAuthorizationInstructionDataEncoder(): Encoder<SubmitAu
       ["mint", getAddressEncoder()],
       ["maxAmount", getU64Encoder()],
       ["settleAmount", getU64Encoder()],
-      ["nonce", getU64Encoder()],
+      ["authorizationId", getU64Encoder()],
+      ["expiresAtSlot", getU64Encoder()],
       ["splits", getArrayEncoder(getSplitEntryEncoder())],
       ["signature", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
@@ -148,7 +151,8 @@ export function getSubmitAuthorizationInstructionDataDecoder(): Decoder<SubmitAu
     ["mint", getAddressDecoder()],
     ["maxAmount", getU64Decoder()],
     ["settleAmount", getU64Decoder()],
-    ["nonce", getU64Decoder()],
+    ["authorizationId", getU64Decoder()],
+    ["expiresAtSlot", getU64Decoder()],
     ["splits", getArrayDecoder(getSplitEntryDecoder())],
     ["signature", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
@@ -183,7 +187,8 @@ export type SubmitAuthorizationAsyncInput<
   mint: SubmitAuthorizationInstructionDataArgs["mint"];
   maxAmount: SubmitAuthorizationInstructionDataArgs["maxAmount"];
   settleAmount: SubmitAuthorizationInstructionDataArgs["settleAmount"];
-  nonce: SubmitAuthorizationInstructionDataArgs["nonce"];
+  authorizationId: SubmitAuthorizationInstructionDataArgs["authorizationId"];
+  expiresAtSlot: SubmitAuthorizationInstructionDataArgs["expiresAtSlot"];
   splits: SubmitAuthorizationInstructionDataArgs["splits"];
   signature: SubmitAuthorizationInstructionDataArgs["signature"];
 };
@@ -276,7 +281,10 @@ export async function getSubmitAuthorizationInstructionAsync<
           ),
         ),
         getU64Encoder().encode(
-          getNonNullResolvedInstructionInput("nonce", args.nonce),
+          getNonNullResolvedInstructionInput(
+            "authorizationId",
+            args.authorizationId,
+          ),
         ),
       ],
     });
@@ -336,7 +344,8 @@ export type SubmitAuthorizationInput<
   mint: SubmitAuthorizationInstructionDataArgs["mint"];
   maxAmount: SubmitAuthorizationInstructionDataArgs["maxAmount"];
   settleAmount: SubmitAuthorizationInstructionDataArgs["settleAmount"];
-  nonce: SubmitAuthorizationInstructionDataArgs["nonce"];
+  authorizationId: SubmitAuthorizationInstructionDataArgs["authorizationId"];
+  expiresAtSlot: SubmitAuthorizationInstructionDataArgs["expiresAtSlot"];
   splits: SubmitAuthorizationInstructionDataArgs["splits"];
   signature: SubmitAuthorizationInstructionDataArgs["signature"];
 };

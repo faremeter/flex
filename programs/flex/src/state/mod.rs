@@ -17,7 +17,7 @@ pub struct EscrowAccount {
     pub owner: Pubkey,
     pub facilitator: Pubkey,
     pub index: u64,
-    pub last_nonce: u64,
+
     pub pending_count: u64,
     pub mint_count: u64,
     pub refund_timeout_slots: u64,
@@ -51,7 +51,8 @@ pub struct PendingSettlement {
     pub amount: u64,
     pub original_amount: u64,
     pub max_amount: u64,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
     pub submitted_at_slot: u64,
     pub session_key: Pubkey,
     pub split_count: u8,

@@ -18,12 +18,13 @@ pub struct PaymentAuthorization {
     pub escrow: Pubkey,
     pub mint: Pubkey,
     pub max_amount: u64,
-    pub nonce: u64,
+    pub authorization_id: u64,
+    pub expires_at_slot: u64,
     pub splits: Vec<SplitEntry>,
 }
 
 #[derive(Accounts)]
-#[instruction(mint: Pubkey, max_amount: u64, settle_amount: u64, nonce: u64)]
+#[instruction(mint: Pubkey, max_amount: u64, settle_amount: u64, authorization_id: u64, expires_at_slot: u64)]
 pub struct SubmitAuthorization<'info> {
     #[account(
         mut,
@@ -55,7 +56,7 @@ pub struct SubmitAuthorization<'info> {
         init,
         payer = facilitator,
         space = 8 + PendingSettlement::INIT_SPACE,
-        seeds = [b"pending", escrow.key().as_ref(), &nonce.to_le_bytes()],
+        seeds = [b"pending", escrow.key().as_ref(), &authorization_id.to_le_bytes()],
         bump,
     )]
     pub pending: Account<'info, PendingSettlement>,
@@ -134,13 +135,14 @@ fn verify_ed25519_introspection(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
     mint: Pubkey,
     max_amount: u64,
     settle_amount: u64,
-    nonce: u64,
+    authorization_id: u64,
+    expires_at_slot: u64,
     splits: Vec<SplitEntry>,
     _signature: [u8; 64],
 ) -> Result<()> {
@@ -153,7 +155,14 @@ pub fn submit_authorization(
         FlexError::PendingLimitReached
     );
 
-    require!(nonce > escrow.last_nonce, FlexError::InvalidNonce);
+    require!(
+        clock.slot < expires_at_slot,
+        FlexError::AuthorizationExpired
+    );
+    require!(
+        expires_at_slot <= clock.slot + escrow.refund_timeout_slots,
+        FlexError::ExpiryTooFar
+    );
 
     require!(settle_amount > 0, FlexError::SettleAmountZero);
     require!(settle_amount <= max_amount, FlexError::SettleExceedsMax);
@@ -184,7 +193,8 @@ pub fn submit_authorization(
         escrow: escrow.key(),
         mint,
         max_amount,
-        nonce,
+        authorization_id,
+        expires_at_slot,
         splits: splits.clone(),
     };
     let expected_message = authorization
@@ -227,7 +237,8 @@ pub fn submit_authorization(
     pending.amount = settle_amount;
     pending.original_amount = settle_amount;
     pending.max_amount = max_amount;
-    pending.nonce = nonce;
+    pending.authorization_id = authorization_id;
+    pending.expires_at_slot = expires_at_slot;
     pending.submitted_at_slot = clock.slot;
     pending.session_key = session_key.key;
     pending.split_count = splits.len() as u8;
@@ -240,7 +251,6 @@ pub fn submit_authorization(
     pending.bump = ctx.bumps.pending;
 
     let escrow = &mut ctx.accounts.escrow;
-    escrow.last_nonce = nonce;
     escrow.last_activity_slot = clock.slot;
     escrow.pending_count = escrow
         .pending_count
@@ -249,7 +259,8 @@ pub fn submit_authorization(
 
     emit!(AuthorizationSubmitted {
         escrow: escrow.key(),
-        nonce,
+        authorization_id,
+        expires_at_slot,
         mint,
         splits,
         max_amount,

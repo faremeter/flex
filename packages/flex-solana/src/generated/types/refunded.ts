@@ -22,14 +22,14 @@ import {
 
 export type Refunded = {
   escrow: Address;
-  nonce: bigint;
+  authorizationId: bigint;
   refundAmount: bigint;
   remainingAmount: bigint;
 };
 
 export type RefundedArgs = {
   escrow: Address;
-  nonce: number | bigint;
+  authorizationId: number | bigint;
   refundAmount: number | bigint;
   remainingAmount: number | bigint;
 };
@@ -37,7 +37,7 @@ export type RefundedArgs = {
 export function getRefundedEncoder(): FixedSizeEncoder<RefundedArgs> {
   return getStructEncoder([
     ["escrow", getAddressEncoder()],
-    ["nonce", getU64Encoder()],
+    ["authorizationId", getU64Encoder()],
     ["refundAmount", getU64Encoder()],
     ["remainingAmount", getU64Encoder()],
   ]);
@@ -46,7 +46,7 @@ export function getRefundedEncoder(): FixedSizeEncoder<RefundedArgs> {
 export function getRefundedDecoder(): FixedSizeDecoder<Refunded> {
   return getStructDecoder([
     ["escrow", getAddressDecoder()],
-    ["nonce", getU64Decoder()],
+    ["authorizationId", getU64Decoder()],
     ["refundAmount", getU64Decoder()],
     ["remainingAmount", getU64Decoder()],
   ]);

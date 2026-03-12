@@ -18,8 +18,8 @@ import { FLEX_PROGRAM_ADDRESS } from "../programs";
 export const FLEX_ERROR__SESSION_KEY_EXPIRED = 0x1770; // 6000
 /** SessionKeyRevoked: Session key revoked and grace period elapsed */
 export const FLEX_ERROR__SESSION_KEY_REVOKED = 0x1771; // 6001
-/** InvalidNonce: Nonce not strictly greater than last nonce */
-export const FLEX_ERROR__INVALID_NONCE = 0x1772; // 6002
+/** AuthorizationExpired: Authorization has expired */
+export const FLEX_ERROR__AUTHORIZATION_EXPIRED = 0x1772; // 6002
 /** InvalidSignature: Ed25519 signature verification failed */
 export const FLEX_ERROR__INVALID_SIGNATURE = 0x1773; // 6003
 /** InsufficientBalance: Token account balance insufficient */
@@ -74,15 +74,18 @@ export const FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW = 0x178b; // 6027
 export const FLEX_ERROR__SETTLE_EXCEEDS_MAX = 0x178c; // 6028
 /** SettleAmountZero: Settle amount must be greater than zero */
 export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178d; // 6029
+/** ExpiryTooFar: Authorization expiry exceeds refund timeout */
+export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178e; // 6030
 
 export type FlexError =
+  | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
   | typeof FLEX_ERROR__DEADMAN_NOT_EXPIRED
   | typeof FLEX_ERROR__DUPLICATE_ACCOUNTS
   | typeof FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT
+  | typeof FLEX_ERROR__EXPIRY_TOO_FAR
   | typeof FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED
   | typeof FLEX_ERROR__INSUFFICIENT_BALANCE
   | typeof FLEX_ERROR__INVALID_ED25519_INSTRUCTION
-  | typeof FLEX_ERROR__INVALID_NONCE
   | typeof FLEX_ERROR__INVALID_SIGNATURE
   | typeof FLEX_ERROR__INVALID_SPLIT_BPS
   | typeof FLEX_ERROR__INVALID_SPLIT_COUNT
@@ -110,13 +113,14 @@ export type FlexError =
 let flexErrorMessages: Record<FlexError, string> | undefined;
 if (process.env.NODE_ENV !== "production") {
   flexErrorMessages = {
+    [FLEX_ERROR__AUTHORIZATION_EXPIRED]: `Authorization has expired`,
     [FLEX_ERROR__DEADMAN_NOT_EXPIRED]: `Cannot emergency close before timeout`,
     [FLEX_ERROR__DUPLICATE_ACCOUNTS]: `Same account passed multiple times`,
     [FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT]: `Duplicate recipient in splits`,
+    [FLEX_ERROR__EXPIRY_TOO_FAR]: `Authorization expiry exceeds refund timeout`,
     [FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED]: `Cannot force close before extended timeout`,
     [FLEX_ERROR__INSUFFICIENT_BALANCE]: `Token account balance insufficient`,
     [FLEX_ERROR__INVALID_ED25519_INSTRUCTION]: `Ed25519 instruction malformed or missing`,
-    [FLEX_ERROR__INVALID_NONCE]: `Nonce not strictly greater than last nonce`,
     [FLEX_ERROR__INVALID_SIGNATURE]: `Ed25519 signature verification failed`,
     [FLEX_ERROR__INVALID_SPLIT_BPS]: `Split bps do not sum to 10000`,
     [FLEX_ERROR__INVALID_SPLIT_COUNT]: `Split count must be between 1 and 5`,
