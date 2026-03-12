@@ -20,7 +20,7 @@ pub struct Refund<'info> {
     #[account(
         mut,
         has_one = escrow,
-        seeds = [b"pending", escrow.key().as_ref(), &pending.nonce.to_le_bytes()],
+        seeds = [b"pending", escrow.key().as_ref(), &pending.authorization_id.to_le_bytes()],
         bump = pending.bump,
     )]
     pub pending: Account<'info, PendingSettlement>,
@@ -47,7 +47,7 @@ pub fn refund(ctx: Context<Refund>, refund_amount: u64) -> Result<()> {
 
     ctx.accounts.pending.amount -= refund_amount;
 
-    let nonce = ctx.accounts.pending.nonce;
+    let authorization_id = ctx.accounts.pending.authorization_id;
     let remaining = ctx.accounts.pending.amount;
 
     if remaining == 0 {
@@ -68,7 +68,7 @@ pub fn refund(ctx: Context<Refund>, refund_amount: u64) -> Result<()> {
 
     emit!(Refunded {
         escrow: escrow_key,
-        nonce,
+        authorization_id,
         refund_amount,
         remaining_amount: remaining,
     });

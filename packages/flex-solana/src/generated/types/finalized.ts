@@ -30,7 +30,7 @@ import {
 
 export type Finalized = {
   escrow: Address;
-  nonce: bigint;
+  authorizationId: bigint;
   mint: Address;
   splits: Array<SplitEntry>;
   totalAmount: bigint;
@@ -38,7 +38,7 @@ export type Finalized = {
 
 export type FinalizedArgs = {
   escrow: Address;
-  nonce: number | bigint;
+  authorizationId: number | bigint;
   mint: Address;
   splits: Array<SplitEntryArgs>;
   totalAmount: number | bigint;
@@ -47,7 +47,7 @@ export type FinalizedArgs = {
 export function getFinalizedEncoder(): Encoder<FinalizedArgs> {
   return getStructEncoder([
     ["escrow", getAddressEncoder()],
-    ["nonce", getU64Encoder()],
+    ["authorizationId", getU64Encoder()],
     ["mint", getAddressEncoder()],
     ["splits", getArrayEncoder(getSplitEntryEncoder())],
     ["totalAmount", getU64Encoder()],
@@ -57,7 +57,7 @@ export function getFinalizedEncoder(): Encoder<FinalizedArgs> {
 export function getFinalizedDecoder(): Decoder<Finalized> {
   return getStructDecoder([
     ["escrow", getAddressDecoder()],
-    ["nonce", getU64Decoder()],
+    ["authorizationId", getU64Decoder()],
     ["mint", getAddressDecoder()],
     ["splits", getArrayDecoder(getSplitEntryDecoder())],
     ["totalAmount", getU64Decoder()],

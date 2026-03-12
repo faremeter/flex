@@ -20,7 +20,7 @@ pub struct VoidPending<'info> {
         mut,
         close = owner,
         has_one = escrow,
-        seeds = [b"pending", escrow.key().as_ref(), &pending.nonce.to_le_bytes()],
+        seeds = [b"pending", escrow.key().as_ref(), &pending.authorization_id.to_le_bytes()],
         bump = pending.bump,
     )]
     pub pending: Account<'info, PendingSettlement>,

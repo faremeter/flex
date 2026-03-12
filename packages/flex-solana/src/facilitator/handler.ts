@@ -63,6 +63,7 @@ type FlexFacilitatorConfig = {
   minGracePeriodSlots?: bigint;
   confirmationBufferSlots?: bigint;
   snapshotMaxAgeMs?: number;
+  flushIntervalMs?: number;
 };
 
 type EscrowSnapshot = {
@@ -78,7 +79,7 @@ type CachedSessionKey = {
 };
 
 export type FlushResult = {
-  nonce: bigint;
+  authorizationId: bigint;
   success: boolean;
   transaction?: string;
   error?: string;
@@ -87,6 +88,7 @@ export type FlushResult = {
 export type FlexFacilitator = FacilitatorHandler & {
   flush(): Promise<FlushResult[]>;
   getHoldManager(): HoldManager;
+  stop(): void;
 };
 
 export const createFacilitatorHandler = async (
@@ -240,9 +242,7 @@ export const createFacilitatorHandler = async (
     return snapshot;
   }
 
-  function buildSplits(
-    payTo: string,
-  ): { recipient: string; bps: number }[] {
+  function buildSplits(payTo: string): { recipient: string; bps: number }[] {
     if (!payTo) return config.defaultSplits;
     if (facilitatorFeeBps === 0) return [{ recipient: payTo, bps: 10_000 }];
     return [
@@ -308,13 +308,13 @@ export const createFacilitatorHandler = async (
       ],
     });
 
-  const derivePendingPDA = (escrow: Address, nonce: bigint) =>
+  const derivePendingPDA = (escrow: Address, authorizationId: bigint) =>
     getProgramDerivedAddress({
       programAddress: FLEX_PROGRAM_ADDRESS,
       seeds: [
         textEncoder.encode("pending"),
         addressEncoder.encode(escrow),
-        u64Encoder.encode(nonce),
+        u64Encoder.encode(authorizationId),
       ],
     });
 
@@ -327,7 +327,8 @@ export const createFacilitatorHandler = async (
     const escrowAddress = address(parseResult.escrow);
     const mint = address(parseResult.mint);
     const maxAmount = BigInt(parseResult.maxAmount);
-    const nonce = BigInt(parseResult.nonce);
+    const authorizationId = BigInt(parseResult.authorizationId);
+    const expiresAtSlot = BigInt(parseResult.expiresAtSlot);
     const sessionKeyAddress = address(parseResult.sessionKey);
 
     const signatureBytes = Uint8Array.from(atob(parseResult.signature), (c) =>
@@ -371,6 +372,14 @@ export const createFacilitatorHandler = async (
       return { error: usability.reason };
     }
 
+    if (currentSlot >= expiresAtSlot) {
+      return { error: "Authorization has already expired" };
+    }
+
+    if (expiresAtSlot > currentSlot + snapshot.account.refundTimeoutSlots) {
+      return { error: "Authorization expiry exceeds refund timeout" };
+    }
+
     const validUntilSlot = computeHoldDeadline(sessionKeyData, currentSlot);
     if (validUntilSlot !== null && currentSlot >= validUntilSlot) {
       return {
@@ -387,7 +396,8 @@ export const createFacilitatorHandler = async (
       escrow: escrowAddress,
       mint,
       maxAmount,
-      nonce,
+      authorizationId,
+      expiresAtSlot,
       splits,
     });
 
@@ -415,7 +425,8 @@ export const createFacilitatorHandler = async (
       escrowAccount: snapshot.account,
       mint,
       maxAmount,
-      nonce,
+      authorizationId,
+      expiresAtSlot,
       sessionKeyAddress,
       sessionKeyPDA,
       vault,
@@ -473,9 +484,7 @@ export const createFacilitatorHandler = async (
     const settleAmount = BigInt(requirements.amount);
 
     if (settleAmount > result.maxAmount) {
-      return errorResponse(
-        "Settle amount exceeds client-authorized maxAmount",
-      );
+      return errorResponse("Settle amount exceeds client-authorized maxAmount");
     }
 
     const holdResult = holdManager.tryHold(
@@ -484,7 +493,8 @@ export const createFacilitatorHandler = async (
         mint: result.mint,
         settleAmount,
         maxAmount: result.maxAmount,
-        nonce: result.nonce,
+        authorizationId: result.authorizationId,
+        expiresAtSlot: result.expiresAtSlot,
         sessionKeyAddress: result.sessionKeyAddress,
         sessionKeyPDA: result.sessionKeyPDA,
         vault: result.vault,
@@ -496,7 +506,6 @@ export const createFacilitatorHandler = async (
       },
       result.vaultAmount,
       result.onChainCommitted,
-      result.escrowAccount.lastNonce,
     );
 
     if (!holdResult.ok) {
@@ -505,14 +514,14 @@ export const createFacilitatorHandler = async (
 
     return {
       success: true,
-      transaction: result.nonce.toString(),
+      transaction: result.authorizationId.toString(),
       network: networkId,
       payer: result.payer,
     };
   };
 
   async function submitHold(hold: Hold): Promise<FlushResult> {
-    const [pending] = await derivePendingPDA(hold.escrow, hold.nonce);
+    const [pending] = await derivePendingPDA(hold.escrow, hold.authorizationId);
 
     const ed25519Ix = createEd25519VerifyInstruction({
       publicKey: hold.sessionKeyAddress,
@@ -529,7 +538,8 @@ export const createFacilitatorHandler = async (
       mint: hold.mint,
       maxAmount: hold.maxAmount,
       settleAmount: hold.settleAmount,
-      nonce: hold.nonce,
+      authorizationId: hold.authorizationId,
+      expiresAtSlot: hold.expiresAtSlot,
       splits: hold.splits.map((s) => ({
         recipient: s.recipient,
         bps: s.bps,
@@ -563,7 +573,7 @@ export const createFacilitatorHandler = async (
       const statusValue = status.value[0];
       if (statusValue?.err) {
         return {
-          nonce: hold.nonce,
+          authorizationId: hold.authorizationId,
           success: false,
           error: `Transaction failed: ${JSON.stringify(statusValue.err)}`,
         };
@@ -573,7 +583,7 @@ export const createFacilitatorHandler = async (
         statusValue?.confirmationStatus === "finalized"
       ) {
         return {
-          nonce: hold.nonce,
+          authorizationId: hold.authorizationId,
           success: true,
           transaction: txSignature,
         };
@@ -582,7 +592,7 @@ export const createFacilitatorHandler = async (
     }
 
     return {
-      nonce: hold.nonce,
+      authorizationId: hold.authorizationId,
       success: false,
       error: "Transaction confirmation timeout",
     };
@@ -593,33 +603,22 @@ export const createFacilitatorHandler = async (
     const expired = holdManager.sweepExpired(currentSlot);
     for (const h of expired) {
       logger.warning(
-        `hold expired before flush: nonce=${h.nonce} validUntilSlot=${h.validUntilSlot}`,
+        `hold expired before flush: authorizationId=${h.authorizationId} validUntilSlot=${h.validUntilSlot}`,
       );
     }
 
     const batch = holdManager.drainSubmittable(currentSlot);
     if (batch.length === 0) return [];
 
-    const results: FlushResult[] = [];
-    const submitted: Hold[] = [];
-
-    const byEscrow = new Map<Address, Hold[]>();
-    for (const h of batch) {
-      const group = byEscrow.get(h.escrow) ?? [];
-      group.push(h);
-      byEscrow.set(h.escrow, group);
-    }
-
     const escrowsToRefresh = new Set<Address>();
 
-    for (const [escrow, group] of byEscrow) {
-      for (const hold of group) {
-        let result: FlushResult;
+    const settled = await Promise.allSettled(
+      batch.map(async (hold): Promise<FlushResult> => {
         try {
-          result = await submitHold(hold);
+          return await submitHold(hold);
         } catch (cause) {
-          result = {
-            nonce: hold.nonce,
+          return {
+            authorizationId: hold.authorizationId,
             success: false,
             error:
               cause instanceof Error
@@ -627,19 +626,35 @@ export const createFacilitatorHandler = async (
                 : "Unknown submission error",
           };
         }
-        results.push(result);
+      }),
+    );
 
-        if (result.success) {
-          submitted.push(hold);
-          escrowsToRefresh.add(escrow);
-        } else {
-          logger.error(
-            `submission failed for nonce ${hold.nonce}: ${result.error}`,
-          );
-          holdManager.releaseEscrowHoldsFrom(escrow, hold.nonce);
-          escrowSnapshots.delete(escrow);
-          break;
-        }
+    const results: FlushResult[] = [];
+    for (const [i, hold] of batch.entries()) {
+      const outcome = settled[i];
+      const result: FlushResult =
+        outcome?.status === "fulfilled"
+          ? outcome.value
+          : {
+              authorizationId: hold.authorizationId,
+              success: false,
+              error:
+                outcome?.status === "rejected" &&
+                outcome.reason instanceof Error
+                  ? outcome.reason.message
+                  : "Unknown submission error",
+            };
+      results.push(result);
+
+      if (result.success) {
+        holdManager.markSubmitted(hold.escrow, hold.authorizationId);
+        escrowsToRefresh.add(hold.escrow);
+      } else {
+        logger.error(
+          `submission failed for authorizationId ${hold.authorizationId}: ${result.error}`,
+        );
+        holdManager.releaseHold(hold.escrow, hold.authorizationId);
+        escrowSnapshots.delete(hold.escrow);
       }
     }
 
@@ -647,12 +662,34 @@ export const createFacilitatorHandler = async (
       [...escrowsToRefresh].map((escrow) => snapshotEscrow(escrow)),
     );
 
-    for (const hold of submitted) {
-      holdManager.markSubmitted(hold.escrow, hold.nonce);
-    }
-
     return results;
   }
+
+  const flushIntervalMs = config.flushIntervalMs ?? 2000;
+  const interval = setInterval(() => {
+    void flush().then(
+      (results) => {
+        for (const r of results) {
+          if (r.success) {
+            logger.info(
+              `flushed authorizationId=${r.authorizationId} tx=${r.transaction}`,
+            );
+          } else {
+            logger.error(
+              `flush failed authorizationId=${r.authorizationId}: ${r.error}`,
+            );
+          }
+        }
+      },
+      (cause: unknown) => {
+        logger.error(
+          `flush interval error: ${cause instanceof Error ? cause.message : cause}`,
+        );
+      },
+    );
+  }, flushIntervalMs);
+
+  const stop = () => clearInterval(interval);
 
   return {
     getSupported,
@@ -661,5 +698,6 @@ export const createFacilitatorHandler = async (
     handleSettle,
     flush,
     getHoldManager: () => holdManager,
+    stop,
   };
 };

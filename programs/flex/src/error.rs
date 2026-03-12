@@ -8,8 +8,8 @@ pub enum FlexError {
     #[msg("Session key revoked and grace period elapsed")]
     SessionKeyRevoked,
 
-    #[msg("Nonce not strictly greater than last nonce")]
-    InvalidNonce,
+    #[msg("Authorization has expired")]
+    AuthorizationExpired,
 
     #[msg("Ed25519 signature verification failed")]
     InvalidSignature,
@@ -91,4 +91,7 @@ pub enum FlexError {
 
     #[msg("Settle amount must be greater than zero")]
     SettleAmountZero,
+
+    #[msg("Authorization expiry exceeds refund timeout")]
+    ExpiryTooFar,
 }

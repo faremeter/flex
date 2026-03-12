@@ -12,7 +12,8 @@ export const FlexPaymentPayload = type({
   escrow: "string",
   mint: "string",
   maxAmount: "string.numeric",
-  nonce: "string.numeric",
+  authorizationId: "string.numeric",
+  expiresAtSlot: "string.numeric",
   splits: FlexSplitEntry.array(),
   sessionKey: "string",
   signature: "string",
@@ -36,7 +37,6 @@ export type EscrowAccountData = {
   owner: Address;
   facilitator: Address;
   index: bigint;
-  lastNonce: bigint;
   pendingCount: bigint;
   mintCount: bigint;
   refundTimeoutSlots: bigint;
@@ -66,7 +66,8 @@ export type PendingSettlementData = {
   amount: bigint;
   originalAmount: bigint;
   maxAmount: bigint;
-  nonce: bigint;
+  authorizationId: bigint;
+  expiresAtSlot: bigint;
   submittedAtSlot: bigint;
   sessionKey: Address;
   splitCount: number;

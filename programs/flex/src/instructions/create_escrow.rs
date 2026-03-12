@@ -34,7 +34,6 @@ pub fn create_escrow(
     escrow.owner = ctx.accounts.owner.key();
     escrow.facilitator = facilitator;
     escrow.index = index;
-    escrow.last_nonce = 0;
     escrow.pending_count = 0;
     escrow.mint_count = 0;
     escrow.refund_timeout_slots = refund_timeout_slots;

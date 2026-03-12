@@ -26,8 +26,7 @@ const OUTPUT_PATH =
   process.env.OUTPUT_PATH ??
   path.resolve(import.meta.dirname, "../../tmp/session-key.json");
 
-const OLD_SESSION_KEY_PATH =
-  process.env.SESSION_KEY_PATH ?? OUTPUT_PATH;
+const OLD_SESSION_KEY_PATH = process.env.SESSION_KEY_PATH ?? OUTPUT_PATH;
 
 const OWNER_KEYPAIR_PATH = process.env.OWNER_KEYPAIR_PATH;
 
@@ -106,7 +105,9 @@ const sessionKey = await createSignerFromKeyPair(keyPair);
 
 const registerIx = await getRegisterSessionKeyInstructionAsync({
   owner,
-  escrow: escrow as Parameters<typeof getRegisterSessionKeyInstructionAsync>[0]["escrow"],
+  escrow: escrow as Parameters<
+    typeof getRegisterSessionKeyInstructionAsync
+  >[0]["escrow"],
   sessionKey: sessionKeyAddress,
   expiresAtSlot: null,
   revocationGracePeriodSlots: GRACE_PERIOD_SLOTS,

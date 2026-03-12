@@ -30,7 +30,8 @@ import {
 
 export type AuthorizationSubmitted = {
   escrow: Address;
-  nonce: bigint;
+  authorizationId: bigint;
+  expiresAtSlot: bigint;
   mint: Address;
   splits: Array<SplitEntry>;
   maxAmount: bigint;
@@ -40,7 +41,8 @@ export type AuthorizationSubmitted = {
 
 export type AuthorizationSubmittedArgs = {
   escrow: Address;
-  nonce: number | bigint;
+  authorizationId: number | bigint;
+  expiresAtSlot: number | bigint;
   mint: Address;
   splits: Array<SplitEntryArgs>;
   maxAmount: number | bigint;
@@ -51,7 +53,8 @@ export type AuthorizationSubmittedArgs = {
 export function getAuthorizationSubmittedEncoder(): Encoder<AuthorizationSubmittedArgs> {
   return getStructEncoder([
     ["escrow", getAddressEncoder()],
-    ["nonce", getU64Encoder()],
+    ["authorizationId", getU64Encoder()],
+    ["expiresAtSlot", getU64Encoder()],
     ["mint", getAddressEncoder()],
     ["splits", getArrayEncoder(getSplitEntryEncoder())],
     ["maxAmount", getU64Encoder()],
@@ -63,7 +66,8 @@ export function getAuthorizationSubmittedEncoder(): Encoder<AuthorizationSubmitt
 export function getAuthorizationSubmittedDecoder(): Decoder<AuthorizationSubmitted> {
   return getStructDecoder([
     ["escrow", getAddressDecoder()],
-    ["nonce", getU64Decoder()],
+    ["authorizationId", getU64Decoder()],
+    ["expiresAtSlot", getU64Decoder()],
     ["mint", getAddressDecoder()],
     ["splits", getArrayDecoder(getSplitEntryDecoder())],
     ["maxAmount", getU64Decoder()],

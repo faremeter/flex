@@ -244,16 +244,23 @@ export async function submitAuthorizationHelper(
   sessionKeyPDA: Address,
   mint: Address,
   vault: Address,
-  nonce: number,
+  authorizationId: number,
   settleAmount: number,
   splits: SplitEntry[],
+  opts?: { expiresAtSlot?: bigint; refundTimeoutSlots?: number },
 ): Promise<Address> {
+  const currentSlot = await rpc.getSlot().send();
+  const timeout = BigInt(opts?.refundTimeoutSlots ?? 100);
+  const expiresAtSlot =
+    opts?.expiresAtSlot ?? currentSlot + (timeout > 10n ? timeout / 2n : 5n);
+
   const message = serializePaymentAuthorization({
     programId: FLEX_PROGRAM_ADDRESS,
     escrow,
     mint,
     maxAmount: BigInt(settleAmount),
-    nonce: BigInt(nonce),
+    authorizationId: BigInt(authorizationId),
+    expiresAtSlot,
     splits,
   });
 
@@ -275,7 +282,8 @@ export async function submitAuthorizationHelper(
     mint,
     maxAmount: settleAmount,
     settleAmount,
-    nonce,
+    authorizationId,
+    expiresAtSlot,
     splits,
     signature: new Uint8Array(64),
   });
@@ -360,7 +368,7 @@ export async function setupEscrowWithPending(
     deadmanTimeoutSlots?: number;
     depositAmount?: number;
     settleAmount?: number;
-    nonce?: number;
+    authorizationId?: number;
     splits?: SplitEntry[];
   },
 ): Promise<EscrowWithPending> {
@@ -381,7 +389,7 @@ export async function setupEscrowWithPending(
     splits = [{ recipient: recipient.address, bps: 10_000 }];
   }
 
-  const nonce = opts?.nonce ?? 1;
+  const authorizationId = opts?.authorizationId ?? 1;
   const settleAmount = opts?.settleAmount ?? 100_000;
 
   const pendingPDA = await submitAuthorizationHelper(
@@ -392,9 +400,10 @@ export async function setupEscrowWithPending(
     sessionKeyPDA,
     mint,
     vaultPDA,
-    nonce,
+    authorizationId,
     settleAmount,
     splits,
+    { refundTimeoutSlots: opts?.refundTimeoutSlots },
   );
 
   return {

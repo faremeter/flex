@@ -11,7 +11,7 @@ import { FLEX_PROGRAM_ADDRESS } from "../generated";
 import { logger } from "../logger";
 
 export type HoldEntry = {
-  nonce: bigint;
+  authorizationId: bigint;
   mint: Address;
   amount: bigint;
   maxAmount: bigint;
@@ -65,7 +65,7 @@ export async function fetchEscrowAccounting(
   }
 
   const holds: HoldEntry[] = pendingResults.map((p) => ({
-    nonce: p.account.nonce,
+    authorizationId: p.account.authorizationId,
     mint: p.account.mint,
     amount: p.account.amount,
     maxAmount: p.account.maxAmount,

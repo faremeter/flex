@@ -55,7 +55,6 @@ export type EscrowAccount = {
   owner: Address;
   facilitator: Address;
   index: bigint;
-  lastNonce: bigint;
   pendingCount: bigint;
   mintCount: bigint;
   refundTimeoutSlots: bigint;
@@ -71,7 +70,6 @@ export type EscrowAccountArgs = {
   owner: Address;
   facilitator: Address;
   index: number | bigint;
-  lastNonce: number | bigint;
   pendingCount: number | bigint;
   mintCount: number | bigint;
   refundTimeoutSlots: number | bigint;
@@ -91,7 +89,6 @@ export function getEscrowAccountEncoder(): FixedSizeEncoder<EscrowAccountArgs> {
       ["owner", getAddressEncoder()],
       ["facilitator", getAddressEncoder()],
       ["index", getU64Encoder()],
-      ["lastNonce", getU64Encoder()],
       ["pendingCount", getU64Encoder()],
       ["mintCount", getU64Encoder()],
       ["refundTimeoutSlots", getU64Encoder()],
@@ -113,7 +110,6 @@ export function getEscrowAccountDecoder(): FixedSizeDecoder<EscrowAccount> {
     ["owner", getAddressDecoder()],
     ["facilitator", getAddressDecoder()],
     ["index", getU64Decoder()],
-    ["lastNonce", getU64Decoder()],
     ["pendingCount", getU64Decoder()],
     ["mintCount", getU64Decoder()],
     ["refundTimeoutSlots", getU64Decoder()],
@@ -191,5 +187,5 @@ export async function fetchAllMaybeEscrowAccount(
 }
 
 export function getEscrowAccountSize(): number {
-  return 132;
+  return 124;
 }

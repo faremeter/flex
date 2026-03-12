@@ -16,27 +16,16 @@ export type SerializePaymentAuthorizationArgs = {
   escrow: Address;
   mint: Address;
   maxAmount: bigint;
-  nonce: bigint;
+  authorizationId: bigint;
+  expiresAtSlot: bigint;
   splits: SplitInput[];
 };
 
-/**
- * Serializes a PaymentAuthorization message for Ed25519 signing.
- *
- * Layout matches the on-chain Borsh serialization of PaymentAuthorization:
- *   Pubkey(32) programId
- *   Pubkey(32) escrow
- *   Pubkey(32) mint
- *   u64LE(8)   maxAmount
- *   u64LE(8)   nonce
- *   u32LE(4)   split_count (Vec length prefix)
- *   N * (Pubkey(32) + u16LE(2)) splits
- */
 export function serializePaymentAuthorization(
   args: SerializePaymentAuthorizationArgs,
 ): Uint8Array {
   const splitCount = args.splits.length;
-  const size = 32 + 32 + 32 + 8 + 8 + 4 + 34 * splitCount;
+  const size = 32 + 32 + 32 + 8 + 8 + 8 + 4 + 34 * splitCount;
   const buf = new Uint8Array(size);
 
   let offset = 0;
@@ -44,7 +33,8 @@ export function serializePaymentAuthorization(
   offset = writeAddress(buf, offset, args.escrow);
   offset = writeAddress(buf, offset, args.mint);
   offset = writeU64LE(buf, offset, args.maxAmount);
-  offset = writeU64LE(buf, offset, args.nonce);
+  offset = writeU64LE(buf, offset, args.authorizationId);
+  offset = writeU64LE(buf, offset, args.expiresAtSlot);
   offset = writeU32LE(buf, offset, splitCount);
 
   for (const split of args.splits) {

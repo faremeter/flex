@@ -23,7 +23,7 @@ pub struct Finalize<'info> {
         mut,
         close = facilitator,
         has_one = escrow,
-        seeds = [b"pending", escrow.key().as_ref(), &pending.nonce.to_le_bytes()],
+        seeds = [b"pending", escrow.key().as_ref(), &pending.authorization_id.to_le_bytes()],
         bump = pending.bump,
     )]
     pub pending: Account<'info, PendingSettlement>,
@@ -51,7 +51,7 @@ pub fn finalize<'info>(ctx: Context<'_, '_, '_, 'info, Finalize<'info>>) -> Resu
     let refund_timeout_slots = ctx.accounts.escrow.refund_timeout_slots;
 
     let total_amount = ctx.accounts.pending.amount;
-    let nonce = ctx.accounts.pending.nonce;
+    let authorization_id = ctx.accounts.pending.authorization_id;
     let mint = ctx.accounts.pending.mint;
     let split_count = ctx.accounts.pending.split_count as usize;
     let splits_fixed = ctx.accounts.pending.splits;
@@ -133,7 +133,7 @@ pub fn finalize<'info>(ctx: Context<'_, '_, '_, 'info, Finalize<'info>>) -> Resu
 
     emit!(Finalized {
         escrow: escrow_key,
-        nonce,
+        authorization_id,
         mint,
         splits,
         total_amount,
