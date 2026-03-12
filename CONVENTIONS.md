@@ -651,7 +651,7 @@ Run `cargo fmt` or `make format-anchor` to auto-format Rust files.
 
 | Pattern           | Use Case             | Example                            |
 | ----------------- | -------------------- | ---------------------------------- |
-| `snake_case`      | Functions, variables | `create_escrow`, `last_nonce`      |
+| `snake_case`      | Functions, variables | `create_escrow`, `pending_count`   |
 | `SCREAMING_SNAKE` | Constants            | `MAX_TIMEOUT_SLOTS`, `SEED_PREFIX` |
 | `_` prefix        | Unused parameters    | `_ctx`, `_bump`                    |
 
@@ -712,7 +712,6 @@ Use `#[account]` for all program-owned data and `#[derive(InitSpace)]` for space
 pub struct EscrowAccount {
     pub owner: Pubkey,
     pub facilitator: Pubkey,
-    pub last_nonce: u64,
     pub pending_count: u64,
     pub bump: u8,
 }
@@ -749,8 +748,8 @@ pub enum FlexError {
     #[msg("Session key revoked and grace period elapsed")]
     SessionKeyRevoked = 6001,
 
-    #[msg("Nonce not strictly greater than last nonce")]
-    InvalidNonce = 6002,
+    #[msg("Authorization has expired")]
+    AuthorizationExpired = 6002,
 
     #[msg("Ed25519 signature verification failed")]
     InvalidSignature = 6003,
@@ -763,8 +762,8 @@ Use `require!` for validation checks:
 
 ```rust
 require!(
-    nonce > escrow.last_nonce,
-    FlexError::InvalidNonce
+    clock.slot < expires_at_slot,
+    FlexError::AuthorizationExpired
 );
 
 require!(
@@ -857,7 +856,7 @@ Use the `msg!` macro for on-chain logging, never `println!`:
 
 ```rust
 msg!("Creating escrow for owner: {}", owner.key());
-msg!("Nonce: {}, Amount: {}", nonce, amount);
+msg!("Authorization: {}, Amount: {}", authorization_id, amount);
 ```
 
 ### Security
@@ -870,7 +869,7 @@ For detailed security patterns, always load the `anchor-security` skill when wri
 - Use canonical PDA bumps
 - Validate program IDs for CPIs
 - Properly close accounts with `close` constraint
-- Enforce nonce monotonicity
+- Enforce authorization expiry constraints
 - Validate time-based constraints with slots
 - Add `/// CHECK:` comments for `UncheckedAccount`
 

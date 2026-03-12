@@ -505,29 +505,47 @@ it("Registers session key", async () => {
 });
 ```
 
-### Testing Nonce Validation
+### Testing Authorization Expiry
+
+Replay protection relies on two mechanisms: PDA `init` uniqueness prevents duplicate `authorization_id` values while pending, and `expires_at_slot` prevents replay after finalization.
 
 ```typescript
-it("Enforces monotonic nonces", async () => {
-  const validNonce = 1;
-  const invalidNonce = 0;
+it("Rejects expired authorization", async () => {
+  const authorizationId = new anchor.BN(12345);
+  const expiredSlot = new anchor.BN(0);
 
-  // First submission should work
-  await program.methods
-    .submitAuthorization(/* ... */, validNonce, /* ... */)
-    .accounts({...})
-    .rpc();
-
-  // Second submission with lower nonce should fail
   try {
     await program.methods
-      .submitAuthorization(/* ... */, invalidNonce, /* ... */)
+      .submitAuthorization(/* ... */, authorizationId, expiredSlot, /* ... */)
       .accounts({...})
       .rpc();
 
-    assert.fail("Should have rejected invalid nonce");
+    assert.fail("Should have rejected expired authorization");
   } catch (error) {
-    expect(error.error.errorCode.code).to.equal("InvalidNonce");
+    expect(error.error.errorCode.code).to.equal("AuthorizationExpired");
+  }
+});
+
+it("Rejects duplicate authorization_id while pending", async () => {
+  const authorizationId = new anchor.BN(99999);
+  const validExpiresAt = new anchor.BN(currentSlot + 100);
+
+  // First submission should work
+  await program.methods
+    .submitAuthorization(/* ... */, authorizationId, validExpiresAt, /* ... */)
+    .accounts({...})
+    .rpc();
+
+  // Second submission with same authorization_id fails (PDA already exists)
+  try {
+    await program.methods
+      .submitAuthorization(/* ... */, authorizationId, validExpiresAt, /* ... */)
+      .accounts({...})
+      .rpc();
+
+    assert.fail("Should have rejected duplicate authorization_id");
+  } catch (error) {
+    expect(error).to.exist;
   }
 });
 ```
@@ -704,7 +722,7 @@ Each test should:
 
 ```typescript
 // Good - describes what is being tested
-it("Rejects authorization with invalid nonce", async () => {});
+it("Rejects expired authorization", async () => {});
 it("Transfers tokens to merchant after refund window", async () => {});
 
 // Bad - vague or unclear

@@ -264,8 +264,8 @@ seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()]
 // Token account (per escrow, per mint)
 seeds = [b"token", escrow.key().as_ref(), mint.key().as_ref()]
 
-// Pending settlement (per escrow, per nonce)
-seeds = [b"pending", escrow.key().as_ref(), &nonce.to_le_bytes()]
+// Pending settlement (per escrow, per authorization_id)
+seeds = [b"pending", escrow.key().as_ref(), &authorization_id.to_le_bytes()]
 ```
 
 **Use case:** Hierarchical data structures, sub-accounts
@@ -523,8 +523,8 @@ seeds = [b"escrow", owner.key().as_ref(), &index.to_le_bytes()]
 // Per-escrow, per-mint account
 seeds = [b"token", escrow.key().as_ref(), mint.key().as_ref()]
 
-// Per-escrow, per-nonce account
-seeds = [b"pending", escrow.key().as_ref(), &nonce.to_le_bytes()]
+// Per-escrow, per-authorization_id account
+seeds = [b"pending", escrow.key().as_ref(), &authorization_id.to_le_bytes()]
 ```
 
 ### Number Serialization
@@ -533,10 +533,10 @@ Use little-endian for numeric seeds:
 
 ```rust
 // Good
-seeds = [b"pending", &nonce.to_le_bytes()]
+seeds = [b"pending", &authorization_id.to_le_bytes()]
 
 // Bad - different byte order may cause issues
-seeds = [b"pending", &nonce.to_be_bytes()]
+seeds = [b"pending", &authorization_id.to_be_bytes()]
 ```
 
 ### Avoiding Collisions
@@ -625,10 +625,13 @@ pub struct InitializeVault<'info> {
 }
 ```
 
-### Pattern: Sequential Accounts (with Counter)
+### Pattern: Unique Authorization Accounts
+
+Each pending settlement is keyed by a random `authorization_id`. The `init` constraint ensures that no two pending settlements can share the same `authorization_id` within an escrow, providing replay protection while the settlement is pending. Expiry-based validation (`expires_at_slot`) prevents replay after finalization.
 
 ```rust
 #[derive(Accounts)]
+#[instruction(authorization_id: u64, expires_at_slot: u64)]
 pub struct CreatePendingSettlement<'info> {
     #[account(
         mut,
@@ -643,7 +646,7 @@ pub struct CreatePendingSettlement<'info> {
         seeds = [
             b"pending",
             escrow.key().as_ref(),
-            &nonce.to_le_bytes()  // Monotonically increasing
+            &authorization_id.to_le_bytes()
         ],
         bump
     )]
