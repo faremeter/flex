@@ -2,7 +2,7 @@ import {
   type Address,
   address,
   createTransactionMessage,
-  setTransactionMessageFeePayer,
+  setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstructions,
   signTransactionMessageWithSigners,
@@ -11,6 +11,7 @@ import {
   getProgramDerivedAddress,
   getAddressEncoder,
   getU64Encoder,
+  AccountRole,
   type TransactionSigner,
   type Rpc,
   type SolanaRpcApi,
@@ -43,6 +44,7 @@ import {
 } from "../query";
 import {
   getSubmitAuthorizationInstructionAsync,
+  getFinalizeInstruction,
   FLEX_PROGRAM_ADDRESS,
 } from "../generated";
 import { logger } from "../logger";
@@ -57,7 +59,6 @@ const DEFAULT_SNAPSHOT_MAX_AGE_MS = 10_000;
 type FlexFacilitatorConfig = {
   supportedMints: Address[];
   defaultSplits: { recipient: string; bps: number }[];
-  facilitatorFeeBps?: number;
   maxSubmitRetries?: number;
   submitRetryDelayMs?: number;
   minGracePeriodSlots?: bigint;
@@ -85,6 +86,13 @@ export type FlushResult = {
   error?: string;
 };
 
+export type FinalizeResult = {
+  authorizationId: bigint;
+  success: boolean;
+  transaction?: string;
+  error?: string;
+};
+
 export type FlexFacilitator = FacilitatorHandler & {
   flush(): Promise<FlushResult[]>;
   getHoldManager(): HoldManager;
@@ -104,7 +112,6 @@ export const createFacilitatorHandler = async (
     config.confirmationBufferSlots ?? DEFAULT_CONFIRMATION_BUFFER_SLOTS;
   const snapshotMaxAgeMs =
     config.snapshotMaxAgeMs ?? DEFAULT_SNAPSHOT_MAX_AGE_MS;
-  const facilitatorFeeBps = config.facilitatorFeeBps ?? 0;
   const facilitatorAddress = facilitatorSigner.address;
 
   const solanaNetwork = lookupX402Network(network);
@@ -242,13 +249,25 @@ export const createFacilitatorHandler = async (
     return snapshot;
   }
 
-  function buildSplits(payTo: string): { recipient: string; bps: number }[] {
+  async function buildSplits(
+    payTo: string,
+    mint: Address,
+  ): Promise<{ recipient: string; bps: number }[]> {
     if (!payTo) return config.defaultSplits;
-    if (facilitatorFeeBps === 0) return [{ recipient: payTo, bps: 10_000 }];
-    return [
-      { recipient: payTo, bps: 10_000 - facilitatorFeeBps },
-      { recipient: facilitatorAddress, bps: facilitatorFeeBps },
-    ];
+    const reservedBps = config.defaultSplits.reduce((sum, s) => sum + s.bps, 0);
+    const [payToATA] = await deriveATA(address(payTo), mint);
+    const receiverSplit = {
+      recipient: payToATA as string,
+      bps: 10_000 - reservedBps,
+    };
+    if (config.defaultSplits.length === 0) return [receiverSplit];
+    const fixedSplits = await Promise.all(
+      config.defaultSplits.map(async (s) => {
+        const [ata] = await deriveATA(address(s.recipient), mint);
+        return { recipient: ata as string, bps: s.bps };
+      }),
+    );
+    return [receiverSplit, ...fixedSplits];
   }
 
   const isMatchingRequirement = (req: {
@@ -273,20 +292,39 @@ export const createFacilitatorHandler = async (
 
   const getRequirements = async (
     args: GetRequirementsArgs,
-  ): Promise<x402PaymentRequirements[]> =>
-    args.accepts.filter(isMatchingRequirement).map((r) => ({
-      ...r,
-      extra: {
-        facilitator: facilitatorAddress,
-        supportedMints: config.supportedMints,
-        splits: buildSplits(r.payTo),
-        minGracePeriodSlots: minGracePeriodSlots.toString(),
-      },
-    }));
+  ): Promise<x402PaymentRequirements[]> => {
+    const compatible = args.accepts.filter(isMatchingRequirement);
+    return Promise.all(
+      compatible.map(async (r) => ({
+        ...r,
+        extra: {
+          facilitator: facilitatorAddress,
+          supportedMints: config.supportedMints,
+          splits: await buildSplits(r.payTo, address(r.asset)),
+          minGracePeriodSlots: minGracePeriodSlots.toString(),
+        },
+      })),
+    );
+  };
 
   const addressEncoder = getAddressEncoder();
   const u64Encoder = getU64Encoder();
   const textEncoder = new TextEncoder();
+
+  const TOKEN_PROGRAM = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  const ASSOCIATED_TOKEN_PROGRAM = address(
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+  );
+
+  const deriveATA = (wallet: Address, mint: Address) =>
+    getProgramDerivedAddress({
+      programAddress: ASSOCIATED_TOKEN_PROGRAM,
+      seeds: [
+        addressEncoder.encode(wallet),
+        addressEncoder.encode(TOKEN_PROGRAM),
+        addressEncoder.encode(mint),
+      ],
+    });
 
   const deriveSessionKeyPDA = (escrow: Address, sessionKey: Address) =>
     getProgramDerivedAddress({
@@ -555,8 +593,8 @@ export const createFacilitatorHandler = async (
       [ed25519Ix, submitIx],
       setTransactionMessageLifetimeUsingBlockhash(
         { blockhash, lastValidBlockHeight },
-        setTransactionMessageFeePayer(
-          facilitatorSigner.address,
+        setTransactionMessageFeePayerSigner(
+          facilitatorSigner,
           createTransactionMessage({ version: 0 }),
         ),
       ),
@@ -647,7 +685,11 @@ export const createFacilitatorHandler = async (
       results.push(result);
 
       if (result.success) {
-        holdManager.markSubmitted(hold.escrow, hold.authorizationId);
+        holdManager.markSubmitted(
+          hold.escrow,
+          hold.authorizationId,
+          currentSlot,
+        );
         escrowsToRefresh.add(hold.escrow);
       } else {
         logger.error(
@@ -661,6 +703,149 @@ export const createFacilitatorHandler = async (
     await Promise.all(
       [...escrowsToRefresh].map((escrow) => snapshotEscrow(escrow)),
     );
+
+    return results;
+  }
+
+  async function finalizeHold(hold: Hold): Promise<FinalizeResult> {
+    const [pending] = await derivePendingPDA(hold.escrow, hold.authorizationId);
+
+    const baseIx = getFinalizeInstruction({
+      escrow: hold.escrow,
+      facilitator: facilitatorAddress,
+      pending,
+      tokenAccount: hold.vault,
+    });
+
+    const ix = {
+      ...baseIx,
+      accounts: [
+        baseIx.accounts[0],
+        {
+          address: facilitatorSigner.address,
+          role: AccountRole.WRITABLE_SIGNER as const,
+          signer: facilitatorSigner,
+        },
+        ...baseIx.accounts.slice(2),
+        ...hold.splits.map((s) => ({
+          address: s.recipient,
+          role: AccountRole.WRITABLE as const,
+        })),
+      ],
+    };
+
+    const {
+      value: { blockhash, lastValidBlockHeight },
+    } = await rpc.getLatestBlockhash().send();
+
+    const txMessage = appendTransactionMessageInstructions(
+      [ix],
+      setTransactionMessageLifetimeUsingBlockhash(
+        { blockhash, lastValidBlockHeight },
+        setTransactionMessageFeePayerSigner(
+          facilitatorSigner,
+          createTransactionMessage({ version: 0 }),
+        ),
+      ),
+    );
+
+    const signedTx = await signTransactionMessageWithSigners(txMessage);
+    const txSignature = getSignatureFromTransaction(signedTx);
+
+    const wireTransaction = getBase64EncodedWireTransaction(signedTx);
+    await rpc.sendTransaction(wireTransaction, { encoding: "base64" }).send();
+
+    for (let i = 0; i < maxSubmitRetries; i++) {
+      const status = await rpc.getSignatureStatuses([txSignature]).send();
+      const statusValue = status.value[0];
+      if (statusValue?.err) {
+        return {
+          authorizationId: hold.authorizationId,
+          success: false,
+          error: `Transaction failed: ${JSON.stringify(statusValue.err)}`,
+        };
+      }
+      if (
+        statusValue?.confirmationStatus === "confirmed" ||
+        statusValue?.confirmationStatus === "finalized"
+      ) {
+        return {
+          authorizationId: hold.authorizationId,
+          success: true,
+          transaction: txSignature,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, submitRetryDelayMs));
+    }
+
+    return {
+      authorizationId: hold.authorizationId,
+      success: false,
+      error: "Transaction confirmation timeout",
+    };
+  }
+
+  function getRefundTimeout(escrow: Address): bigint | null {
+    const snapshot = escrowSnapshots.get(escrow);
+    if (!snapshot) return null;
+    return snapshot.account.refundTimeoutSlots + confirmationBufferSlots;
+  }
+
+  function extractErrorMessage(cause: unknown): string {
+    if (!(cause instanceof Error)) return String(cause);
+    const context =
+      "context" in cause
+        ? ` context=${JSON.stringify((cause as { context: unknown }).context, (_k, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`
+        : "";
+    const causeChain =
+      cause.cause instanceof Error ? ` cause=${cause.cause.message}` : "";
+    return `${cause.message}${context}${causeChain}`;
+  }
+
+  async function finalizeReady(): Promise<FinalizeResult[]> {
+    const currentSlot = estimateCurrentSlot();
+    const batch = holdManager.drainFinalizable(currentSlot, getRefundTimeout);
+    if (batch.length === 0) return [];
+
+    const settled = await Promise.allSettled(
+      batch.map(async (hold): Promise<FinalizeResult> => {
+        try {
+          return await finalizeHold(hold);
+        } catch (cause) {
+          return {
+            authorizationId: hold.authorizationId,
+            success: false,
+            error: extractErrorMessage(cause),
+          };
+        }
+      }),
+    );
+
+    const results: FinalizeResult[] = [];
+    for (const [i, hold] of batch.entries()) {
+      const outcome = settled[i];
+      const result: FinalizeResult =
+        outcome?.status === "fulfilled"
+          ? outcome.value
+          : {
+              authorizationId: hold.authorizationId,
+              success: false,
+              error:
+                outcome?.status === "rejected"
+                  ? extractErrorMessage(outcome.reason)
+                  : "Unknown finalization error",
+            };
+      results.push(result);
+
+      if (result.success) {
+        holdManager.markFinalized(hold.escrow, hold.authorizationId);
+      } else {
+        logger.error(
+          `finalization failed for authorizationId ${hold.authorizationId}: ${result.error}`,
+        );
+        hold.status = "submitted";
+      }
+    }
 
     return results;
   }
@@ -684,6 +869,26 @@ export const createFacilitatorHandler = async (
       (cause: unknown) => {
         logger.error(
           `flush interval error: ${cause instanceof Error ? cause.message : cause}`,
+        );
+      },
+    );
+    void finalizeReady().then(
+      (results) => {
+        for (const r of results) {
+          if (r.success) {
+            logger.info(
+              `finalized authorizationId=${r.authorizationId} tx=${r.transaction}`,
+            );
+          } else {
+            logger.error(
+              `finalize failed authorizationId=${r.authorizationId}: ${r.error}`,
+            );
+          }
+        }
+      },
+      (cause: unknown) => {
+        logger.error(
+          `finalize interval error: ${cause instanceof Error ? cause.message : cause}`,
         );
       },
     );
