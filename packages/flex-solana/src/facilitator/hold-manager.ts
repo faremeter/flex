@@ -16,11 +16,12 @@ export type Hold = {
   message: Uint8Array;
   payer: Address;
   validUntilSlot: bigint | null;
-  status: "held" | "submitting";
+  status: "held" | "submitting" | "submitted" | "finalizing";
   heldAt: number;
+  submittedAtSlot: bigint | null;
 };
 
-export type TryHoldParams = Omit<Hold, "status" | "heldAt">;
+export type TryHoldParams = Omit<Hold, "status" | "heldAt" | "submittedAtSlot">;
 
 export type HoldResult = { ok: true } | { ok: false; reason: string };
 
@@ -63,6 +64,7 @@ export function createHoldManager() {
       ...params,
       status: "held",
       heldAt: Date.now(),
+      submittedAtSlot: null,
     });
 
     return { ok: true };
@@ -75,6 +77,7 @@ export function createHoldManager() {
   function sweepExpired(currentSlot: bigint): Hold[] {
     const expired: Hold[] = [];
     for (const [k, h] of holds) {
+      if (h.status !== "held") continue;
       if (h.validUntilSlot !== null && currentSlot >= h.validUntilSlot) {
         expired.push(h);
         holds.delete(k);
@@ -95,8 +98,16 @@ export function createHoldManager() {
     return ready;
   }
 
-  function markSubmitted(escrow: Address, authorizationId: bigint): void {
-    holds.delete(key(escrow, authorizationId));
+  function markSubmitted(
+    escrow: Address,
+    authorizationId: bigint,
+    currentSlot: bigint,
+  ): void {
+    const hold = holds.get(key(escrow, authorizationId));
+    if (hold) {
+      hold.status = "submitted";
+      hold.submittedAtSlot = currentSlot;
+    }
   }
 
   function markFailed(escrow: Address, authorizationId: bigint): void {
@@ -104,6 +115,27 @@ export function createHoldManager() {
     if (hold) {
       hold.status = "held";
     }
+  }
+
+  function drainFinalizable(
+    currentSlot: bigint,
+    getRefundTimeout: (escrow: Address) => bigint | null,
+  ): Hold[] {
+    const ready: Hold[] = [];
+    for (const h of holds.values()) {
+      if (h.status !== "submitted" || h.submittedAtSlot === null) continue;
+      const timeout = getRefundTimeout(h.escrow);
+      if (timeout === null) continue;
+      if (currentSlot >= h.submittedAtSlot + timeout) {
+        h.status = "finalizing";
+        ready.push(h);
+      }
+    }
+    return ready;
+  }
+
+  function markFinalized(escrow: Address, authorizationId: bigint): void {
+    holds.delete(key(escrow, authorizationId));
   }
 
   function getHolds(): Hold[] {
@@ -121,6 +153,8 @@ export function createHoldManager() {
     drainSubmittable,
     markSubmitted,
     markFailed,
+    drainFinalizable,
+    markFinalized,
     getHeldAmount,
     getHolds,
     pendingCount,
