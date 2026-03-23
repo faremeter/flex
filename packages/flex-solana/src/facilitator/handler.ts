@@ -569,6 +569,10 @@ export const createFacilitatorHandler = async (
       };
     }
 
+    if (!updateResult.ok && updateResult.reason !== "Hold not found") {
+      return errorResponse(updateResult.reason);
+    }
+
     // No existing hold -- fall back to creating one (direct settle path)
     const holdResult = holdManager.tryHold(
       {
@@ -594,6 +598,12 @@ export const createFacilitatorHandler = async (
     if (!holdResult.ok) {
       return errorResponse(holdResult.reason);
     }
+
+    holdManager.updateSettleAmount(
+      result.escrowAddress,
+      result.authorizationId,
+      settleAmount,
+    );
 
     return {
       success: true,
