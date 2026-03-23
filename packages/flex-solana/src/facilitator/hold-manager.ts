@@ -16,7 +16,7 @@ export type Hold = {
   message: Uint8Array;
   payer: Address;
   validUntilSlot: bigint | null;
-  status: "held" | "submitting" | "submitted" | "finalizing";
+  status: "held" | "settled" | "submitting" | "submitted" | "finalizing";
   heldAt: number;
   submittedAtSlot: bigint | null;
 };
@@ -83,10 +83,14 @@ export function createHoldManager() {
     if (!hold) {
       return { ok: false, reason: "Hold not found" };
     }
+    if (hold.status !== "held") {
+      return { ok: false, reason: "Hold is not in held state" };
+    }
     if (settleAmount > hold.maxAmount) {
       return { ok: false, reason: "Settle amount exceeds maxAmount" };
     }
     hold.settleAmount = settleAmount;
+    hold.status = "settled";
     return { ok: true };
   }
 
@@ -107,7 +111,7 @@ export function createHoldManager() {
 
     const ready: Hold[] = [];
     for (const h of holds.values()) {
-      if (h.status !== "held") continue;
+      if (h.status !== "settled") continue;
       h.status = "submitting";
       ready.push(h);
     }
@@ -129,7 +133,7 @@ export function createHoldManager() {
   function markFailed(escrow: Address, authorizationId: bigint): void {
     const hold = holds.get(key(escrow, authorizationId));
     if (hold) {
-      hold.status = "held";
+      hold.status = "settled";
     }
   }
 
