@@ -492,7 +492,34 @@ export const createFacilitatorHandler = async (
       return { isValid: false, invalidReason: result.error };
     }
 
-    return { isValid: true };
+    // Create hold at maxAmount to reserve funds and prevent replay.
+    // The settle step will reduce settleAmount to the actual cost.
+    const holdResult = holdManager.tryHold(
+      {
+        escrow: result.escrowAddress,
+        mint: result.mint,
+        settleAmount: result.maxAmount,
+        maxAmount: result.maxAmount,
+        authorizationId: result.authorizationId,
+        expiresAtSlot: result.expiresAtSlot,
+        sessionKeyAddress: result.sessionKeyAddress,
+        sessionKeyPDA: result.sessionKeyPDA,
+        vault: result.vault,
+        splits: result.splits,
+        signatureBytes: result.signatureBytes,
+        message: result.message,
+        payer: result.payer,
+        validUntilSlot: result.validUntilSlot,
+      },
+      result.vaultAmount,
+      result.onChainCommitted,
+    );
+
+    if (!holdResult.ok) {
+      return { isValid: false, invalidReason: holdResult.reason };
+    }
+
+    return { isValid: true, payer: result.payer };
   };
 
   const handleSettle = async (
@@ -525,6 +552,24 @@ export const createFacilitatorHandler = async (
       return errorResponse("Settle amount exceeds client-authorized maxAmount");
     }
 
+    // Update the hold created during verify with the actual settle amount.
+    // If no hold exists (settle called without prior verify), create one.
+    const updateResult = holdManager.updateSettleAmount(
+      result.escrowAddress,
+      result.authorizationId,
+      settleAmount,
+    );
+
+    if (updateResult.ok) {
+      return {
+        success: true,
+        transaction: result.authorizationId.toString(),
+        network: networkId,
+        payer: result.payer,
+      };
+    }
+
+    // No existing hold -- fall back to creating one (direct settle path)
     const holdResult = holdManager.tryHold(
       {
         escrow: result.escrowAddress,

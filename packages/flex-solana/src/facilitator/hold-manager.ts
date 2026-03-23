@@ -74,6 +74,22 @@ export function createHoldManager() {
     holds.delete(key(escrow, authorizationId));
   }
 
+  function updateSettleAmount(
+    escrow: Address,
+    authorizationId: bigint,
+    settleAmount: bigint,
+  ): HoldResult {
+    const hold = holds.get(key(escrow, authorizationId));
+    if (!hold) {
+      return { ok: false, reason: "Hold not found" };
+    }
+    if (settleAmount > hold.maxAmount) {
+      return { ok: false, reason: "Settle amount exceeds maxAmount" };
+    }
+    hold.settleAmount = settleAmount;
+    return { ok: true };
+  }
+
   function sweepExpired(currentSlot: bigint): Hold[] {
     const expired: Hold[] = [];
     for (const [k, h] of holds) {
@@ -149,6 +165,7 @@ export function createHoldManager() {
   return {
     tryHold,
     releaseHold,
+    updateSettleAmount,
     sweepExpired,
     drainSubmittable,
     markSubmitted,
