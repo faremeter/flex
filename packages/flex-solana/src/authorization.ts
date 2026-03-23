@@ -23,7 +23,7 @@ export type SerializePaymentAuthorizationArgs = {
 
 export function serializePaymentAuthorization(
   args: SerializePaymentAuthorizationArgs,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const splitCount = args.splits.length;
   const size = 32 + 32 + 32 + 8 + 8 + 8 + 4 + 34 * splitCount;
   const buf = new Uint8Array(size);
@@ -46,9 +46,9 @@ export function serializePaymentAuthorization(
 }
 
 export async function signPaymentAuthorization(args: {
-  message: Uint8Array;
+  message: Uint8Array<ArrayBuffer>;
   keyPair: CryptoKeyPair;
-}): Promise<Uint8Array> {
+}): Promise<Uint8Array<ArrayBuffer>> {
   const signature = await crypto.subtle.sign(
     "Ed25519",
     args.keyPair.privateKey,
