@@ -1649,6 +1649,16 @@ The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inse
 
 **Revisit when:** Next program upgrade. Assign explicit discriminant values to each variant to match the documented table.
 
+### Facilitator hold state is not persisted
+
+The facilitator SDK's `HoldManager` stores all hold state in memory. If the facilitator process restarts, all in-memory holds are lost. Submitted-but-unfinalized pending settlements remain on-chain but the facilitator will not attempt to finalize them after restart.
+
+**Why this is accepted:** Crash recovery requires either persistent storage or on-chain state reconciliation on startup, both of which add significant complexity to an initial implementation.
+
+**Mitigation:** Facilitators should run with process supervision and monitor for orphaned pending settlements via `getProgramAccounts`.
+
+**Revisit when:** Moving to production deployment. A reconciliation function that scans on-chain pending settlements on startup is the minimum viable recovery mechanism.
+
 ## Future Extensions
 
 - **Cross-program invocation hooks**: Allow middleware to verify settlements via CPI
