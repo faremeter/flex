@@ -18,7 +18,9 @@ import {
   FLEX_ERROR__SETTLE_EXCEEDS_MAX,
   FLEX_ERROR__INVALID_SPLIT_COUNT,
   FLEX_ERROR__SESSION_KEY_EXPIRED,
+  FLEX_ERROR__SESSION_KEY_REVOKED,
   FLEX_ERROR__INVALID_SIGNATURE,
+  fetchSessionKey,
   getRevokeSessionKeyInstruction,
   serializePaymentAuthorization,
   createEd25519VerifyInstruction,
@@ -592,6 +594,10 @@ describe("submit_authorization", () => {
     });
     await sendTx(rpc, owner, [revokeIx]);
 
+    const sessionKeyAccount = defined(await fetchSessionKey(rpc, sessionKeyPDA));
+    expect(sessionKeyAccount.active).toBe(false);
+    expect(sessionKeyAccount.revokedAtSlot).not.toBeNull();
+
     const recipient = await createFundedTokenAccount(
       rpc,
       mint,
@@ -617,6 +623,51 @@ describe("submit_authorization", () => {
     expect(Number(pending.amount)).toBe(100_000);
   });
 
+  it("fails with revoked key past grace period", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 158, {
+        revocationGracePeriodSlots: 5,
+      });
+
+    const revokeIx = getRevokeSessionKeyInstruction({
+      escrow: escrowPDA,
+      owner,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [revokeIx]);
+
+    await new Promise((r) => setTimeout(r, 5000));
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+        ),
+      FLEX_ERROR__SESSION_KEY_REVOKED,
+    );
+  });
+
+  // The Ed25519 verify instruction checks a signature from wrongKey, which
+  // succeeds because the signature is valid for that key. But the program's
+  // introspection compares the pubkey against the registered session key and
+  // finds a mismatch, returning InvalidSignature.
   it("fails with wrong session key signature", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 155);
@@ -672,6 +723,41 @@ describe("submit_authorization", () => {
       () => sendTx(rpc, facilitator, [ed25519Ix, submitIx]),
       FLEX_ERROR__INVALID_SIGNATURE,
     );
+  });
+
+  it("fails with unauthorized facilitator", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 156);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const unauthorized = await generateKeyPairSigner();
+    await fundKeypair(rpc, unauthorized);
+
+    let threw = false;
+    try {
+      await submitAuthorizationHelper(
+        rpc,
+        escrowPDA,
+        unauthorized,
+        sessionKey,
+        sessionKeyPDA,
+        mint,
+        vaultPDA,
+        1,
+        100_000,
+        [{ recipient: recipient.address, bps: 10_000 }],
+      );
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
   });
 
   it("succeeds with settle amount less than max", async () => {

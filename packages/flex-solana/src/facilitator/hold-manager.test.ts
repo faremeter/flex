@@ -10,13 +10,15 @@ const ESCROW_B = "escrow2" as Address;
 const MINT = "mint1" as Address;
 const MINT_B = "mint2" as Address;
 
+let nextAuthId = 1000n;
+
 function makeParams(overrides?: Partial<TryHoldParams>): TryHoldParams {
   return {
     escrow: ESCROW,
     mint: MINT,
     settleAmount: 100n,
     maxAmount: 200n,
-    authorizationId: BigInt(Math.floor(Math.random() * 1e15)),
+    authorizationId: nextAuthId++,
     expiresAtSlot: 1000n,
     sessionKeyAddress: "sk1" as Address,
     sessionKeyPDA: "skpda1" as Address,
@@ -191,6 +193,11 @@ describe("tryHold balance", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("accepts zero settleAmount without error", () => {
+    const result = mgr.tryHold(makeParams({ settleAmount: 0n }), 100n, 0n, 0n);
+    expect(result.ok).toBe(true);
+  });
+
   test("accepts hold when settleAmount equals available balance", () => {
     const result = mgr.tryHold(
       makeParams({ settleAmount: 50n }),
@@ -248,6 +255,18 @@ describe("updateSettleAmount", () => {
     expect(result).toEqual({ ok: false, reason: "Hold not found" });
   });
 
+  test("allows settleAmount larger than original up to maxAmount", () => {
+    mgr.tryHold(
+      makeParams({ authorizationId: 1n, settleAmount: 50n, maxAmount: 200n }),
+      1000n,
+      0n,
+      0n,
+    );
+    const result = mgr.updateSettleAmount(ESCROW, 1n, 180n);
+    expect(result.ok).toBe(true);
+    expect(mgr.getHeldAmount(ESCROW, MINT)).toBe(180n);
+  });
+
   test("accepts settleAmount exactly equal to maxAmount", () => {
     mgr.tryHold(makeParams({ authorizationId: 1n, maxAmount: 100n }), 1000n, 0n, 0n);
     const result = mgr.updateSettleAmount(ESCROW, 1n, 100n);
@@ -303,6 +322,9 @@ describe("drainSubmittable", () => {
     const ready = mgr.drainSubmittable(0n);
     expect(ready).toHaveLength(2);
     expect(ready.every((h) => h.status === "submitting")).toBe(true);
+    const ids = new Set(ready.map((h) => h.authorizationId));
+    expect(ids.has(1n)).toBe(true);
+    expect(ids.has(2n)).toBe(true);
   });
 
   test("does not touch held or submitted holds", () => {
@@ -326,6 +348,24 @@ describe("drainSubmittable", () => {
     expect(ready).toHaveLength(1);
     expect(ready[0]?.authorizationId).toBe(2n);
     expect(mgr.getHolds()).toHaveLength(1);
+  });
+
+  test("drains settled holds across multiple escrows", () => {
+    mgr.tryHold(makeParams({ escrow: ESCROW, authorizationId: 1n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW, 1n, 100n);
+    mgr.tryHold(makeParams({ escrow: ESCROW_B, authorizationId: 2n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW_B, 2n, 100n);
+    mgr.tryHold(makeParams({ escrow: ESCROW, authorizationId: 3n }), 1000n, 0n, 0n);
+
+    const ready = mgr.drainSubmittable(0n);
+    expect(ready).toHaveLength(2);
+    const escrows = new Set(ready.map((h) => h.escrow));
+    expect(escrows.has(ESCROW)).toBe(true);
+    expect(escrows.has(ESCROW_B)).toBe(true);
+    const ids = new Set(ready.map((h) => h.authorizationId));
+    expect(ids.has(1n)).toBe(true);
+    expect(ids.has(2n)).toBe(true);
+    expect(ids.has(3n)).toBe(false);
   });
 
   test("returns empty when no holds exist", () => {
@@ -575,6 +615,27 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
     mgr.tryHold(makeParams({ escrow: ESCROW_B, authorizationId: 3n }), 1000n, 0n, 0n);
     expect(mgr.getUnsubmittedCount(ESCROW)).toBe(1);
     expect(mgr.getUnsubmittedCount(ESCROW_B)).toBe(2);
+  });
+
+  test("pendingCount includes all statuses while getUnsubmittedCount excludes submitted and finalizing", () => {
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW, 2n, 100n);
+    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW, 3n, 100n);
+    mgr.drainSubmittable(0n);
+    mgr.tryHold(makeParams({ authorizationId: 4n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW, 4n, 100n);
+    mgr.drainSubmittable(0n);
+    mgr.markSubmitted(ESCROW, 4n, 100n);
+    mgr.tryHold(makeParams({ authorizationId: 5n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW, 5n, 100n);
+    mgr.drainSubmittable(0n);
+    mgr.markSubmitted(ESCROW, 5n, 100n);
+    mgr.drainFinalizable(999n, () => 50n);
+
+    expect(mgr.pendingCount()).toBe(5);
+    expect(mgr.getUnsubmittedCount(ESCROW)).toBe(3);
   });
 
   test("pending count and balance are independent across mints on same escrow", () => {
