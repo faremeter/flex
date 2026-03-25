@@ -32,7 +32,7 @@ export type EscrowAccounting = {
   canSubmit: boolean;
 };
 
-const MAX_PENDING_SETTLEMENTS = 16;
+export const MAX_PENDING_SETTLEMENTS = 16;
 
 async function deriveVaultAddress(
   escrow: Address,
