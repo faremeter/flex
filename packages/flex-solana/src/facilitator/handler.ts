@@ -742,11 +742,17 @@ export const createFacilitatorHandler = async (
       results.push(result);
 
       if (result.success) {
-        holdManager.markSubmitted(
-          hold.escrow,
-          hold.authorizationId,
-          currentSlot,
-        );
+        if (
+          !holdManager.markSubmitted(
+            hold.escrow,
+            hold.authorizationId,
+            currentSlot,
+          )
+        ) {
+          logger.warning(
+            `markSubmitted returned false for authorizationId ${hold.authorizationId}`,
+          );
+        }
         escrowsToRefresh.add(hold.escrow);
       } else {
         logger.error(
@@ -931,7 +937,11 @@ export const createFacilitatorHandler = async (
       results.push(result);
 
       if (result.success) {
-        holdManager.markFinalized(hold.escrow, hold.authorizationId);
+        if (!holdManager.markFinalized(hold.escrow, hold.authorizationId)) {
+          logger.warning(
+            `markFinalized returned false for authorizationId ${hold.authorizationId}`,
+          );
+        }
       } else {
         logger.error(
           `finalization failed for authorizationId ${hold.authorizationId}: ${result.error}`,

@@ -419,15 +419,14 @@ describe("markSubmitted", () => {
     mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
-    mgr.markSubmitted(ESCROW, 1n, 500n);
+    expect(mgr.markSubmitted(ESCROW, 1n, 500n)).toBe(true);
     const hold = mgr.getHolds()[0];
     expect(hold?.status).toBe("submitted");
     expect(hold?.submittedAtSlot).toBe(500n);
   });
 
-  test("is a no-op for nonexistent hold", () => {
-    mgr.markSubmitted(ESCROW, 999n, 100n);
-    expect(mgr.getHolds()).toHaveLength(0);
+  test("returns false for nonexistent hold", () => {
+    expect(mgr.markSubmitted(ESCROW, 999n, 100n)).toBe(false);
   });
 });
 
@@ -573,30 +572,35 @@ describe("markFinalized", () => {
   });
 });
 
-describe("markFinalized", () => {
-  test("removes the hold entirely", () => {
+describe("state guards", () => {
+  test("markSubmitted returns false for non-submitting hold", () => {
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
+    expect(mgr.markSubmitted(ESCROW, 1n, 100n)).toBe(false);
+    expect(mgr.getHolds()[0]?.status).toBe("held");
+  });
+
+  test("markSubmitted returns true for submitting hold", () => {
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
+    mgr.updateSettleAmount(ESCROW, 1n, 100n);
+    mgr.drainSubmittable(0n);
+    expect(mgr.markSubmitted(ESCROW, 1n, 100n)).toBe(true);
+    expect(mgr.getHolds()[0]?.status).toBe("submitted");
+  });
+
+  test("markFinalized returns false for non-finalizing hold", () => {
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
+    expect(mgr.markFinalized(ESCROW, 1n)).toBe(false);
+    expect(mgr.getHolds()).toHaveLength(1);
+  });
+
+  test("markFinalized returns true for finalizing hold", () => {
     mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
     mgr.drainFinalizable(999n, () => 50n);
-    mgr.markFinalized(ESCROW, 1n);
+    expect(mgr.markFinalized(ESCROW, 1n)).toBe(true);
     expect(mgr.getHolds()).toHaveLength(0);
-  });
-});
-
-describe("unguarded transitions", () => {
-  test("markFinalized removes hold regardless of status", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
-    mgr.markFinalized(ESCROW, 1n);
-    expect(mgr.getHolds()).toHaveLength(0);
-  });
-
-  test("markSubmitted overwrites any status without guard", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0n);
-    expect(mgr.getHolds()[0]?.status).toBe("held");
-    mgr.markSubmitted(ESCROW, 1n, 100n);
-    expect(mgr.getHolds()[0]?.status).toBe("submitted");
   });
 
   test("releaseHold deletes hold in any status", () => {
