@@ -20,9 +20,13 @@ export type Hold = {
   status: "held" | "settled" | "submitting" | "submitted" | "finalizing";
   heldAt: number;
   submittedAtSlot: bigint | null;
+  retryCount: number;
 };
 
-export type TryHoldParams = Omit<Hold, "status" | "heldAt" | "submittedAtSlot">;
+export type TryHoldParams = Omit<
+  Hold,
+  "status" | "heldAt" | "submittedAtSlot" | "retryCount"
+>;
 
 export type HoldResult = { ok: true } | { ok: false; reason: string };
 
@@ -94,6 +98,7 @@ export function createHoldManager() {
       status: "held",
       heldAt: Date.now(),
       submittedAtSlot: null,
+      retryCount: 0,
     });
 
     return { ok: true };
@@ -159,11 +164,12 @@ export function createHoldManager() {
     }
   }
 
-  function markFailed(escrow: Address, authorizationId: bigint): void {
+  function markFailed(escrow: Address, authorizationId: bigint): number {
     const hold = holds.get(key(escrow, authorizationId));
-    if (hold) {
-      hold.status = "settled";
-    }
+    if (hold?.status !== "submitting") return -1;
+    hold.retryCount++;
+    hold.status = "settled";
+    return hold.retryCount;
   }
 
   function drainFinalizable(
