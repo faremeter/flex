@@ -1625,6 +1625,30 @@ When a full refund closes the pending settlement account, it zeroes lamports, re
 
 **Revisit when:** An auditor flags this or if the refund instruction is modified to participate in larger composite transactions.
 
+### Unused signature parameter in submit_authorization
+
+`programs/flex/src/instructions/submit_authorization.rs`
+
+The `_signature: [u8; 64]` parameter is passed as an instruction argument but never read. Signature verification happens via Ed25519 introspection of the preceding instruction. This wastes 64 bytes per authorization submission.
+
+**Revisit when:** Next program upgrade. Removing this parameter changes the IDL and requires SDK updates.
+
+### Wrong error code for zero-amount deposit
+
+`programs/flex/src/instructions/deposit.rs`
+
+`require!(amount > 0, FlexError::InsufficientBalance)` uses `InsufficientBalance` for a zero-amount deposit. A zero deposit is an invalid argument, not a balance issue. A dedicated `InvalidAmount` error code should be added.
+
+**Revisit when:** Next program upgrade, alongside error code stabilization.
+
+### Error codes lack explicit numeric values
+
+`programs/flex/src/error.rs`
+
+The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6030) that happen to match the current ordering but are not enforced in code.
+
+**Revisit when:** Next program upgrade. Assign explicit discriminant values to each variant to match the documented table.
+
 ## Future Extensions
 
 - **Cross-program invocation hooks**: Allow middleware to verify settlements via CPI
