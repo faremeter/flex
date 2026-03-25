@@ -36,7 +36,11 @@ export function createHoldManager() {
   function getHeldAmount(escrow: Address, mint: Address): bigint {
     let total = 0n;
     for (const h of holds.values()) {
-      if (h.escrow === escrow && h.mint === mint) {
+      if (
+        h.escrow === escrow &&
+        h.mint === mint &&
+        (h.status === "held" || h.status === "settled" || h.status === "submitting")
+      ) {
         total += h.settleAmount;
       }
     }
@@ -75,8 +79,12 @@ export function createHoldManager() {
 
     const inMemoryHeld = getHeldAmount(params.escrow, params.mint);
     const totalCommitted = onChainCommitted + inMemoryHeld;
-    const available = vaultBalance - totalCommitted;
 
+    if (totalCommitted > vaultBalance) {
+      return { ok: false, reason: "Insufficient available balance for hold" };
+    }
+
+    const available = vaultBalance - totalCommitted;
     if (available < params.settleAmount) {
       return { ok: false, reason: "Insufficient available balance for hold" };
     }
