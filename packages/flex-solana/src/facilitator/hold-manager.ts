@@ -1,5 +1,6 @@
 import type { Address } from "@solana/kit";
 import type { SplitInput } from "../authorization";
+import { MAX_PENDING_SETTLEMENTS } from "./accounting";
 
 export type Hold = {
   escrow: Address;
@@ -42,14 +43,34 @@ export function createHoldManager() {
     return total;
   }
 
+  function getUnsubmittedCount(escrow: Address): number {
+    let count = 0;
+    for (const h of holds.values()) {
+      if (
+        h.escrow === escrow &&
+        (h.status === "held" || h.status === "settled" || h.status === "submitting")
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   function tryHold(
     params: TryHoldParams,
     vaultBalance: bigint,
     onChainCommitted: bigint,
+    onChainPendingCount: bigint,
   ): HoldResult {
     const k = key(params.escrow, params.authorizationId);
     if (holds.has(k)) {
       return { ok: false, reason: "Duplicate authorization ID" };
+    }
+
+    const totalPending =
+      Number(onChainPendingCount) + getUnsubmittedCount(params.escrow);
+    if (totalPending >= MAX_PENDING_SETTLEMENTS) {
+      return { ok: false, reason: "Pending settlement limit reached" };
     }
 
     const inMemoryHeld = getHeldAmount(params.escrow, params.mint);
@@ -177,6 +198,7 @@ export function createHoldManager() {
     drainFinalizable,
     markFinalized,
     getHeldAmount,
+    getUnsubmittedCount,
     getHolds,
     pendingCount,
   };

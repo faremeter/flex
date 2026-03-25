@@ -513,6 +513,7 @@ export const createFacilitatorHandler = async (
       },
       result.vaultAmount,
       result.onChainCommitted,
+      result.escrowAccount.pendingCount,
     );
 
     if (!holdResult.ok) {
@@ -593,6 +594,7 @@ export const createFacilitatorHandler = async (
       },
       result.vaultAmount,
       result.onChainCommitted,
+      result.escrowAccount.pendingCount,
     );
 
     if (!holdResult.ok) {
