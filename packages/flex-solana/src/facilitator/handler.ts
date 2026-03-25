@@ -135,7 +135,7 @@ export const createFacilitatorHandler = async (
   }
 
   function estimateCurrentSlot(): bigint {
-    if (lastKnownSlot === 0n) return 0n;
+    if (lastKnownSlot === 0n) throw new Error("Slot not yet fetched");
     const elapsedMs = Date.now() - lastSlotFetchedAtMs;
     return lastKnownSlot + BigInt(Math.floor(elapsedMs / MS_PER_SLOT));
   }
@@ -942,6 +942,8 @@ export const createFacilitatorHandler = async (
 
     return results;
   }
+
+  await refreshSlot();
 
   const flushIntervalMs = config.flushIntervalMs ?? 2000;
   let tickRunning = false;
