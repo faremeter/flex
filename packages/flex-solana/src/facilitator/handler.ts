@@ -44,7 +44,7 @@ import {
 } from "../query";
 import {
   getSubmitAuthorizationInstructionAsync,
-  getFinalizeInstruction,
+  getFinalizeInstructionDataEncoder,
   FLEX_PROGRAM_ADDRESS,
 } from "../generated";
 import { logger } from "../logger";
@@ -783,23 +783,19 @@ export const createFacilitatorHandler = async (
   async function finalizeHold(hold: Hold): Promise<FinalizeResult> {
     const [pending] = await derivePendingPDA(hold.escrow, hold.authorizationId);
 
-    const baseIx = getFinalizeInstruction({
-      escrow: hold.escrow,
-      facilitator: facilitatorAddress,
-      pending,
-      tokenAccount: hold.vault,
-    });
-
     const ix = {
-      ...baseIx,
+      programAddress: FLEX_PROGRAM_ADDRESS,
+      data: getFinalizeInstructionDataEncoder().encode({}),
       accounts: [
-        baseIx.accounts[0],
+        { address: hold.escrow, role: AccountRole.WRITABLE as const },
         {
           address: facilitatorSigner.address,
           role: AccountRole.WRITABLE_SIGNER as const,
           signer: facilitatorSigner,
         },
-        ...baseIx.accounts.slice(2),
+        { address: pending, role: AccountRole.WRITABLE as const },
+        { address: hold.vault, role: AccountRole.WRITABLE as const },
+        { address: TOKEN_PROGRAM, role: AccountRole.READONLY as const },
         ...hold.splits.map((s) => ({
           address: s.recipient,
           role: AccountRole.WRITABLE as const,
