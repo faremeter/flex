@@ -752,7 +752,23 @@ export const createFacilitatorHandler = async (
         logger.error(
           `submission failed for authorizationId ${hold.authorizationId}: ${result.error}`,
         );
-        holdManager.releaseHold(hold.escrow, hold.authorizationId);
+
+        if (isPermanentSubmitError(result.error)) {
+          holdManager.releaseHold(hold.escrow, hold.authorizationId);
+        } else {
+          const retries = holdManager.markFailed(
+            hold.escrow,
+            hold.authorizationId,
+          );
+          if (retries < 0 || retries >= maxSubmitRetries) {
+            if (retries >= maxSubmitRetries) {
+              logger.error(
+                `giving up on authorizationId ${hold.authorizationId} after ${retries} attempts`,
+              );
+            }
+            holdManager.releaseHold(hold.escrow, hold.authorizationId);
+          }
+        }
         escrowSnapshots.delete(hold.escrow);
       }
     }
@@ -846,6 +862,30 @@ export const createFacilitatorHandler = async (
     const snapshot = escrowSnapshots.get(escrow);
     if (!snapshot) return null;
     return snapshot.account.refundTimeoutSlots + confirmationBufferSlots;
+  }
+
+  // Anchor error codes that indicate the authorization can never succeed.
+  // These map to FlexError variants in programs/flex/src/error.rs.
+  const PERMANENT_SUBMIT_ERRORS = new Set([
+    6000, // SessionKeyExpired
+    6001, // SessionKeyRevoked
+    6002, // AuthorizationExpired
+    6003, // InvalidSignature
+    6019, // InvalidEd25519Instruction
+    6022, // InvalidSplitCount
+    6023, // InvalidSplitBps
+    6024, // SplitBpsZero
+    6025, // DuplicateSplitRecipient
+    6028, // SettleExceedsMax
+    6029, // SettleAmountZero
+    6030, // ExpiryTooFar
+  ]);
+
+  function isPermanentSubmitError(error: string | undefined): boolean {
+    if (!error) return false;
+    const match = error.match(/"Custom":(\d+)/);
+    if (!match?.[1]) return false;
+    return PERMANENT_SUBMIT_ERRORS.has(Number(match[1]));
   }
 
   function extractErrorMessage(cause: unknown): string {
