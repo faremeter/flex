@@ -291,7 +291,7 @@ pub fn deposit(
 - `escrow` (mut) - The escrow account (for updating `mint_count`)
 - `depositor` (signer, mut) - Party depositing tokens; pays rent if token account is created
 - `mint` - SPL token mint
-- `token_account` (unchecked, mut, PDA) - Passed as `UncheckedAccount`; created via CPI if empty, validated if existing
+- `vault` (unchecked, mut, PDA) - Passed as `UncheckedAccount`; created via CPI if empty, validated if existing
 - `source` - Depositor's token account (must have sufficient balance)
 - `token_program` - SPL Token program
 - `system_program` - System program (for account creation)
@@ -353,7 +353,6 @@ pub fn close_escrow(
 - `escrow` (mut, close) - The escrow account to close
 - `owner` (signer) - Must match `escrow.owner`
 - `facilitator` (signer) - Must match `escrow.facilitator`
-- `system_program` - System program
 - `token_program` - SPL Token program
 - Remaining accounts: Token account pairs (see below)
 
@@ -1418,7 +1417,9 @@ pub struct EscrowClosed {
     pub escrow: Pubkey,
     pub owner: Pubkey,
     pub index: u64,
-    /// True if closed via emergency_close, false if normal close
+    /// True if closed via emergency_close or force_close, false if normal close.
+    /// Both emergency_close and force_close emit this event with emergency: true.
+    /// Indexers should check the instruction name to distinguish between them.
     pub emergency: bool,
 }
 
