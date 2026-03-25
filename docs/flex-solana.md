@@ -1579,6 +1579,52 @@ For breaking changes with pending settlements, drain all pending settlements (fi
 
 The SPL token transfer history provides a complete on-chain record of all finalized settlements. Clients and facilitators can reconstruct per-recipient totals by querying the token account's transaction history.
 
+## Known Limitations
+
+This section documents accepted trade-offs and areas for future improvement. Each entry includes the rationale for accepting the limitation and conditions under which it should be revisited.
+
+### Balance check does not account for existing pending settlements
+
+`programs/flex/src/instructions/submit_authorization.rs`
+
+The `submit_authorization` instruction checks `token_account.amount >= settle_amount` but does not subtract amounts already committed in other pending settlements. This is a floor check (the vault is not literally empty for this amount), not a committed-balance sufficiency check. A facilitator that submits authorizations totaling more than the vault balance will see later finalizations fail with an SPL token transfer error.
+
+**Why this is accepted:** The facilitator is already deeply trusted -- it can unilaterally refund any pending settlement to zero. Over-commitment is a strictly less powerful attack than what the facilitator can already do with refunds. Adding on-chain committed tracking would require three instructions (`submit_authorization`, `finalize`, `refund`) to maintain a shared per-mint counter. This coupling is a classic source of accounting bugs in Solana programs: if the counter drifts, escrows become permanently stuck or silently leaky.
+
+**Mitigation:** The facilitator SDK tracks available balance off-chain (`vault_balance - sum(pending_settlements) - sum(active_holds)`). Facilitators should monitor for drift between their accounting and on-chain state.
+
+**Revisit when:** The trust model changes to support multiple facilitators per escrow or untrusted facilitators. At that point, on-chain committed-amount tracking (per-mint field on the escrow account, ~320 bytes additional state) becomes necessary.
+
+### No minimum validation on timeout parameters
+
+`programs/flex/src/instructions/create_escrow.rs`
+
+`refund_timeout_slots` and `deadman_timeout_slots` accept zero with no on-chain minimum. A zero deadman timeout allows the owner to emergency-close immediately after a facilitator submits authorizations. A zero refund timeout allows immediate finalization with no refund window.
+
+**Why this is accepted:** These are client-chosen parameters and the client bears the risk of dangerous values. The facilitator is expected to refuse to work with obviously misconfigured escrows.
+
+**Mitigation:** Facilitators should validate timeout parameters before accepting an escrow. The SDK should warn or reject escrows with zero timeouts.
+
+**Revisit when:** There is evidence of clients accidentally creating zero-timeout escrows in production.
+
+### No Token-2022 support
+
+The program uses `anchor_spl::token::Token` exclusively. Token-2022 accounts with transfer hooks, transfer fees, confidential transfers, or other extensions will not work. See [Token-2022 Considerations](#token-2022-considerations) for details on extension-specific impacts and a recommended phased approach.
+
+### Account version field is unused
+
+All accounts set `version = 1` but no instruction checks the version field. The `UnsupportedAccountVersion` error is defined but never referenced. Adding version checks before a second version exists would be dead code.
+
+**Revisit when:** A state migration is needed. At that point, add version checks and a migration instruction.
+
+### Manual account closure in refund does not zero discriminator
+
+`programs/flex/src/instructions/refund.rs`
+
+When a full refund closes the pending settlement account, it zeroes lamports, reassigns to the system program, and resizes to zero -- but does not write `CLOSED_ACCOUNT_DISCRIMINATOR` like Anchor's `close` constraint does. This is a defense-in-depth gap against revival attacks within the same transaction. The practical risk is minimal since the account is resized to zero and reassigned to the system program. The `finalize` path uses Anchor's `close` constraint properly.
+
+**Revisit when:** An auditor flags this or if the refund instruction is modified to participate in larger composite transactions.
+
 ## Future Extensions
 
 - **Cross-program invocation hooks**: Allow middleware to verify settlements via CPI
