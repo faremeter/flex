@@ -14,9 +14,20 @@ import {
   FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
   FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
+  FLEX_ERROR__SETTLE_AMOUNT_ZERO,
+  FLEX_ERROR__SETTLE_EXCEEDS_MAX,
+  FLEX_ERROR__INVALID_SPLIT_COUNT,
+  FLEX_ERROR__SESSION_KEY_EXPIRED,
+  FLEX_ERROR__INVALID_SIGNATURE,
+  getRevokeSessionKeyInstruction,
+  serializePaymentAuthorization,
+  createEd25519VerifyInstruction,
+  FLEX_PROGRAM_ADDRESS,
+  getSubmitAuthorizationInstructionAsync,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
+  sendTx,
   fundKeypair,
   defined,
   createFundedTokenAccount,
@@ -447,6 +458,252 @@ describe("submit_authorization", () => {
     expect(defined(pending.splits[0]).bps).toBe(7_000);
     expect(defined(pending.splits[1]).recipient).toBe(r2.address);
     expect(defined(pending.splits[1]).bps).toBe(3_000);
+  });
+
+  it("fails with settle amount of zero", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 150);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          0,
+          [{ recipient: recipient.address, bps: 10_000 }],
+        ),
+      FLEX_ERROR__SETTLE_AMOUNT_ZERO,
+    );
+  });
+
+  it("fails when settle exceeds max amount", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 151);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+          { maxAmount: 50_000 },
+        ),
+      FLEX_ERROR__SETTLE_EXCEEDS_MAX,
+    );
+  });
+
+  it("fails with empty splits", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 152);
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [],
+        ),
+      FLEX_ERROR__INVALID_SPLIT_COUNT,
+    );
+  });
+
+  it("fails with expired session key", async () => {
+    const currentSlot = await rpc.getSlot().send();
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 153, {
+        sessionKeyExpiresAtSlot: currentSlot + 5n,
+      });
+
+    // Wait for the session key to expire
+    await new Promise((r) => setTimeout(r, 5000));
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+        ),
+      FLEX_ERROR__SESSION_KEY_EXPIRED,
+    );
+  });
+
+  it("succeeds with revoked key within grace period", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 154, {
+        revocationGracePeriodSlots: 100_000_000,
+      });
+
+    const revokeIx = getRevokeSessionKeyInstruction({
+      escrow: escrowPDA,
+      owner,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [revokeIx]);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+    );
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pending.amount)).toBe(100_000);
+  });
+
+  it("fails with wrong session key signature", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 155);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const wrongKey = await generateKeyPairSigner();
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+    const currentSlot = await rpc.getSlot().send();
+    const expiresAtSlot = currentSlot + 50n;
+
+    const message = serializePaymentAuthorization({
+      programId: FLEX_PROGRAM_ADDRESS,
+      escrow: escrowPDA,
+      mint,
+      maxAmount: 100_000n,
+      authorizationId: 1n,
+      expiresAtSlot,
+      splits,
+    });
+
+    const signature = new Uint8Array(
+      await crypto.subtle.sign("Ed25519", wrongKey.keyPair.privateKey, message),
+    );
+
+    const ed25519Ix = createEd25519VerifyInstruction({
+      publicKey: wrongKey.address,
+      message,
+      signature,
+    });
+
+    const submitIx = await getSubmitAuthorizationInstructionAsync({
+      escrow: escrowPDA,
+      facilitator,
+      sessionKey: sessionKeyPDA,
+      tokenAccount: vaultPDA,
+      mint,
+      maxAmount: 100_000,
+      settleAmount: 100_000,
+      authorizationId: 1,
+      expiresAtSlot,
+      splits,
+      signature: new Uint8Array(64),
+    });
+
+    await expectToFail(
+      () => sendTx(rpc, facilitator, [ed25519Ix, submitIx]),
+      FLEX_ERROR__INVALID_SIGNATURE,
+    );
+  });
+
+  it("succeeds with settle amount less than max", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 157);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+      { maxAmount: 200_000 },
+    );
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pending.amount)).toBe(100_000);
+    expect(Number(pending.maxAmount)).toBe(200_000);
+    expect(Number(pending.originalAmount)).toBe(100_000);
   });
 });
 
