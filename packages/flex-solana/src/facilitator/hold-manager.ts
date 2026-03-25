@@ -153,12 +153,12 @@ export function createHoldManager() {
     escrow: Address,
     authorizationId: bigint,
     currentSlot: bigint,
-  ): void {
+  ): boolean {
     const hold = holds.get(key(escrow, authorizationId));
-    if (hold) {
-      hold.status = "submitted";
-      hold.submittedAtSlot = currentSlot;
-    }
+    if (!hold || hold.status !== "submitting") return false;
+    hold.status = "submitted";
+    hold.submittedAtSlot = currentSlot;
+    return true;
   }
 
   function markFailed(escrow: Address, authorizationId: bigint): number {
@@ -193,8 +193,11 @@ export function createHoldManager() {
     }
   }
 
-  function markFinalized(escrow: Address, authorizationId: bigint): void {
+  function markFinalized(escrow: Address, authorizationId: bigint): boolean {
+    const hold = holds.get(key(escrow, authorizationId));
+    if (!hold || hold.status !== "finalizing") return false;
     holds.delete(key(escrow, authorizationId));
+    return true;
   }
 
   function getHolds(): Hold[] {
