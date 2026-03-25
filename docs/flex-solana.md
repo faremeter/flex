@@ -256,6 +256,7 @@ Creates a new escrow account.
 ```rust
 pub fn create_escrow(
     ctx: Context<CreateEscrow>,
+    index: u64,
     facilitator: Pubkey,
     refund_timeout_slots: u64,
     deadman_timeout_slots: u64,

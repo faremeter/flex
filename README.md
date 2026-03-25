@@ -66,7 +66,7 @@ Session keys enable clients to authorize payments without needing the escrow acc
 
 1. **Registration**: The client registers a session key with the escrow account via an on-chain transaction.
 
-2. **Authorization**: The client signs payment authorizations using the session key. Each authorization specifies the token mint, split distribution, amount, and a monotonically increasing nonce.
+2. **Authorization**: The client signs payment authorizations using the session key. Each authorization specifies the token mint, split distribution, amount, and a unique authorization_id. Replay protection is enforced on-chain through PDA uniqueness -- each pending settlement PDA includes the authorization_id in its seeds, so duplicate submissions fail at account initialization.
 
 3. **Revocation**: The client can revoke a session key at any time. A grace period allows the facilitator to settle any outstanding authorizations before the key becomes fully invalid.
 
@@ -119,7 +119,7 @@ Each escrow account has a single facilitator. The client creates a separate escr
 - **Dual authorization**: The on-chain contract requires signatures from both the client (via session key) and facilitator for any transfer out of the escrow account. Neither party can unilaterally move funds (except via deadman switch).
 - **Client-initiated transfers**: The client signs authorizations specifying the token mint, amount, and split distribution (recipients and proportions). The facilitator can only submit authorizations the client has signed.
 - **Balance verification**: The facilitator verifies on-chain balances before accepting authorizations.
-- **Replay protection**: A global nonce on the escrow account ensures each authorization can only be used once. Nonces must be strictly increasing.
+- **Replay protection**: Each authorization includes a unique authorization_id. Replay protection is enforced through PDA uniqueness -- each pending settlement PDA includes the authorization_id in its seeds, so the `init` constraint rejects duplicate submissions. Expiry-based validation provides a second layer: authorizations expire before finalization completes, preventing replay after the pending settlement PDA is closed.
 - **Refund window**: Pending settlements cannot be finalized until the refund timeout expires, giving time to cancel erroneous or disputed charges.
 - **Escrow closure gating**: The escrow account cannot be closed while pending settlements exist. The facilitator must finalize all pending settlements before co-signing escrow closure.
 - **Deadman's switch**: If the facilitator becomes unresponsive (no activity within a configurable timeout), the client can unilaterally close the escrow account and recover all funds. Any pending settlements the facilitator failed to finalize are voided.
