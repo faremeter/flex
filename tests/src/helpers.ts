@@ -247,18 +247,23 @@ export async function submitAuthorizationHelper(
   authorizationId: number,
   settleAmount: number,
   splits: SplitEntry[],
-  opts?: { expiresAtSlot?: bigint; refundTimeoutSlots?: number },
+  opts?: {
+    expiresAtSlot?: bigint;
+    refundTimeoutSlots?: number;
+    maxAmount?: number;
+  },
 ): Promise<Address> {
   const currentSlot = await rpc.getSlot().send();
   const timeout = BigInt(opts?.refundTimeoutSlots ?? 100);
   const expiresAtSlot =
     opts?.expiresAtSlot ?? currentSlot + (timeout > 10n ? timeout / 2n : 5n);
+  const maxAmount = opts?.maxAmount ?? settleAmount;
 
   const message = serializePaymentAuthorization({
     programId: FLEX_PROGRAM_ADDRESS,
     escrow,
     mint,
-    maxAmount: BigInt(settleAmount),
+    maxAmount: BigInt(maxAmount),
     authorizationId: BigInt(authorizationId),
     expiresAtSlot,
     splits,
@@ -280,7 +285,7 @@ export async function submitAuthorizationHelper(
     sessionKey: sessionKeyPDA,
     tokenAccount: vault,
     mint,
-    maxAmount: settleAmount,
+    maxAmount,
     settleAmount,
     authorizationId,
     expiresAtSlot,
@@ -403,7 +408,9 @@ export async function setupEscrowWithPending(
     authorizationId,
     settleAmount,
     splits,
-    { refundTimeoutSlots: opts?.refundTimeoutSlots },
+    opts?.refundTimeoutSlots
+      ? { refundTimeoutSlots: opts.refundTimeoutSlots }
+      : {},
   );
 
   return {
@@ -435,6 +442,8 @@ export async function setupEscrowForAuth(
     refundTimeoutSlots?: number;
     deadmanTimeoutSlots?: number;
     depositAmount?: number;
+    sessionKeyExpiresAtSlot?: bigint | null;
+    revocationGracePeriodSlots?: number;
   },
 ): Promise<EscrowForAuth> {
   const depositAmount = opts?.depositAmount ?? 1_000_000;
@@ -469,8 +478,8 @@ export async function setupEscrowForAuth(
     owner,
     escrow: escrowPDA,
     sessionKey: sessionKey.address,
-    expiresAtSlot: null,
-    revocationGracePeriodSlots: 0,
+    expiresAtSlot: opts?.sessionKeyExpiresAtSlot ?? null,
+    revocationGracePeriodSlots: opts?.revocationGracePeriodSlots ?? 0,
   });
   const sessionKeyAccountMeta = registerIx.accounts[2];
   if (!sessionKeyAccountMeta) throw new Error("session key meta missing");

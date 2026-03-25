@@ -5,5 +5,6 @@
     "noEmit": false,
     "lib": ["ESNext", "DOM"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
