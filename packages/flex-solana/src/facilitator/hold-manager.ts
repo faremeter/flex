@@ -183,6 +183,13 @@ export function createHoldManager() {
     return ready;
   }
 
+  function resetToSubmitted(escrow: Address, authorizationId: bigint): void {
+    const hold = holds.get(key(escrow, authorizationId));
+    if (hold?.status === "finalizing") {
+      hold.status = "submitted";
+    }
+  }
+
   function markFinalized(escrow: Address, authorizationId: bigint): void {
     holds.delete(key(escrow, authorizationId));
   }
@@ -204,6 +211,7 @@ export function createHoldManager() {
     markSubmitted,
     markFailed,
     drainFinalizable,
+    resetToSubmitted,
     markFinalized,
     getHeldAmount,
     getUnsubmittedCount,

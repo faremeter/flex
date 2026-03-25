@@ -900,7 +900,7 @@ export const createFacilitatorHandler = async (
         logger.error(
           `finalization failed for authorizationId ${hold.authorizationId}: ${result.error}`,
         );
-        hold.status = "submitted";
+        holdManager.resetToSubmitted(hold.escrow, hold.authorizationId);
       }
     }
 
@@ -908,47 +908,45 @@ export const createFacilitatorHandler = async (
   }
 
   const flushIntervalMs = config.flushIntervalMs ?? 2000;
-  const interval = setInterval(() => {
-    void flush().then(
-      (results) => {
-        for (const r of results) {
-          if (r.success) {
-            logger.info(
-              `flushed authorizationId=${r.authorizationId} tx=${r.transaction}`,
-            );
-          } else {
-            logger.error(
-              `flush failed authorizationId=${r.authorizationId}: ${r.error}`,
-            );
-          }
+  let tickRunning = false;
+
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  const interval = setInterval(async () => {
+    if (tickRunning) return;
+    tickRunning = true;
+    try {
+      const flushResults = await flush();
+      for (const r of flushResults) {
+        if (r.success) {
+          logger.info(
+            `flushed authorizationId=${r.authorizationId} tx=${r.transaction}`,
+          );
+        } else {
+          logger.error(
+            `flush failed authorizationId=${r.authorizationId}: ${r.error}`,
+          );
         }
-      },
-      (cause: unknown) => {
-        logger.error(
-          `flush interval error: ${cause instanceof Error ? cause.message : cause}`,
-        );
-      },
-    );
-    void finalizeReady().then(
-      (results) => {
-        for (const r of results) {
-          if (r.success) {
-            logger.info(
-              `finalized authorizationId=${r.authorizationId} tx=${r.transaction}`,
-            );
-          } else {
-            logger.error(
-              `finalize failed authorizationId=${r.authorizationId}: ${r.error}`,
-            );
-          }
+      }
+
+      const finalizeResults = await finalizeReady();
+      for (const r of finalizeResults) {
+        if (r.success) {
+          logger.info(
+            `finalized authorizationId=${r.authorizationId} tx=${r.transaction}`,
+          );
+        } else {
+          logger.error(
+            `finalize failed authorizationId=${r.authorizationId}: ${r.error}`,
+          );
         }
-      },
-      (cause: unknown) => {
-        logger.error(
-          `finalize interval error: ${cause instanceof Error ? cause.message : cause}`,
-        );
-      },
-    );
+      }
+    } catch (cause: unknown) {
+      logger.error(
+        `tick error: ${cause instanceof Error ? cause.message : cause}`,
+      );
+    } finally {
+      tickRunning = false;
+    }
   }, flushIntervalMs);
 
   const stop = () => clearInterval(interval);
