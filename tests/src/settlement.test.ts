@@ -40,6 +40,7 @@ import {
   finalizeHelper,
   fetchTokenBalance,
   expectToFail,
+  waitForSlot,
 } from "./helpers";
 
 describe("submit_authorization", () => {
@@ -552,8 +553,7 @@ describe("submit_authorization", () => {
         sessionKeyExpiresAtSlot: currentSlot + 5n,
       });
 
-    // Wait for the session key to expire
-    await new Promise((r) => setTimeout(r, 5000));
+    await waitForSlot(rpc, currentSlot + 5n);
 
     const recipient = await createFundedTokenAccount(
       rpc,
@@ -638,7 +638,10 @@ describe("submit_authorization", () => {
     });
     await sendTx(rpc, owner, [revokeIx]);
 
-    await new Promise((r) => setTimeout(r, 5000));
+    const sessionKeyAccount = defined(
+      await fetchSessionKey(rpc, sessionKeyPDA),
+    );
+    await waitForSlot(rpc, defined(sessionKeyAccount.revokedAtSlot) + 5n);
 
     const recipient = await createFundedTokenAccount(
       rpc,
@@ -867,7 +870,8 @@ describe("refund", () => {
       { refundTimeoutSlots: 10, settleAmount: 50_000 },
     );
 
-    await new Promise((r) => setTimeout(r, 5000));
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
 
     await expectToFail(
       () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 10_000),
@@ -921,7 +925,8 @@ describe("finalize", () => {
     const recipientBefore = await fetchTokenBalance(rpc, recipientAddr);
     expect(Number(recipientBefore)).toBe(0);
 
-    await new Promise((r) => setTimeout(r, 5000));
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
 
     await finalizeHelper(
       rpc,
@@ -983,7 +988,8 @@ describe("finalize", () => {
       { refundTimeoutSlots: 10 },
     );
 
-    await new Promise((r) => setTimeout(r, 5000));
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
 
     await finalizeHelper(
       rpc,
@@ -1050,7 +1056,8 @@ describe("finalize", () => {
       { refundTimeoutSlots: 10 },
     );
 
-    await new Promise((r) => setTimeout(r, 5000));
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
 
     await finalizeHelper(
       rpc,
@@ -1101,6 +1108,8 @@ describe("finalize", () => {
         settleAmount: 50_000,
       });
 
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+
     const wrongRecipient = await createFundedTokenAccount(
       rpc,
       mint,
@@ -1109,7 +1118,7 @@ describe("finalize", () => {
       0n,
     );
 
-    await new Promise((r) => setTimeout(r, 5000));
+    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
 
     await expectToFail(
       () =>

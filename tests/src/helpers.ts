@@ -108,6 +108,18 @@ async function confirmSignature(
   throw new Error("Transaction confirmation timeout");
 }
 
+export async function waitForSlot(
+  rpc: Rpc<SolanaRpcApi>,
+  targetSlot: bigint,
+): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    const currentSlot = await rpc.getSlot().send();
+    if (currentSlot >= targetSlot) return;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  throw new Error(`Timed out waiting for slot ${targetSlot}`);
+}
+
 export async function sendTx(
   rpc: Rpc<SolanaRpcApi>,
   feePayer: KeyPairSigner,
