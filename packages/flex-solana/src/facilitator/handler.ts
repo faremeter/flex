@@ -54,6 +54,31 @@ import type { EscrowAccountData, SessionKeyData } from "../types";
 const MS_PER_SLOT = 400;
 const DEFAULT_MIN_GRACE_PERIOD_SLOTS = 150n;
 const DEFAULT_CONFIRMATION_BUFFER_SLOTS = 20n;
+
+// Anchor error codes that indicate the authorization can never succeed.
+// These map to FlexError variants in programs/flex/src/error.rs.
+const PERMANENT_SUBMIT_ERRORS = new Set([
+  6000, // SessionKeyExpired
+  6001, // SessionKeyRevoked
+  6002, // AuthorizationExpired
+  6003, // InvalidSignature
+  6019, // InvalidEd25519Instruction
+  6022, // InvalidSplitCount
+  6023, // InvalidSplitBps
+  6024, // SplitBpsZero
+  6025, // DuplicateSplitRecipient
+  6028, // SettleExceedsMax
+  6029, // SettleAmountZero
+  6030, // ExpiryTooFar
+]);
+
+function isPermanentSubmitError(error: string | undefined): boolean {
+  if (!error) return false;
+  const match = /"Custom":(\d+)/.exec(error);
+  if (!match?.[1]) return false;
+  return PERMANENT_SUBMIT_ERRORS.has(Number(match[1]));
+}
+
 const DEFAULT_SNAPSHOT_MAX_AGE_MS = 10_000;
 
 type FlexFacilitatorConfig = {
@@ -864,30 +889,6 @@ export const createFacilitatorHandler = async (
     const snapshot = escrowSnapshots.get(escrow);
     if (!snapshot) return null;
     return snapshot.account.refundTimeoutSlots + confirmationBufferSlots;
-  }
-
-  // Anchor error codes that indicate the authorization can never succeed.
-  // These map to FlexError variants in programs/flex/src/error.rs.
-  const PERMANENT_SUBMIT_ERRORS = new Set([
-    6000, // SessionKeyExpired
-    6001, // SessionKeyRevoked
-    6002, // AuthorizationExpired
-    6003, // InvalidSignature
-    6019, // InvalidEd25519Instruction
-    6022, // InvalidSplitCount
-    6023, // InvalidSplitBps
-    6024, // SplitBpsZero
-    6025, // DuplicateSplitRecipient
-    6028, // SettleExceedsMax
-    6029, // SettleAmountZero
-    6030, // ExpiryTooFar
-  ]);
-
-  function isPermanentSubmitError(error: string | undefined): boolean {
-    if (!error) return false;
-    const match = error.match(/"Custom":(\d+)/);
-    if (!match?.[1]) return false;
-    return PERMANENT_SUBMIT_ERRORS.has(Number(match[1]));
   }
 
   function extractErrorMessage(cause: unknown): string {
