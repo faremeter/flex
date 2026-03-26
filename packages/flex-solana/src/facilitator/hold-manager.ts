@@ -37,14 +37,16 @@ export function createHoldManager() {
     return `${escrow}:${authorizationId}`;
   }
 
+  function isUnsubmitted(h: Hold): boolean {
+    return (
+      h.status === "held" || h.status === "settled" || h.status === "submitting"
+    );
+  }
+
   function getHeldAmount(escrow: Address, mint: Address): bigint {
     let total = 0n;
     for (const h of holds.values()) {
-      if (
-        h.escrow === escrow &&
-        h.mint === mint &&
-        (h.status === "held" || h.status === "settled" || h.status === "submitting")
-      ) {
+      if (h.escrow === escrow && h.mint === mint && isUnsubmitted(h)) {
         total += h.settleAmount;
       }
     }
@@ -54,10 +56,7 @@ export function createHoldManager() {
   function getUnsubmittedCount(escrow: Address): number {
     let count = 0;
     for (const h of holds.values()) {
-      if (
-        h.escrow === escrow &&
-        (h.status === "held" || h.status === "settled" || h.status === "submitting")
-      ) {
+      if (h.escrow === escrow && isUnsubmitted(h)) {
         count++;
       }
     }
