@@ -1,7 +1,7 @@
 export PATH := $(PWD)/bin:$(PATH)
 export INSIDE_STAGING_DIR := false
 
-.PHONY: all build lint test format clean FORCE
+.PHONY: all build lint test format clean test-unit test-integration FORCE
 
 all: lint build test
 
@@ -19,8 +19,13 @@ lint-ts:
 format-ts:
 	bun prettier --write .
 
-test-ts:
-	bun test
+test-unit:
+	bun test packages/
+
+test-integration: build-anchor
+	@bin/with-validator bun test --timeout 30000 tests/
+
+test-ts: test-unit test-integration
 
 packages/%: FORCE
 	cd $@ && rm -rf dist && bun run tsc
