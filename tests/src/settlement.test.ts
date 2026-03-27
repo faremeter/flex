@@ -867,6 +867,61 @@ describe("refund", () => {
     expect(Number(escrowAfter.pendingCount)).toBe(0);
   });
 
+  it("allows reuse of authorization_id after full refund", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 126, {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        depositAmount: 10_000_000,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      42,
+      50_000,
+      splits,
+      { refundTimeoutSlots: 1_000_000 },
+    );
+
+    await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 50_000);
+
+    const closed = await fetchPendingSettlement(rpc, pendingPDA);
+    expect(closed).toBeNull();
+
+    const pendingPDA2 = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      42,
+      50_000,
+      splits,
+      { refundTimeoutSlots: 1_000_000 },
+    );
+
+    const reopened = defined(await fetchPendingSettlement(rpc, pendingPDA2));
+    expect(Number(reopened.authorizationId)).toBe(42);
+    expect(Number(reopened.amount)).toBe(50_000);
+  });
+
   it("fails after refund window expires", async () => {
     const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
       rpc,

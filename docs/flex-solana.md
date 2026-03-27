@@ -1094,6 +1094,8 @@ Replay protection uses two complementary mechanisms:
 
 2. **Expiry (after finalization):** Each authorization includes an `expires_at_slot` which is bounded by `clock.slot + escrow.refund_timeout_slots`. Once a pending settlement is finalized and its PDA is closed, the authorization cannot be replayed because `clock.slot >= expires_at_slot` by the time finalization occurs (the refund timeout must elapse before finalization). Any replay attempt fails with `AuthorizationExpired`.
 
+**Gap after full refund:** A full refund closes the PDA via the refund path, which can occur before `expires_at_slot` passes. If the facilitator re-submits the same `authorization_id` before the authorization expires, `init` succeeds on the closed PDA because the account has been zeroed and reassigned to the system program. This replay requires facilitator cooperation (the facilitator is a required signer) and is within the existing trust model. See [Replay after full refund](#replay-after-full-refund) in known limitations.
+
 This design enables parallel submission of authorizations since `authorization_id` values are random and independent rather than sequential.
 
 **Anomaly Detection:** Clients should monitor on-chain pending settlements for unexpected activity:
@@ -1632,6 +1634,16 @@ All accounts set `version = 1` but no instruction checks the version field. The 
 When a full refund closes the pending settlement account, it zeroes lamports, reassigns to the system program, and resizes to zero -- but does not write `CLOSED_ACCOUNT_DISCRIMINATOR` like Anchor's `close` constraint does. This is a defense-in-depth gap against revival attacks within the same transaction. The practical risk is minimal since the account is resized to zero and reassigned to the system program. The `finalize` path uses Anchor's `close` constraint properly.
 
 **Revisit when:** An auditor flags this or if the refund instruction is modified to participate in larger composite transactions.
+
+### Replay after full refund
+
+After a full refund closes a `PendingSettlement` PDA, the same `authorization_id` can be reused to create a new pending settlement at the same PDA address, provided the authorization has not expired and the facilitator cooperates (they are a required signer on `submit_authorization`). The Ed25519 signature from the original authorization remains valid because the signed message parameters have not changed.
+
+**Why this is accepted:** The facilitator already has strictly greater power -- they can submit arbitrary authorizations (within session key bounds) and issue partial refunds. Replaying a refunded authorization is a subset of what a malicious facilitator can already do. The replay window is bounded by the authorization's `expires_at_slot`, which is itself bounded by `clock.slot + refund_timeout_slots` at original submission time.
+
+**Mitigation:** Facilitators must not reuse `authorization_id` values. The SDK uses random `u64` values, making accidental collision negligible. Clients should monitor for unexpected pending settlements.
+
+**Revisit when:** The trust model changes to support untrusted facilitators, or if `authorization_id` uniqueness needs to survive across full-refund cycles.
 
 ### Wrong error code for zero-amount deposit
 
