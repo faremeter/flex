@@ -128,6 +128,55 @@ describe("void_pending", () => {
       await sendTx(rpc, wrongOwner, [voidIx]);
     }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
   }, 15_000);
+
+  it("fails at exact deadman timeout slot", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      203,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1000n);
+
+    await expectToFail(async () => {
+      const voidIx = getVoidPendingInstruction({
+        escrow: escrowPDA,
+        owner,
+        pending: pendingPDA,
+      });
+      await sendTx(rpc, owner, [voidIx]);
+    }, FLEX_ERROR__DEADMAN_NOT_EXPIRED);
+  }, 15_000);
+
+  it("succeeds one slot after deadman timeout", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      204,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    const voidIx = getVoidPendingInstruction({
+      escrow: escrowPDA,
+      owner,
+      pending: pendingPDA,
+    });
+    await sendTx(rpc, owner, [voidIx]);
+
+    const pendingInfo = await rpc
+      .getAccountInfo(pendingPDA, { encoding: "base64" })
+      .send();
+    expect(pendingInfo.value).toBeNull();
+  }, 15_000);
 });
 
 describe("emergency_close", () => {

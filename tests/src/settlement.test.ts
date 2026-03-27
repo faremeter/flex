@@ -1245,3 +1245,107 @@ describe("finalize", () => {
     );
   });
 });
+
+describe("timing boundaries", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("refund succeeds one slot before window end", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      300,
+      { refundTimeoutSlots: 150, settleAmount: 50_000 },
+    );
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 149n);
+
+    await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 10_000);
+    const after = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(after.amount)).toBe(40_000);
+  });
+
+  it("refund fails at exact window end", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      301,
+      { refundTimeoutSlots: 150, settleAmount: 50_000 },
+    );
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
+
+    await expectToFail(
+      () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 10_000),
+      FLEX_ERROR__REFUND_WINDOW_EXPIRED,
+    );
+  });
+
+  it("finalize succeeds at exact window end", async () => {
+    const { escrowPDA, vaultPDA, pendingPDA, splits } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 302, {
+        refundTimeoutSlots: 150,
+        settleAmount: 50_000,
+      });
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
+
+    const recipientAddr = defined(splits[0]).recipient;
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
+      vaultPDA,
+      [recipientAddr],
+    );
+
+    const after = await fetchPendingSettlement(rpc, pendingPDA);
+    expect(after).toBeNull();
+  });
+
+  it("finalize fails one slot before window end", async () => {
+    const { escrowPDA, vaultPDA, pendingPDA, splits } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 303, {
+        refundTimeoutSlots: 150,
+        settleAmount: 50_000,
+      });
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 149n);
+
+    const recipientAddr = defined(splits[0]).recipient;
+    await expectToFail(
+      () =>
+        finalizeHelper(
+          rpc,
+          facilitator,
+          escrowPDA,
+          facilitator.address,
+          pendingPDA,
+          vaultPDA,
+          [recipientAddr],
+        ),
+      FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED,
+    );
+  });
+});
