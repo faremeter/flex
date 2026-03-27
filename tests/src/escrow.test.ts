@@ -18,6 +18,11 @@ import {
   FLEX_ERROR__PENDING_SETTLEMENTS_EXIST,
   FLEX_ERROR__DUPLICATE_ACCOUNTS,
   FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
+  FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
+  FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT,
+  FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG,
+  FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG,
+  FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
@@ -57,7 +62,7 @@ describe("create_escrow", () => {
       0,
       {
         refundTimeoutSlots: 200,
-        deadmanTimeoutSlots: 500,
+        deadmanTimeoutSlots: 1000,
         maxSessionKeys: 5,
       },
     );
@@ -70,7 +75,7 @@ describe("create_escrow", () => {
     expect(Number(escrow.pendingCount)).toBe(0);
     expect(Number(escrow.mintCount)).toBe(0);
     expect(Number(escrow.refundTimeoutSlots)).toBe(200);
-    expect(Number(escrow.deadmanTimeoutSlots)).toBe(500);
+    expect(Number(escrow.deadmanTimeoutSlots)).toBe(1000);
     expect(escrow.maxSessionKeys).toBe(5);
     expect(escrow.sessionKeyCount).toBe(0);
     expect(escrow.bump).toBeGreaterThan(0);
@@ -95,6 +100,95 @@ describe("create_escrow", () => {
     const e2 = defined(await fetchEscrowAccount(rpc, escrowPDA2));
     expect(Number(e1.index)).toBe(10);
     expect(Number(e2.index)).toBe(11);
+  });
+
+  it("fails with refund timeout below minimum", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 20, {
+          refundTimeoutSlots: 100,
+          deadmanTimeoutSlots: 1000,
+        }),
+      FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
+    );
+  });
+
+  it("fails with deadman timeout below minimum", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 21, {
+          refundTimeoutSlots: 150,
+          deadmanTimeoutSlots: 900,
+        }),
+      FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT,
+    );
+  });
+
+  it("fails with refund timeout above maximum", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 22, {
+          refundTimeoutSlots: 1_296_001,
+          deadmanTimeoutSlots: 2_592_000,
+        }),
+      FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG,
+    );
+  });
+
+  it("fails with deadman timeout above maximum", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 23, {
+          refundTimeoutSlots: 150,
+          deadmanTimeoutSlots: 2_592_001,
+        }),
+      FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG,
+    );
+  });
+
+  it("fails with deadman too close to refund", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 26, {
+          refundTimeoutSlots: 1000,
+          deadmanTimeoutSlots: 1500,
+        }),
+      FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND,
+    );
+  });
+
+  it("succeeds with timeouts at minimum", async () => {
+    const escrowPDA = await createEscrowHelper(
+      rpc,
+      ownerSigner,
+      facilitatorSigner,
+      24,
+      {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
+      },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.refundTimeoutSlots)).toBe(150);
+    expect(Number(escrow.deadmanTimeoutSlots)).toBe(1000);
+  });
+
+  it("succeeds with timeouts at maximum", async () => {
+    const escrowPDA = await createEscrowHelper(
+      rpc,
+      ownerSigner,
+      facilitatorSigner,
+      25,
+      {
+        refundTimeoutSlots: 1_296_000,
+        deadmanTimeoutSlots: 2_592_000,
+      },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.refundTimeoutSlots)).toBe(1_296_000);
+    expect(Number(escrow.deadmanTimeoutSlots)).toBe(2_592_000);
   });
 });
 

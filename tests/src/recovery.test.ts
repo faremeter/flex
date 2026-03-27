@@ -23,6 +23,7 @@ import {
   expectToFail,
   withRemainingAccounts,
   defined,
+  waitForSlot,
 } from "./helpers";
 
 describe("void_pending", () => {
@@ -48,12 +49,11 @@ describe("void_pending", () => {
       facilitator,
       payer,
       200,
-      { deadmanTimeoutSlots: 0, settleAmount: 50_000 },
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
     );
 
-    await fundKeypair(rpc, await generateKeyPairSigner());
-
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrowBefore.lastActivitySlot + 1001n);
     expect(escrowBefore.pendingCount).toBe(1n);
 
     const { value: ownerBalanceBefore } = await rpc
@@ -121,7 +121,7 @@ describe("emergency_close", () => {
   it("recovers after voiding all pending settlements", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 210, {
-        deadmanTimeoutSlots: 0,
+        deadmanTimeoutSlots: 1000,
       });
 
     const recipient = await createFundedTokenAccount(
@@ -162,7 +162,7 @@ describe("emergency_close", () => {
     const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrowMid.pendingCount).toBe(2n);
 
-    await fundKeypair(rpc, await generateKeyPairSigner());
+    await waitForSlot(rpc, escrowMid.lastActivitySlot + 1001n);
 
     const void1Ix = getVoidPendingInstruction({
       escrow: escrowPDA,
@@ -247,8 +247,11 @@ describe("emergency_close", () => {
       facilitator,
       payer,
       211,
-      { deadmanTimeoutSlots: 0, settleAmount: 50_000 },
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
     );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
 
     const dest = await createFundedTokenAccount(
       rpc,
@@ -293,11 +296,13 @@ describe("force_close", () => {
       facilitator,
       payer,
       220,
-      { deadmanTimeoutSlots: 0, settleAmount: 50_000 },
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrowBefore.pendingCount).toBe(1n);
+
+    await waitForSlot(rpc, escrowBefore.lastActivitySlot + 2001n);
 
     const dest = await createFundedTokenAccount(
       rpc,

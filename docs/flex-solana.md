@@ -271,6 +271,14 @@ pub fn create_escrow(
 - `owner` (signer, mut) - Client creating the account
 - `escrow` (init, PDA)
 
+**Constraints**:
+
+- `refund_timeout_slots >= 150` (MIN_REFUND_TIMEOUT_SLOTS)
+- `refund_timeout_slots <= 1,296,000` (MAX_REFUND_TIMEOUT_SLOTS, ~6 days)
+- `deadman_timeout_slots >= 1,000` (MIN_DEADMAN_TIMEOUT_SLOTS, ~6.7 min)
+- `deadman_timeout_slots <= 2,592,000` (MAX_DEADMAN_TIMEOUT_SLOTS, ~12 days)
+- `deadman_timeout_slots >= 2 * refund_timeout_slots`
+
 **Notes**: The escrow account can hold multiple token types. Token accounts are created lazily on first deposit for each mint.
 
 #### `deposit`
@@ -874,6 +882,11 @@ This two-phase approach:
 | `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction                             |
 | `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                                                 |
 | `MAX_SPLITS`        | 5                          | Covers practical use cases (platform + merchant + referral + royalties); batch-friendly |
+| Refund timeout min  | 150 slots (~60s)           | Prevents degenerate zero-timeout escrows that undermine safety guarantees               |
+| Deadman timeout min | 1,000 slots (~6.7 min)     | Prevents race between refund window and deadman switch                                  |
+| Deadman/refund      | deadman >= 2x refund       | Ensures facilitator has time to finalize before deadman switch activates                |
+| Refund timeout max  | 1,296,000 slots (~6 days)  | Half of deadman max so the 2x constraint is always satisfiable                          |
+| Deadman timeout max | 2,592,000 slots (~12 days) | Prevents arithmetic overflow and unreasonable lock durations                            |
 
 **Implication**: When `pending_count` reaches 16, `submit_authorization` returns `PendingLimitReached` error. Facilitators must finalize existing settlements before submitting new ones. This creates back-pressure that prevents unbounded accumulation.
 
@@ -1396,6 +1409,11 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6029 | SettleAmountZero            | Settle amount must be greater than zero                                             |
 | 6030 | ExpiryTooFar                | Authorization expiry exceeds refund timeout                                         |
 | 6031 | RefundAmountZero            | Refund amount must be greater than zero                                             |
+| 6032 | RefundTimeoutTooShort       | Refund timeout below minimum of 150 slots                                           |
+| 6033 | DeadmanTimeoutTooShort      | Deadman timeout below minimum of 1000 slots                                         |
+| 6034 | RefundTimeoutTooLong        | Refund timeout exceeds maximum of 1296000 slots                                     |
+| 6035 | DeadmanTimeoutTooLong       | Deadman timeout exceeds maximum of 2592000 slots                                    |
+| 6036 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
 
 ## Event Emission
 
@@ -1598,18 +1616,6 @@ The `submit_authorization` instruction checks `token_account.amount >= settle_am
 
 **Revisit when:** The trust model changes to support multiple facilitators per escrow or untrusted facilitators. At that point, on-chain committed-amount tracking (per-mint field on the escrow account, ~320 bytes additional state) becomes necessary.
 
-### No minimum validation on timeout parameters
-
-`programs/flex/src/instructions/create_escrow.rs`
-
-`refund_timeout_slots` and `deadman_timeout_slots` accept zero with no on-chain minimum. A zero deadman timeout allows the owner to emergency-close immediately after a facilitator submits authorizations. A zero refund timeout allows immediate finalization with no refund window.
-
-**Why this is accepted:** These are client-chosen parameters and the client bears the risk of dangerous values. The facilitator is expected to refuse to work with obviously misconfigured escrows.
-
-**Mitigation:** Facilitators should validate timeout parameters before accepting an escrow. The SDK should warn or reject escrows with zero timeouts.
-
-**Revisit when:** There is evidence of clients accidentally creating zero-timeout escrows in production.
-
 ### No Token-2022 support
 
 The program uses `anchor_spl::token::Token` exclusively. Token-2022 accounts with transfer hooks, transfer fees, confidential transfers, or other extensions will not work. See [Token-2022 Considerations](#token-2022-considerations) for details on extension-specific impacts and a recommended phased approach.
@@ -1648,7 +1654,7 @@ The `_signature: [u8; 64]` parameter is passed as an instruction argument but ne
 
 `programs/flex/src/error.rs`
 
-The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6030) that happen to match the current ordering but are not enforced in code.
+The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6036) that happen to match the current ordering but are not enforced in code.
 
 **Revisit when:** Next program upgrade. Assign explicit discriminant values to each variant to match the documented table.
 

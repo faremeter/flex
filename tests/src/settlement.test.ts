@@ -821,7 +821,11 @@ describe("refund", () => {
       facilitator,
       payer,
       120,
-      { refundTimeoutSlots: 1000_000, settleAmount: 100_000 },
+      {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        settleAmount: 100_000,
+      },
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
@@ -846,7 +850,11 @@ describe("refund", () => {
       facilitator,
       payer,
       121,
-      { refundTimeoutSlots: 1000_000, settleAmount: 50_000 },
+      {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        settleAmount: 50_000,
+      },
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
@@ -868,11 +876,11 @@ describe("refund", () => {
       facilitator,
       payer,
       122,
-      { refundTimeoutSlots: 10, settleAmount: 50_000 },
+      { refundTimeoutSlots: 150, settleAmount: 50_000 },
     );
 
     const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
-    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
 
     await expectToFail(
       () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 10_000),
@@ -887,7 +895,11 @@ describe("refund", () => {
       facilitator,
       payer,
       123,
-      { refundTimeoutSlots: 1000_000, settleAmount: 50_000 },
+      {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        settleAmount: 50_000,
+      },
     );
 
     await expectToFail(
@@ -903,7 +915,11 @@ describe("refund", () => {
       facilitator,
       payer,
       124,
-      { refundTimeoutSlots: 1000_000, settleAmount: 50_000 },
+      {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        settleAmount: 50_000,
+      },
     );
 
     await expectToFail(
@@ -931,7 +947,7 @@ describe("finalize", () => {
   it("distributes to single recipient and decrements pending_count", async () => {
     const { escrowPDA, vaultPDA, pendingPDA, splits } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 130, {
-        refundTimeoutSlots: 10,
+        refundTimeoutSlots: 150,
         settleAmount: 100_000,
       });
 
@@ -943,7 +959,7 @@ describe("finalize", () => {
     expect(Number(recipientBefore)).toBe(0);
 
     const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
-    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
 
     await finalizeHelper(
       rpc,
@@ -968,7 +984,7 @@ describe("finalize", () => {
   it("distributes to multiple recipients proportionally", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 131, {
-        refundTimeoutSlots: 10,
+        refundTimeoutSlots: 150,
       });
 
     const r1 = await createFundedTokenAccount(
@@ -1002,11 +1018,11 @@ describe("finalize", () => {
       1,
       100_000,
       splits,
-      { refundTimeoutSlots: 10 },
+      { refundTimeoutSlots: 150 },
     );
 
     const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
-    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
 
     await finalizeHelper(
       rpc,
@@ -1028,7 +1044,7 @@ describe("finalize", () => {
   it("handles rounding dust for last recipient", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 132, {
-        refundTimeoutSlots: 10,
+        refundTimeoutSlots: 150,
       });
 
     const r1 = await createFundedTokenAccount(
@@ -1070,11 +1086,11 @@ describe("finalize", () => {
       1,
       100,
       splits,
-      { refundTimeoutSlots: 10 },
+      { refundTimeoutSlots: 150 },
     );
 
     const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
-    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
 
     await finalizeHelper(
       rpc,
@@ -1099,7 +1115,8 @@ describe("finalize", () => {
   it("fails before refund window expires", async () => {
     const { escrowPDA, vaultPDA, pendingPDA, splits } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 133, {
-        refundTimeoutSlots: 1000_000,
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
         settleAmount: 50_000,
       });
 
@@ -1121,7 +1138,7 @@ describe("finalize", () => {
   it("fails with wrong recipient accounts", async () => {
     const { escrowPDA, vaultPDA, pendingPDA, mint } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 134, {
-        refundTimeoutSlots: 10,
+        refundTimeoutSlots: 150,
         settleAmount: 50_000,
       });
 
@@ -1135,7 +1152,7 @@ describe("finalize", () => {
       0n,
     );
 
-    await waitForSlot(rpc, pending.submittedAtSlot + 10n);
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
 
     await expectToFail(
       () =>
