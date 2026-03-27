@@ -17,6 +17,8 @@ import {
   fundKeypair,
   createEscrowHelper,
   expectToFail,
+  expectToFailWithAnchorError,
+  ANCHOR_ERROR__CONSTRAINT_HAS_ONE,
   defined,
 } from "./helpers";
 
@@ -138,6 +140,27 @@ describe("register_session_key", () => {
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrow.sessionKeyCount).toBe(3);
   }, 15_000);
+
+  it("fails with non-owner signer", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 104, {
+      maxSessionKeys: 10,
+    });
+
+    const wrongOwner = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongOwner);
+
+    const sessionKey = await generateKeyPairSigner();
+    await expectToFailWithAnchorError(async () => {
+      const registerIx = await getRegisterSessionKeyInstructionAsync({
+        owner: wrongOwner,
+        escrow: escrowPDA,
+        sessionKey: sessionKey.address,
+        expiresAtSlot: null,
+        revocationGracePeriodSlots: 0,
+      });
+      await sendTx(rpc, wrongOwner, [registerIx]);
+    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
+  }, 15_000);
 });
 
 describe("revoke_session_key", () => {
@@ -205,6 +228,37 @@ describe("revoke_session_key", () => {
       });
       await sendTx(rpc, owner, [revokeIx2]);
     }, FLEX_ERROR__SESSION_KEY_REVOKED);
+  });
+
+  it("fails with non-owner signer", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 202, {
+      maxSessionKeys: 10,
+    });
+
+    const sessionKey = await generateKeyPairSigner();
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: 0,
+    });
+    const sessionKeyAccountMeta = registerIx.accounts[2];
+    if (!sessionKeyAccountMeta) throw new Error("session key meta missing");
+    const skPDA = sessionKeyAccountMeta.address;
+    await sendTx(rpc, owner, [registerIx]);
+
+    const wrongOwner = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongOwner);
+
+    await expectToFailWithAnchorError(async () => {
+      const revokeIx = getRevokeSessionKeyInstruction({
+        owner: wrongOwner,
+        escrow: escrowPDA,
+        sessionKeyAccount: skPDA,
+      });
+      await sendTx(rpc, wrongOwner, [revokeIx]);
+    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
   });
 });
 
