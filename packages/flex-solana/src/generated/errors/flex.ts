@@ -78,10 +78,23 @@ export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178d; // 6029
 export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178e; // 6030
 /** RefundAmountZero: Refund amount must be greater than zero */
 export const FLEX_ERROR__REFUND_AMOUNT_ZERO = 0x178f; // 6031
+/** RefundTimeoutTooShort: Refund timeout below minimum of 150 slots */
+export const FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT = 0x1790; // 6032
+/** DeadmanTimeoutTooShort: Deadman timeout below minimum of 1000 slots */
+export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT = 0x1791; // 6033
+/** RefundTimeoutTooLong: Refund timeout exceeds maximum of 1296000 slots */
+export const FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG = 0x1792; // 6034
+/** DeadmanTimeoutTooLong: Deadman timeout exceeds maximum of 2592000 slots */
+export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1793; // 6035
+/** DeadmanTooCloseToRefund: Deadman timeout must be at least 2x refund timeout */
+export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1794; // 6036
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
   | typeof FLEX_ERROR__DEADMAN_NOT_EXPIRED
+  | typeof FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG
+  | typeof FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT
+  | typeof FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND
   | typeof FLEX_ERROR__DUPLICATE_ACCOUNTS
   | typeof FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__EXPIRY_TOO_FAR
@@ -99,6 +112,8 @@ export type FlexError =
   | typeof FLEX_ERROR__PENDING_SETTLEMENTS_EXIST
   | typeof FLEX_ERROR__REFUND_AMOUNT_ZERO
   | typeof FLEX_ERROR__REFUND_EXCEEDS_AMOUNT
+  | typeof FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG
+  | typeof FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT
   | typeof FLEX_ERROR__REFUND_WINDOW_EXPIRED
   | typeof FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED
   | typeof FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW
@@ -118,6 +133,9 @@ if (process.env.NODE_ENV !== "production") {
   flexErrorMessages = {
     [FLEX_ERROR__AUTHORIZATION_EXPIRED]: `Authorization has expired`,
     [FLEX_ERROR__DEADMAN_NOT_EXPIRED]: `Cannot emergency close before timeout`,
+    [FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG]: `Deadman timeout exceeds maximum of 2592000 slots`,
+    [FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT]: `Deadman timeout below minimum of 1000 slots`,
+    [FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND]: `Deadman timeout must be at least 2x refund timeout`,
     [FLEX_ERROR__DUPLICATE_ACCOUNTS]: `Same account passed multiple times`,
     [FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT]: `Duplicate recipient in splits`,
     [FLEX_ERROR__EXPIRY_TOO_FAR]: `Authorization expiry exceeds refund timeout`,
@@ -135,6 +153,8 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__PENDING_SETTLEMENTS_EXIST]: `Cannot close escrow with pending settlements`,
     [FLEX_ERROR__REFUND_AMOUNT_ZERO]: `Refund amount must be greater than zero`,
     [FLEX_ERROR__REFUND_EXCEEDS_AMOUNT]: `Cannot refund more than pending amount`,
+    [FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG]: `Refund timeout exceeds maximum of 1296000 slots`,
+    [FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT]: `Refund timeout below minimum of 150 slots`,
     [FLEX_ERROR__REFUND_WINDOW_EXPIRED]: `Cannot refund after refund timeout`,
     [FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED]: `Cannot finalize before refund timeout`,
     [FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW]: `Session key count underflow`,

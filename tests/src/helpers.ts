@@ -213,7 +213,7 @@ export async function createEscrowHelper(
     owner,
     index,
     facilitator: facilitator.address,
-    refundTimeoutSlots: opts?.refundTimeoutSlots ?? 100,
+    refundTimeoutSlots: opts?.refundTimeoutSlots ?? 150,
     deadmanTimeoutSlots: opts?.deadmanTimeoutSlots ?? 1000,
     maxSessionKeys: opts?.maxSessionKeys ?? 10,
   });
@@ -242,7 +242,7 @@ export async function submitAuthorizationHelper(
   },
 ): Promise<Address> {
   const currentSlot = await rpc.getSlot().send();
-  const timeout = BigInt(opts?.refundTimeoutSlots ?? 100);
+  const timeout = BigInt(opts?.refundTimeoutSlots ?? 150);
   const expiresAtSlot =
     opts?.expiresAtSlot ?? currentSlot + (timeout > 10n ? timeout / 2n : 5n);
   const maxAmount = opts?.maxAmount ?? settleAmount;
@@ -437,7 +437,7 @@ export async function setupEscrowForAuth(
   const depositAmount = opts?.depositAmount ?? 1_000_000;
 
   const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, index, {
-    refundTimeoutSlots: opts?.refundTimeoutSlots ?? 100,
+    refundTimeoutSlots: opts?.refundTimeoutSlots ?? 150,
     deadmanTimeoutSlots: opts?.deadmanTimeoutSlots ?? 1000,
   });
 

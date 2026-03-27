@@ -1,7 +1,11 @@
 use anchor_lang::prelude::*;
 
+use crate::error::FlexError;
 use crate::events::EscrowCreated;
-use crate::state::EscrowAccount;
+use crate::state::{
+    EscrowAccount, MAX_DEADMAN_TIMEOUT_SLOTS, MAX_REFUND_TIMEOUT_SLOTS, MIN_DEADMAN_TIMEOUT_SLOTS,
+    MIN_REFUND_TIMEOUT_SLOTS,
+};
 
 #[derive(Accounts)]
 #[instruction(index: u64)]
@@ -29,6 +33,27 @@ pub fn create_escrow(
     deadman_timeout_slots: u64,
     max_session_keys: u8,
 ) -> Result<()> {
+    require!(
+        refund_timeout_slots >= MIN_REFUND_TIMEOUT_SLOTS,
+        FlexError::RefundTimeoutTooShort
+    );
+    require!(
+        refund_timeout_slots <= MAX_REFUND_TIMEOUT_SLOTS,
+        FlexError::RefundTimeoutTooLong
+    );
+    require!(
+        deadman_timeout_slots >= MIN_DEADMAN_TIMEOUT_SLOTS,
+        FlexError::DeadmanTimeoutTooShort
+    );
+    require!(
+        deadman_timeout_slots <= MAX_DEADMAN_TIMEOUT_SLOTS,
+        FlexError::DeadmanTimeoutTooLong
+    );
+    require!(
+        deadman_timeout_slots >= 2 * refund_timeout_slots,
+        FlexError::DeadmanTooCloseToRefund
+    );
+
     let escrow = &mut ctx.accounts.escrow;
     escrow.version = 1;
     escrow.owner = ctx.accounts.owner.key();
