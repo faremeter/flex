@@ -12,6 +12,7 @@ import {
   FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT,
   FLEX_ERROR__REFUND_WINDOW_EXPIRED,
   FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
+  FLEX_ERROR__REFUND_AMOUNT_ZERO,
   FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
   FLEX_ERROR__SETTLE_AMOUNT_ZERO,
@@ -892,6 +893,22 @@ describe("refund", () => {
     await expectToFail(
       () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 60_000),
       FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
+    );
+  });
+
+  it("fails with zero refund amount", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      124,
+      { refundTimeoutSlots: 1000_000, settleAmount: 50_000 },
+    );
+
+    await expectToFail(
+      () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 0),
+      FLEX_ERROR__REFUND_AMOUNT_ZERO,
     );
   });
 });

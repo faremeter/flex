@@ -40,6 +40,7 @@ pub fn refund(ctx: Context<Refund>, refund_amount: u64) -> Result<()> {
         .ok_or(error!(FlexError::RefundWindowExpired))?;
 
     require!(clock.slot < window_end, FlexError::RefundWindowExpired);
+    require!(refund_amount > 0, FlexError::RefundAmountZero);
     require!(
         refund_amount <= ctx.accounts.pending.amount,
         FlexError::RefundExceedsAmount
