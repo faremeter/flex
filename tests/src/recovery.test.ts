@@ -21,6 +21,8 @@ import {
   setupEscrowForAuth,
   fetchTokenBalance,
   expectToFail,
+  expectToFailWithAnchorError,
+  ANCHOR_ERROR__CONSTRAINT_HAS_ONE,
   withRemainingAccounts,
   defined,
   waitForSlot,
@@ -99,6 +101,32 @@ describe("void_pending", () => {
       });
       await sendTx(rpc, owner, [voidIx]);
     }, FLEX_ERROR__DEADMAN_NOT_EXPIRED);
+  }, 15_000);
+
+  it("fails with wrong owner", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      202,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    const wrongOwner = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongOwner);
+
+    await expectToFailWithAnchorError(async () => {
+      const voidIx = getVoidPendingInstruction({
+        escrow: escrowPDA,
+        owner: wrongOwner,
+        pending: pendingPDA,
+      });
+      await sendTx(rpc, wrongOwner, [voidIx]);
+    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
   }, 15_000);
 });
 
@@ -271,6 +299,41 @@ describe("emergency_close", () => {
       await sendTx(rpc, owner, [ix]);
     }, FLEX_ERROR__PENDING_SETTLEMENTS_EXIST);
   }, 15_000);
+
+  it("fails with wrong owner", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      213,
+      { deadmanTimeoutSlots: 1000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const wrongOwner = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongOwner);
+
+    await expectToFailWithAnchorError(async () => {
+      const baseIx = getEmergencyCloseInstruction({
+        escrow: escrowPDA,
+        owner: wrongOwner,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+      await sendTx(rpc, wrongOwner, [ix]);
+    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
+  }, 15_000);
 });
 
 describe("force_close", () => {
@@ -356,5 +419,40 @@ describe("force_close", () => {
       const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
       await sendTx(rpc, owner, [ix]);
     }, FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED);
+  }, 15_000);
+
+  it("fails with wrong owner", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      222,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 2001n);
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const wrongOwner = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongOwner);
+
+    await expectToFailWithAnchorError(async () => {
+      const baseIx = getForceCloseInstruction({
+        escrow: escrowPDA,
+        owner: wrongOwner,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+      await sendTx(rpc, wrongOwner, [ix]);
+    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
   }, 15_000);
 });

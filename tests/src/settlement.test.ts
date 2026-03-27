@@ -925,6 +925,29 @@ describe("refund", () => {
       FLEX_ERROR__REFUND_AMOUNT_ZERO,
     );
   });
+
+  it("fails with wrong facilitator", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      125,
+      {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        settleAmount: 50_000,
+      },
+    );
+
+    const wrongFacilitator = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongFacilitator);
+
+    await expectToFailWithAnchorError(
+      () => refundHelper(rpc, escrowPDA, wrongFacilitator, pendingPDA, 10_000),
+      ANCHOR_ERROR__CONSTRAINT_HAS_ONE,
+    );
+  });
 });
 
 describe("finalize", () => {
