@@ -16,7 +16,6 @@ import {
   getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
-  getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
   getU64Decoder,
@@ -45,6 +44,7 @@ import {
   getNonNullResolvedInstructionInput,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
+import { findPendingPda, findVaultPda } from "../pdas";
 import { FLEX_PROGRAM_ADDRESS } from "../programs";
 import {
   getSplitEntryDecoder,
@@ -251,42 +251,24 @@ export async function getSubmitAuthorizationInstructionAsync<
 
   // Resolve default values.
   if (!accounts.tokenAccount.value) {
-    accounts.tokenAccount.value = await getProgramDerivedAddress({
-      programAddress,
-      seeds: [
-        getBytesEncoder().encode(new Uint8Array([116, 111, 107, 101, 110])),
-        getAddressEncoder().encode(
-          getAddressFromResolvedInstructionAccount(
-            "escrow",
-            accounts.escrow.value,
-          ),
-        ),
-        getAddressEncoder().encode(
-          getNonNullResolvedInstructionInput("mint", args.mint),
-        ),
-      ],
+    accounts.tokenAccount.value = await findVaultPda({
+      escrow: getAddressFromResolvedInstructionAccount(
+        "escrow",
+        accounts.escrow.value,
+      ),
+      mint: getNonNullResolvedInstructionInput("mint", args.mint),
     });
   }
   if (!accounts.pending.value) {
-    accounts.pending.value = await getProgramDerivedAddress({
-      programAddress,
-      seeds: [
-        getBytesEncoder().encode(
-          new Uint8Array([112, 101, 110, 100, 105, 110, 103]),
-        ),
-        getAddressEncoder().encode(
-          getAddressFromResolvedInstructionAccount(
-            "escrow",
-            accounts.escrow.value,
-          ),
-        ),
-        getU64Encoder().encode(
-          getNonNullResolvedInstructionInput(
-            "authorizationId",
-            args.authorizationId,
-          ),
-        ),
-      ],
+    accounts.pending.value = await findPendingPda({
+      escrow: getAddressFromResolvedInstructionAccount(
+        "escrow",
+        accounts.escrow.value,
+      ),
+      authorizationId: getNonNullResolvedInstructionInput(
+        "authorizationId",
+        args.authorizationId,
+      ),
     });
   }
   if (!accounts.instructionsSysvar.value) {

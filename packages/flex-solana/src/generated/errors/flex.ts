@@ -76,6 +76,8 @@ export const FLEX_ERROR__SETTLE_EXCEEDS_MAX = 0x178c; // 6028
 export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178d; // 6029
 /** ExpiryTooFar: Authorization expiry exceeds refund timeout */
 export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178e; // 6030
+/** RefundAmountZero: Refund amount must be greater than zero */
+export const FLEX_ERROR__REFUND_AMOUNT_ZERO = 0x178f; // 6031
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -95,6 +97,7 @@ export type FlexError =
   | typeof FLEX_ERROR__PENDING_COUNT_MISMATCH
   | typeof FLEX_ERROR__PENDING_LIMIT_REACHED
   | typeof FLEX_ERROR__PENDING_SETTLEMENTS_EXIST
+  | typeof FLEX_ERROR__REFUND_AMOUNT_ZERO
   | typeof FLEX_ERROR__REFUND_EXCEEDS_AMOUNT
   | typeof FLEX_ERROR__REFUND_WINDOW_EXPIRED
   | typeof FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED
@@ -130,6 +133,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__PENDING_COUNT_MISMATCH]: `Remaining accounts count does not match pending_count`,
     [FLEX_ERROR__PENDING_LIMIT_REACHED]: `Maximum pending settlements reached`,
     [FLEX_ERROR__PENDING_SETTLEMENTS_EXIST]: `Cannot close escrow with pending settlements`,
+    [FLEX_ERROR__REFUND_AMOUNT_ZERO]: `Refund amount must be greater than zero`,
     [FLEX_ERROR__REFUND_EXCEEDS_AMOUNT]: `Cannot refund more than pending amount`,
     [FLEX_ERROR__REFUND_WINDOW_EXPIRED]: `Cannot refund after refund timeout`,
     [FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED]: `Cannot finalize before refund timeout`,

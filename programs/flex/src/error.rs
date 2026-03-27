@@ -94,4 +94,7 @@ pub enum FlexError {
 
     #[msg("Authorization expiry exceeds refund timeout")]
     ExpiryTooFar,
+
+    #[msg("Refund amount must be greater than zero")]
+    RefundAmountZero,
 }

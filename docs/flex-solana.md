@@ -673,6 +673,7 @@ pub fn refund(
 
 **Constraints**:
 
+- `refund_amount > 0`
 - `refund_amount <= pending_settlement.amount`
 - Refund window has not expired (`current_slot < submitted_at_slot + refund_timeout_slots`)
 
@@ -1394,6 +1395,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6028 | SettleExceedsMax            | Settle amount exceeds max authorized amount                                         |
 | 6029 | SettleAmountZero            | Settle amount must be greater than zero                                             |
 | 6030 | ExpiryTooFar                | Authorization expiry exceeds refund timeout                                         |
+| 6031 | RefundAmountZero            | Refund amount must be greater than zero                                             |
 
 ## Event Emission
 

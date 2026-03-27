@@ -16,7 +16,6 @@ import {
   getBytesEncoder,
   getOptionDecoder,
   getOptionEncoder,
-  getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
   getU64Decoder,
@@ -47,6 +46,7 @@ import {
   getNonNullResolvedInstructionInput,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
+import { findRegisterSessionKeySessionKeyAccountPda } from "../pdas";
 import { FLEX_PROGRAM_ADDRESS } from "../programs";
 
 export const REGISTER_SESSION_KEY_DISCRIMINATOR = new Uint8Array([
@@ -196,23 +196,17 @@ export async function getRegisterSessionKeyInstructionAsync<
 
   // Resolve default values.
   if (!accounts.sessionKeyAccount.value) {
-    accounts.sessionKeyAccount.value = await getProgramDerivedAddress({
-      programAddress,
-      seeds: [
-        getBytesEncoder().encode(
-          new Uint8Array([115, 101, 115, 115, 105, 111, 110]),
+    accounts.sessionKeyAccount.value =
+      await findRegisterSessionKeySessionKeyAccountPda({
+        escrow: getAddressFromResolvedInstructionAccount(
+          "escrow",
+          accounts.escrow.value,
         ),
-        getAddressEncoder().encode(
-          getAddressFromResolvedInstructionAccount(
-            "escrow",
-            accounts.escrow.value,
-          ),
+        sessionKey: getNonNullResolvedInstructionInput(
+          "sessionKey",
+          args.sessionKey,
         ),
-        getAddressEncoder().encode(
-          getNonNullResolvedInstructionInput("sessionKey", args.sessionKey),
-        ),
-      ],
-    });
+      });
   }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
