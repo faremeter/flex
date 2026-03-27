@@ -236,6 +236,32 @@ describe("deposit", () => {
     expect(balance).toBe(500_000n);
   });
 
+  it("does not update last_activity_slot", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 26);
+    const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
+
+    const mint = await createTestMint(rpc, payer);
+    const source = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      1_000_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: source.address,
+      amount: 500_000,
+    });
+    await sendTx(rpc, owner, [depositIx]);
+
+    const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowAfter.lastActivitySlot).toBe(escrowBefore.lastActivitySlot);
+  });
+
   it("deposits multiple mints up to the limit", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 21);
 
