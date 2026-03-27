@@ -23,6 +23,8 @@ import {
   FLEX_ERROR__INVALID_SIGNATURE,
   fetchSessionKey,
   getRevokeSessionKeyInstruction,
+  getDepositInstructionAsync,
+  getRegisterSessionKeyInstructionAsync,
   serializePaymentAuthorization,
   createEd25519VerifyInstruction,
   FLEX_PROGRAM_ADDRESS,
@@ -33,7 +35,9 @@ import {
   sendTx,
   fundKeypair,
   defined,
+  createTestMint,
   createFundedTokenAccount,
+  createEscrowHelper,
   submitAuthorizationHelper,
   setupEscrowWithPending,
   setupEscrowForAuth,
@@ -1347,5 +1351,156 @@ describe("timing boundaries", () => {
         ),
       FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED,
     );
+  });
+});
+
+describe("multi-mint settlement", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("submits and finalizes authorizations against two mints in the same escrow", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 400, {
+      refundTimeoutSlots: 150,
+    });
+
+    const mintA = await createTestMint(rpc, payer);
+    const mintB = await createTestMint(rpc, payer);
+
+    const sourceA = await createFundedTokenAccount(
+      rpc,
+      mintA.address,
+      owner.address,
+      payer,
+      1_000_000n,
+    );
+    const sourceB = await createFundedTokenAccount(
+      rpc,
+      mintB.address,
+      owner.address,
+      payer,
+      2_000_000n,
+    );
+
+    const depositAIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mintA.address,
+      source: sourceA.address,
+      amount: 1_000_000,
+    });
+    const vaultA = defined(depositAIx.accounts[3]).address;
+
+    const depositBIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mintB.address,
+      source: sourceB.address,
+      amount: 2_000_000,
+    });
+    const vaultB = defined(depositBIx.accounts[3]).address;
+
+    const sessionKey = await generateKeyPairSigner();
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: 0,
+    });
+    const skPDA = defined(registerIx.accounts[2]).address;
+
+    await sendTx(rpc, owner, [depositAIx, depositBIx, registerIx]);
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.mintCount)).toBe(2);
+
+    const recipientA = await createFundedTokenAccount(
+      rpc,
+      mintA.address,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const recipientB = await createFundedTokenAccount(
+      rpc,
+      mintB.address,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const splitsA = [{ recipient: recipientA.address, bps: 10_000 }];
+    const splitsB = [{ recipient: recipientB.address, bps: 10_000 }];
+
+    const pendingA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      skPDA,
+      mintA.address,
+      vaultA,
+      1,
+      500_000,
+      splitsA,
+    );
+
+    const pendingB = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      skPDA,
+      mintB.address,
+      vaultB,
+      2,
+      800_000,
+      splitsB,
+    );
+
+    const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrowMid.pendingCount)).toBe(2);
+
+    const pendingDataA = defined(await fetchPendingSettlement(rpc, pendingA));
+    await waitForSlot(rpc, pendingDataA.submittedAtSlot + 150n);
+
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingA,
+      vaultA,
+      [recipientA.address],
+    );
+
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingB,
+      vaultB,
+      [recipientB.address],
+    );
+
+    expect(await fetchTokenBalance(rpc, recipientA.address)).toBe(500_000n);
+    expect(await fetchTokenBalance(rpc, recipientB.address)).toBe(800_000n);
+    expect(await fetchTokenBalance(rpc, vaultA)).toBe(500_000n);
+    expect(await fetchTokenBalance(rpc, vaultB)).toBe(1_200_000n);
+
+    const escrowFinal = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrowFinal.pendingCount)).toBe(0);
   });
 });
