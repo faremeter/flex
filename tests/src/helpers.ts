@@ -79,6 +79,33 @@ export function expectFlexError(err: unknown, expectedCode: FlexError): void {
   expect(message).toBeDefined();
 }
 
+export const ANCHOR_ERROR__ACCOUNT_ALREADY_IN_USE = 0;
+export const ANCHOR_ERROR__CONSTRAINT_HAS_ONE = 2001;
+export const ANCHOR_ERROR__ACCOUNT_NOT_SIGNER = 3010;
+
+export function expectAnchorError(err: unknown, expectedCode: number): void {
+  if (err instanceof Error && err.message === "should have thrown") throw err;
+  const cause = unwrapSimulationError(err);
+  if (!isSolanaError(cause, SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM)) {
+    throw new Error(
+      `Expected SolanaError with custom instruction error but got: ${String(err)}`,
+    );
+  }
+  expect(cause.context.code).toBe(expectedCode);
+}
+
+export async function expectToFailWithAnchorError(
+  fn: () => Promise<unknown>,
+  expectedCode: number,
+): Promise<void> {
+  try {
+    await fn();
+    throw new Error("should have thrown");
+  } catch (err: unknown) {
+    expectAnchorError(err, expectedCode);
+  }
+}
+
 export async function expectToFail(
   fn: () => Promise<unknown>,
   expectedCode: FlexError,
