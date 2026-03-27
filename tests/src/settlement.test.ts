@@ -41,6 +41,9 @@ import {
   finalizeHelper,
   fetchTokenBalance,
   expectToFail,
+  expectToFailWithAnchorError,
+  ANCHOR_ERROR__ACCOUNT_ALREADY_IN_USE,
+  ANCHOR_ERROR__CONSTRAINT_HAS_ONE,
   waitForSlot,
 } from "./helpers";
 
@@ -190,24 +193,22 @@ describe("submit_authorization", () => {
       splits,
     );
 
-    let threw = false;
-    try {
-      await submitAuthorizationHelper(
-        rpc,
-        escrowPDA,
-        facilitator,
-        sessionKey,
-        sessionKeyPDA,
-        mint,
-        vaultPDA,
-        999,
-        100_000,
-        splits,
-      );
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(true);
+    await expectToFailWithAnchorError(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          999,
+          100_000,
+          splits,
+        ),
+      ANCHOR_ERROR__ACCOUNT_ALREADY_IN_USE,
+    );
   });
 
   it("fails when pending limit reached", async () => {
@@ -745,24 +746,22 @@ describe("submit_authorization", () => {
     const unauthorized = await generateKeyPairSigner();
     await fundKeypair(rpc, unauthorized);
 
-    let threw = false;
-    try {
-      await submitAuthorizationHelper(
-        rpc,
-        escrowPDA,
-        unauthorized,
-        sessionKey,
-        sessionKeyPDA,
-        mint,
-        vaultPDA,
-        1,
-        100_000,
-        [{ recipient: recipient.address, bps: 10_000 }],
-      );
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(true);
+    await expectToFailWithAnchorError(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          unauthorized,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+        ),
+      ANCHOR_ERROR__CONSTRAINT_HAS_ONE,
+    );
   });
 
   it("succeeds with settle amount less than max", async () => {
