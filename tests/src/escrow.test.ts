@@ -2,11 +2,8 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import {
   type Address,
   type KeyPairSigner,
-  SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM,
   type TransactionSigner,
   generateKeyPairSigner,
-  isSolanaError,
-  unwrapSimulationError,
 } from "@solana/kit";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import {
@@ -34,11 +31,11 @@ import {
   submitAuthorizationHelper,
   fetchTokenBalance,
   expectToFail,
+  expectToFailWithAnchorError,
+  ANCHOR_ERROR__ACCOUNT_NOT_SIGNER,
   withRemainingAccounts,
   defined,
 } from "./helpers";
-
-const ANCHOR_ERROR__ACCOUNT_NOT_SIGNER = 3010;
 
 describe("create_escrow", () => {
   const rpc = createRpc();
@@ -557,7 +554,7 @@ describe("close_escrow", () => {
   it("fails without facilitator signature", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 31);
 
-    try {
+    await expectToFailWithAnchorError(async () => {
       const baseIx = getCloseEscrowInstruction({
         escrow: escrowPDA,
         owner,
@@ -566,18 +563,7 @@ describe("close_escrow", () => {
         tokenProgram: TOKEN_PROGRAM_ADDRESS,
       });
       await sendTx(rpc, owner, [baseIx]);
-      throw new Error("should have thrown");
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message === "should have thrown")
-        throw err;
-      const cause = unwrapSimulationError(err);
-      expect(
-        isSolanaError(cause, SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM),
-      ).toBe(true);
-      if (isSolanaError(cause, SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM)) {
-        expect(cause.context.code).toBe(ANCHOR_ERROR__ACCOUNT_NOT_SIGNER);
-      }
-    }
+    }, ANCHOR_ERROR__ACCOUNT_NOT_SIGNER);
   });
 
   it("fails with duplicate mints in remaining accounts", async () => {
