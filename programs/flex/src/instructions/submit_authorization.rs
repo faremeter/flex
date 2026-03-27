@@ -135,7 +135,7 @@ fn verify_ed25519_introspection(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
     mint: Pubkey,
@@ -144,7 +144,6 @@ pub fn submit_authorization(
     authorization_id: u64,
     expires_at_slot: u64,
     splits: Vec<SplitEntry>,
-    _signature: [u8; 64],
 ) -> Result<()> {
     let escrow = &ctx.accounts.escrow;
     let session_key = &ctx.accounts.session_key;

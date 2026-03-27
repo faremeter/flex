@@ -586,7 +586,6 @@ pub fn submit_authorization(
     authorization_id: u64,
     expires_at_slot: u64,
     splits: Vec<SplitEntry>,
-    signature: [u8; 64],
 ) -> Result<()>
 ```
 
@@ -1633,14 +1632,6 @@ All accounts set `version = 1` but no instruction checks the version field. The 
 When a full refund closes the pending settlement account, it zeroes lamports, reassigns to the system program, and resizes to zero -- but does not write `CLOSED_ACCOUNT_DISCRIMINATOR` like Anchor's `close` constraint does. This is a defense-in-depth gap against revival attacks within the same transaction. The practical risk is minimal since the account is resized to zero and reassigned to the system program. The `finalize` path uses Anchor's `close` constraint properly.
 
 **Revisit when:** An auditor flags this or if the refund instruction is modified to participate in larger composite transactions.
-
-### Unused signature parameter in submit_authorization
-
-`programs/flex/src/instructions/submit_authorization.rs`
-
-The `_signature: [u8; 64]` parameter is passed as an instruction argument but never read. Signature verification happens via Ed25519 introspection of the preceding instruction. This wastes 64 bytes per authorization submission.
-
-**Revisit when:** Next program upgrade. Removing this parameter changes the IDL and requires SDK updates.
 
 ### Wrong error code for zero-amount deposit
 
