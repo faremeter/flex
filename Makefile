@@ -23,7 +23,7 @@ test-unit:
 	bun test packages/
 
 test-integration: build-anchor
-	@bin/with-validator bun test --timeout 30000 tests/
+	bun test --timeout 30000 tests/
 
 test-ts: test-unit test-integration
 

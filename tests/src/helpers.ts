@@ -5,11 +5,9 @@ import {
   type Instruction,
   type KeyPairSigner,
   type Rpc,
-  type Signature,
   type SolanaRpcApi,
   SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM,
   appendTransactionMessageInstructions,
-  createSolanaRpc,
   createTransactionMessage,
   generateKeyPairSigner,
   getBase64EncodedWireTransaction,
@@ -21,6 +19,9 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
 } from "@solana/kit";
+import type { LiteSVM } from "litesvm";
+import { initTestSVM } from "./litesvm-setup";
+import { createLiteSVMRpc } from "./litesvm-rpc";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import {
   TOKEN_PROGRAM_ADDRESS,
@@ -47,9 +48,15 @@ const LAMPORTS_PER_SOL = 1_000_000_000n;
 const MINT_SIZE = 82n;
 const ACCOUNT_SIZE = 165n;
 
-export function createRpc() {
-  const url = process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
-  return createSolanaRpc(url);
+let _svm: LiteSVM | undefined;
+
+function getSVM(): LiteSVM {
+  _svm ??= initTestSVM();
+  return _svm;
+}
+
+export function createRpc(): Rpc<SolanaRpcApi> {
+  return createLiteSVMRpc(getSVM());
 }
 
 export function defined<T>(value: T | null | undefined): T {
@@ -84,40 +91,11 @@ export async function expectToFail(
   }
 }
 
-async function confirmSignature(
-  rpc: Rpc<SolanaRpcApi>,
-  sig: Signature,
-): Promise<void> {
-  for (let i = 0; i < 60; i++) {
-    const { value: statuses } = await rpc.getSignatureStatuses([sig]).send();
-    const status = statuses[0];
-    if (
-      status?.confirmationStatus === "confirmed" ||
-      status?.confirmationStatus === "finalized"
-    ) {
-      if (status.err) {
-        throw new Error(
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-          `Transaction failed: ${JSON.stringify(status.err, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`,
-        );
-      }
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error("Transaction confirmation timeout");
-}
-
 export async function waitForSlot(
-  rpc: Rpc<SolanaRpcApi>,
+  _rpc: Rpc<SolanaRpcApi>,
   targetSlot: bigint,
 ): Promise<void> {
-  for (let i = 0; i < 60; i++) {
-    const currentSlot = await rpc.getSlot().send();
-    if (currentSlot >= targetSlot) return;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error(`Timed out waiting for slot ${targetSlot}`);
+  getSVM().warpToSlot(targetSlot);
 }
 
 export async function sendTx(
@@ -134,8 +112,7 @@ export async function sendTx(
   );
   const signedTx = await signTransactionMessageWithSigners(msg);
   const wire = getBase64EncodedWireTransaction(signedTx);
-  const sig = await rpc.sendTransaction(wire, { encoding: "base64" }).send();
-  await confirmSignature(rpc, sig);
+  await rpc.sendTransaction(wire, { encoding: "base64" }).send();
 }
 
 export async function fundKeypair(
@@ -143,8 +120,7 @@ export async function fundKeypair(
   keypair: KeyPairSigner,
   amount = lamports(10n * LAMPORTS_PER_SOL),
 ): Promise<void> {
-  const sig = await rpc.requestAirdrop(keypair.address, amount).send();
-  await confirmSignature(rpc, sig);
+  await rpc.requestAirdrop(keypair.address, amount).send();
 }
 
 export async function createTestMint(
