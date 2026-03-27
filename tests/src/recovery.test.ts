@@ -349,6 +349,73 @@ describe("emergency_close", () => {
     }, FLEX_ERROR__PENDING_SETTLEMENTS_EXIST);
   }, 15_000);
 
+  it("fails at exact deadman timeout slot", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      214,
+      { deadmanTimeoutSlots: 1000 },
+    );
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1000n);
+
+    await expectToFail(async () => {
+      const baseIx = getEmergencyCloseInstruction({
+        escrow: escrowPDA,
+        owner,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+      await sendTx(rpc, owner, [ix]);
+    }, FLEX_ERROR__DEADMAN_NOT_EXPIRED);
+  }, 15_000);
+
+  it("succeeds one slot after deadman timeout", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      215,
+      { deadmanTimeoutSlots: 1000 },
+    );
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    const baseIx = getEmergencyCloseInstruction({
+      escrow: escrowPDA,
+      owner,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+    await sendTx(rpc, owner, [ix]);
+
+    const escrowInfo = await rpc
+      .getAccountInfo(escrowPDA, { encoding: "base64" })
+      .send();
+    expect(escrowInfo.value).toBeNull();
+  }, 15_000);
+
   it("fails with wrong owner", async () => {
     const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
       rpc,
@@ -468,6 +535,73 @@ describe("force_close", () => {
       const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
       await sendTx(rpc, owner, [ix]);
     }, FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED);
+  }, 15_000);
+
+  it("fails at exact 2x deadman timeout slot", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      223,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 2000n);
+
+    await expectToFail(async () => {
+      const baseIx = getForceCloseInstruction({
+        escrow: escrowPDA,
+        owner,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+      await sendTx(rpc, owner, [ix]);
+    }, FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED);
+  }, 15_000);
+
+  it("succeeds one slot after 2x deadman timeout", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      224,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 2001n);
+
+    const baseIx = getForceCloseInstruction({
+      escrow: escrowPDA,
+      owner,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+    await sendTx(rpc, owner, [ix]);
+
+    const escrowInfo = await rpc
+      .getAccountInfo(escrowPDA, { encoding: "base64" })
+      .send();
+    expect(escrowInfo.value).toBeNull();
   }, 15_000);
 
   it("fails with wrong owner", async () => {
