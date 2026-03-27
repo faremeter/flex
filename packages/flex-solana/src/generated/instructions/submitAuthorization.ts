@@ -113,7 +113,6 @@ export type SubmitAuthorizationInstructionData = {
   authorizationId: bigint;
   expiresAtSlot: bigint;
   splits: Array<SplitEntry>;
-  signature: ReadonlyUint8Array;
 };
 
 export type SubmitAuthorizationInstructionDataArgs = {
@@ -123,7 +122,6 @@ export type SubmitAuthorizationInstructionDataArgs = {
   authorizationId: number | bigint;
   expiresAtSlot: number | bigint;
   splits: Array<SplitEntryArgs>;
-  signature: ReadonlyUint8Array;
 };
 
 export function getSubmitAuthorizationInstructionDataEncoder(): Encoder<SubmitAuthorizationInstructionDataArgs> {
@@ -136,7 +134,6 @@ export function getSubmitAuthorizationInstructionDataEncoder(): Encoder<SubmitAu
       ["authorizationId", getU64Encoder()],
       ["expiresAtSlot", getU64Encoder()],
       ["splits", getArrayEncoder(getSplitEntryEncoder())],
-      ["signature", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
     (value) => ({
       ...value,
@@ -154,7 +151,6 @@ export function getSubmitAuthorizationInstructionDataDecoder(): Decoder<SubmitAu
     ["authorizationId", getU64Decoder()],
     ["expiresAtSlot", getU64Decoder()],
     ["splits", getArrayDecoder(getSplitEntryDecoder())],
-    ["signature", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
 }
 
@@ -190,7 +186,6 @@ export type SubmitAuthorizationAsyncInput<
   authorizationId: SubmitAuthorizationInstructionDataArgs["authorizationId"];
   expiresAtSlot: SubmitAuthorizationInstructionDataArgs["expiresAtSlot"];
   splits: SubmitAuthorizationInstructionDataArgs["splits"];
-  signature: SubmitAuthorizationInstructionDataArgs["signature"];
 };
 
 export async function getSubmitAuthorizationInstructionAsync<
@@ -329,7 +324,6 @@ export type SubmitAuthorizationInput<
   authorizationId: SubmitAuthorizationInstructionDataArgs["authorizationId"];
   expiresAtSlot: SubmitAuthorizationInstructionDataArgs["expiresAtSlot"];
   splits: SubmitAuthorizationInstructionDataArgs["splits"];
-  signature: SubmitAuthorizationInstructionDataArgs["signature"];
 };
 
 export function getSubmitAuthorizationInstruction<

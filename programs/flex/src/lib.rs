@@ -65,7 +65,6 @@ pub mod flex {
         instructions::close_escrow(ctx)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn submit_authorization(
         ctx: Context<SubmitAuthorization>,
         mint: Pubkey,
@@ -74,7 +73,6 @@ pub mod flex {
         authorization_id: u64,
         expires_at_slot: u64,
         splits: Vec<state::SplitEntry>,
-        signature: [u8; 64],
     ) -> Result<()> {
         instructions::submit_authorization(
             ctx,
@@ -84,7 +82,6 @@ pub mod flex {
             authorization_id,
             expires_at_slot,
             splits,
-            signature,
         )
     }
 

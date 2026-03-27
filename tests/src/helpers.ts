@@ -278,7 +278,6 @@ export async function submitAuthorizationHelper(
     authorizationId,
     expiresAtSlot,
     splits,
-    signature: new Uint8Array(64),
   });
 
   await sendTx(rpc, facilitator, [ed25519Ix, submitIx]);

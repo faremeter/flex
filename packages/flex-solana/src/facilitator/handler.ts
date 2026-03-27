@@ -664,7 +664,6 @@ export const createFacilitatorHandler = async (
         recipient: s.recipient,
         bps: s.bps,
       })),
-      signature: hold.signatureBytes.subarray(0, 64),
     });
 
     const {

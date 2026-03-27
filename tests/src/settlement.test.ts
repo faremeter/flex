@@ -722,7 +722,6 @@ describe("submit_authorization", () => {
       authorizationId: 1,
       expiresAtSlot,
       splits,
-      signature: new Uint8Array(64),
     });
 
     await expectToFail(
