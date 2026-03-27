@@ -53,7 +53,7 @@ import type { EscrowAccountData, SessionKeyData } from "../types";
 
 const MS_PER_SLOT = 400;
 const DEFAULT_MIN_GRACE_PERIOD_SLOTS = 150n;
-const DEFAULT_CONFIRMATION_BUFFER_SLOTS = 20n;
+const DEFAULT_CONFIRMATION_BUFFER_SLOTS = 75n;
 
 // Anchor error codes that indicate the authorization can never succeed.
 // These map to FlexError variants in programs/flex/src/error.rs.
@@ -207,9 +207,10 @@ export const createFacilitatorHandler = async (
 
   function computeHoldDeadline(
     key: SessionKeyData,
+    expiresAtSlot: bigint,
     currentSlot: bigint,
-  ): bigint | null {
-    const deadlines: bigint[] = [];
+  ): bigint {
+    const deadlines: bigint[] = [expiresAtSlot];
 
     if (key.expiresAtSlot !== null) {
       deadlines.push(key.expiresAtSlot);
@@ -222,8 +223,6 @@ export const createFacilitatorHandler = async (
     } else if (key.revokedAtSlot !== null) {
       deadlines.push(key.revokedAtSlot + key.revocationGracePeriodSlots);
     }
-
-    if (deadlines.length === 0) return null;
 
     const earliest = deadlines.reduce((a, b) => (a < b ? a : b));
     return earliest - confirmationBufferSlots;
@@ -413,6 +412,12 @@ export const createFacilitatorHandler = async (
       return { error: "Escrow facilitator does not match" };
     }
 
+    if (snapshot.account.refundTimeoutSlots <= confirmationBufferSlots) {
+      return {
+        error: `Escrow refund timeout (${snapshot.account.refundTimeoutSlots}) too short for confirmation buffer (${confirmationBufferSlots})`,
+      };
+    }
+
     const [sessionKeyPDA] = await deriveSessionKeyPDA(
       escrowAddress,
       sessionKeyAddress,
@@ -439,12 +444,22 @@ export const createFacilitatorHandler = async (
       return { error: "Authorization has already expired" };
     }
 
+    if (expiresAtSlot < currentSlot + confirmationBufferSlots) {
+      return {
+        error: "Authorization expires too soon for on-chain submission",
+      };
+    }
+
     if (expiresAtSlot > currentSlot + snapshot.account.refundTimeoutSlots) {
       return { error: "Authorization expiry exceeds refund timeout" };
     }
 
-    const validUntilSlot = computeHoldDeadline(sessionKeyData, currentSlot);
-    if (validUntilSlot !== null && currentSlot >= validUntilSlot) {
+    const validUntilSlot = computeHoldDeadline(
+      sessionKeyData,
+      expiresAtSlot,
+      currentSlot,
+    );
+    if (currentSlot >= validUntilSlot) {
       return {
         error: "Session key validity window too short for settlement",
       };

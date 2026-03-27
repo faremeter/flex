@@ -136,9 +136,9 @@ describe("submit_authorization", () => {
     );
   });
 
-  it("fails when expiry too far", async () => {
+  it("fails when authorization expires at current slot", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
-      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1030);
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1032);
 
     const recipient = await createFundedTokenAccount(
       rpc,
@@ -160,10 +160,101 @@ describe("submit_authorization", () => {
           sessionKeyPDA,
           mint,
           vaultPDA,
-          2,
+          1,
           100_000,
           [{ recipient: recipient.address, bps: 10_000 }],
-          { expiresAtSlot: currentSlot + 10_000n },
+          { expiresAtSlot: currentSlot },
+        ),
+      FLEX_ERROR__AUTHORIZATION_EXPIRED,
+    );
+  });
+
+  it("succeeds when authorization expires one slot in the future", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1033);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+
+    await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+      { expiresAtSlot: currentSlot + 1n },
+    );
+  });
+
+  it("succeeds when expiry equals refund timeout ceiling", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1034);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+
+    await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+      { expiresAtSlot: currentSlot + 150n },
+    );
+  });
+
+  it("fails when expiry exceeds refund timeout by one slot", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 1035);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          100_000,
+          [{ recipient: recipient.address, bps: 10_000 }],
+          { expiresAtSlot: currentSlot + 151n },
         ),
       FLEX_ERROR__EXPIRY_TOO_FAR,
     );

@@ -16,7 +16,7 @@ export type Hold = {
   signatureBytes: Uint8Array;
   message: Uint8Array;
   payer: Address;
-  validUntilSlot: bigint | null;
+  validUntilSlot: bigint;
   status: "held" | "settled" | "submitting" | "submitted" | "finalizing";
   heldAt: number;
   submittedAtSlot: bigint | null;
@@ -131,7 +131,7 @@ export function createHoldManager() {
     const expired: Hold[] = [];
     for (const [k, h] of holds) {
       if (h.status !== "held") continue;
-      if (h.validUntilSlot !== null && currentSlot >= h.validUntilSlot) {
+      if (currentSlot >= h.validUntilSlot) {
         expired.push(h);
         holds.delete(k);
       }
