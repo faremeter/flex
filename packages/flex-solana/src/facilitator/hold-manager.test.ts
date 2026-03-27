@@ -27,7 +27,7 @@ function makeParams(overrides?: Partial<TryHoldParams>): TryHoldParams {
     signatureBytes: new Uint8Array(64),
     message: new Uint8Array(32),
     payer: "payer1" as Address,
-    validUntilSlot: null,
+    validUntilSlot: 1000n,
     ...overrides,
   };
 }
@@ -325,18 +325,6 @@ describe("sweepExpired", () => {
     const expired = mgr.sweepExpired(100n);
     expect(expired).toHaveLength(1);
     expect(mgr.getHolds()).toHaveLength(0);
-  });
-
-  test("does not remove holds with null validUntilSlot", () => {
-    mgr.tryHold(
-      makeParams({ authorizationId: 1n, validUntilSlot: null }),
-      1000n,
-      0n,
-      0n,
-    );
-    const expired = mgr.sweepExpired(999n);
-    expect(expired).toHaveLength(0);
-    expect(mgr.getHolds()).toHaveLength(1);
   });
 
   test("does not remove holds that are not in held state", () => {
