@@ -41,46 +41,13 @@ At the beginning of each session:
 
 ## Project-Specific Guidelines
 
-### This is the Flex Payment Scheme
+### Security and Code Quality
 
-This project implements a prepaid escrow account system on Solana for the x402 payment protocol. Key features:
+When writing or reviewing Anchor code, always load the `anchor-security` skill first.
 
-- **Dual Authorization:** Client session keys + facilitator signatures
-- **Nonce-Based Replay Protection:** Monotonically increasing nonces
-- **Slot-Based Timeouts:** Refund windows and deadman switches
-- **Multi-Mint Support:** One escrow, multiple token vaults
-- **Session Key System:** Off-chain signatures with on-chain validation
+Follow the security checklist and code quality standards in `CONVENTIONS.md` (Rust/Anchor Conventions > Security section).
 
-Design documents:
-
-- `/README.md` - Scheme overview
-- `/docs/flex-solana.md` - Solana implementation details
-
-### Security is Non-Negotiable
-
-When writing Anchor code:
-
-- ✅ Always load `anchor-security` skill
-- ✅ Validate all account relationships with `has_one` or constraints
-- ✅ Use typed accounts (`Account<'info, T>`) for ownership validation
-- ✅ Check for duplicate mutable accounts
-- ✅ Use canonical PDA bumps
-- ✅ Validate program IDs for CPIs
-- ✅ Properly close accounts with `close` constraint
-- ✅ Enforce nonce monotonicity
-- ✅ Validate time-based constraints with slots
-
-### Code Quality Standards
-
-Follow the patterns in the skills:
-
-- Use `#[account]` for all program-owned data
-- Use `#[derive(InitSpace)]` for space calculation
-- Organize CPI code in `impl` blocks
-- Store PDA bumps in account data
-- Use `require!` macros for validation
-- Define comprehensive error codes starting at 6000
-- Add `/// CHECK:` comments for `UncheckedAccount`
+For project design context, read `/README.md` and `/docs/flex-solana.md`.
 
 ## DO NOT DO THIS BEFORE YOU'VE DONE ALL STEPS OF THE ABOVE
 
