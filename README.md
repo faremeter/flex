@@ -4,17 +4,15 @@
 
 ## Problem Statement
 
-The x402 exact payment scheme requires clients to know the precise payment amount before making a request. This works well for fixed-price resources, but breaks down when:
+Per-request on-chain payment schemes have two fundamental limitations for agentic workflows:
 
-- The cost depends on request content (e.g., token count for AI inference)
-- The cost depends on response content (e.g., data transfer size)
-- The resource needs to meter usage over time (e.g., streaming, long-running operations)
+1. **Variable costs require upfront knowledge.** The client must know the exact payment amount before making a request. This works for fixed-price resources, but breaks down when the cost depends on request content (e.g., token count for AI inference), response content (e.g., data transfer size), or metered usage over time (e.g., streaming, long-running operations). The service either overcharges (bad for users) or undercharges (bad for operators).
 
-Currently, the middleware must specify a `maxAmountRequired` upfront. If the actual cost varies, the resource server either overcharges (bad for users) or undercharges (bad for operators).
+2. **On-chain confirmation adds latency to every request.** Each request requires a separate on-chain transaction that must be confirmed before the service can be delivered. For high-frequency, low-value interactions -- the common case in agentic workflows -- this per-request overhead dominates the total response time.
 
 ## Solution: Prepaid Escrow Accounts
 
-The flex scheme introduces prepaid escrow accounts that clients fund in advance. Instead of paying per-request, the middleware debits from a pre-existing balance based on actual usage.
+The flex scheme introduces prepaid escrow accounts that clients fund in advance. Instead of paying per-request, the middleware debits from a pre-existing balance based on actual usage. Settlement happens asynchronously -- the facilitator can grant access optimistically and batch authorizations for on-chain submission later, decoupling service delivery from on-chain confirmation.
 
 ### Participants
 
@@ -78,15 +76,24 @@ A single-recipient payment is simply a split with one entry at 10000 bps. Multi-
 
 Splits are part of the client-signed authorization message. The facilitator cannot alter the distribution -- clients must explicitly agree to every recipient and proportion. At finalization, the on-chain program distributes tokens proportionally according to the signed splits.
 
-## Comparison with Exact Scheme
+## Comparison with Per-Request Payment
 
-| Aspect                | Exact Scheme                | Flex Scheme                                |
-| --------------------- | --------------------------- | ------------------------------------------ |
-| Payment timing        | Per-request, upfront        | Post-request, from prepaid balance         |
-| Amount knowledge      | Must know before request    | Determined after request                   |
-| On-chain transactions | One per request             | Batched settlements                        |
-| Client complexity     | Build and sign transactions | Fund account once, authenticate requests   |
-| Use cases             | Fixed-price APIs            | Metered usage, streaming, variable pricing |
+| Aspect                | Per-Request Payment           | Flex Scheme                                |
+| --------------------- | ----------------------------- | ------------------------------------------ |
+| Payment timing        | Per-request, upfront          | Post-request, from prepaid balance         |
+| Amount knowledge      | Must know before request      | Determined after request                   |
+| On-chain transactions | One per request               | Batched settlements                        |
+| Service latency       | Blocked on chain confirmation | Optimistic, settles asynchronously         |
+| Client complexity     | Build and sign transactions   | Fund account once, authenticate requests   |
+| Use cases             | Fixed-price APIs              | Metered usage, streaming, variable pricing |
+
+## Protocol Compatibility
+
+The flex scheme is designed as a settlement layer, not tied to any single payment protocol. It can serve as the backend for:
+
+- **x402** -- HTTP-native payment negotiation
+- **MPP (Machine Payment Protocol)** -- agent-to-agent payment coordination
+- Any protocol that can express a hold-and-settle flow with signed authorizations
 
 ## Refunds
 
