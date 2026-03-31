@@ -16,12 +16,9 @@ await configureApp();
 const logger = await getLogger(["flex", "facilitator"]);
 
 const keypairPath = process.env.FLEX_FACILITATOR_KEYPAIR_PATH;
-const splitRecipient = process.env.FLEX_SPLIT_RECIPIENT;
 
-if (!keypairPath || !splitRecipient) {
-  logger.error(
-    "Set FLEX_FACILITATOR_KEYPAIR_PATH and FLEX_SPLIT_RECIPIENT in your environment",
-  );
+if (!keypairPath) {
+  logger.error("Set FLEX_FACILITATOR_KEYPAIR_PATH in your environment");
   process.exit(1);
 }
 
@@ -44,7 +41,7 @@ const handler = await createFacilitatorHandler(
   facilitatorSigner,
   {
     supportedMints: [address(usdcInfo.address)],
-    defaultSplits: [{ recipient: splitRecipient, bps: 300 }],
+    defaultSplits: [{ recipient: facilitatorSigner.address, bps: 300 }],
   },
 );
 
