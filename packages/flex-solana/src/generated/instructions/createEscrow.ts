@@ -14,6 +14,7 @@ import {
   getAddressEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
   getU64Decoder,
@@ -44,7 +45,6 @@ import {
   getNonNullResolvedInstructionInput,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
-import { findEscrowPda } from "../pdas";
 import { FLEX_PROGRAM_ADDRESS } from "../programs";
 
 export const CREATE_ESCROW_DISCRIMINATOR = new Uint8Array([
@@ -188,12 +188,20 @@ export async function getCreateEscrowInstructionAsync<
 
   // Resolve default values.
   if (!accounts.escrow.value) {
-    accounts.escrow.value = await findEscrowPda({
-      owner: getAddressFromResolvedInstructionAccount(
-        "owner",
-        accounts.owner.value,
-      ),
-      index: getNonNullResolvedInstructionInput("index", args.index),
+    accounts.escrow.value = await getProgramDerivedAddress({
+      programAddress,
+      seeds: [
+        getBytesEncoder().encode(new Uint8Array([101, 115, 99, 114, 111, 119])),
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount(
+            "owner",
+            accounts.owner.value,
+          ),
+        ),
+        getU64Encoder().encode(
+          getNonNullResolvedInstructionInput("index", args.index),
+        ),
+      ],
     });
   }
   if (!accounts.systemProgram.value) {
