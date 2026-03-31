@@ -51,6 +51,16 @@ import { logger } from "../logger";
 import { createHoldManager, type Hold, type HoldManager } from "./hold-manager";
 import type { EscrowAccountData, SessionKeyData } from "../types";
 
+type Split = { recipient: string; bps: number };
+
+export function mergeSplits(splits: Split[]): Split[] {
+  const merged = new Map<string, number>();
+  for (const s of splits) {
+    merged.set(s.recipient, (merged.get(s.recipient) ?? 0) + s.bps);
+  }
+  return [...merged.entries()].map(([recipient, bps]) => ({ recipient, bps }));
+}
+
 const MS_PER_SLOT = 400;
 const DEFAULT_MIN_GRACE_PERIOD_SLOTS = 150n;
 const DEFAULT_CONFIRMATION_BUFFER_SLOTS = 75n;
@@ -291,7 +301,7 @@ export const createFacilitatorHandler = async (
         return { recipient: ata as string, bps: s.bps };
       }),
     );
-    return [receiverSplit, ...fixedSplits];
+    return mergeSplits([receiverSplit, ...fixedSplits]);
   }
 
   const isMatchingRequirement = (req: {
