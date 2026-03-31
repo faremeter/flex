@@ -10,8 +10,10 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
+  getAddressEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
   getU64Decoder,
@@ -39,7 +41,6 @@ import {
   getAddressFromResolvedInstructionAccount,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
-import { findVaultPda } from "../pdas";
 import { FLEX_PROGRAM_ADDRESS } from "../programs";
 
 export const DEPOSIT_DISCRIMINATOR = new Uint8Array([
@@ -201,15 +202,20 @@ export async function getDepositInstructionAsync<
 
   // Resolve default values.
   if (!accounts.vault.value) {
-    accounts.vault.value = await findVaultPda({
-      escrow: getAddressFromResolvedInstructionAccount(
-        "escrow",
-        accounts.escrow.value,
-      ),
-      mint: getAddressFromResolvedInstructionAccount(
-        "mint",
-        accounts.mint.value,
-      ),
+    accounts.vault.value = await getProgramDerivedAddress({
+      programAddress,
+      seeds: [
+        getBytesEncoder().encode(new Uint8Array([116, 111, 107, 101, 110])),
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount(
+            "escrow",
+            accounts.escrow.value,
+          ),
+        ),
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount("mint", accounts.mint.value),
+        ),
+      ],
     });
   }
   if (!accounts.tokenProgram.value) {
