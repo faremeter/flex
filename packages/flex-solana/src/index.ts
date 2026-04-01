@@ -1,4 +1,4 @@
-export { FLEX_SCHEME, generateMatcher } from "./common";
+export { FLEX_SCHEME } from "./common";
 export { FLEX_PROGRAM_ADDRESS } from "./generated";
 export {
   serializePaymentAuthorization,
@@ -42,7 +42,7 @@ export {
   getForceCloseInstruction,
   getFlexErrorMessage,
 } from "./generated";
-export type { FlexError, SplitEntry, SplitEntryArgs } from "./generated";
+export type { FlexError, SplitEntry } from "./generated";
 export {
   FLEX_ERROR__SESSION_KEY_EXPIRED,
   FLEX_ERROR__SESSION_KEY_REVOKED,
