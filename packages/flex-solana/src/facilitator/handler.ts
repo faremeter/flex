@@ -107,6 +107,7 @@ type CachedSessionKey = {
   fetchedAtMs: number;
 };
 
+/** Outcome of submitting a single hold to the on-chain program. */
 export type FlushResult = {
   authorizationId: bigint;
   success: boolean;
@@ -114,6 +115,7 @@ export type FlushResult = {
   error?: string;
 };
 
+/** Outcome of submitting a single hold to the on-chain program. */
 type FinalizeResult = {
   authorizationId: bigint;
   success: boolean;
@@ -121,12 +123,29 @@ type FinalizeResult = {
   error?: string;
 };
 
+/**
+ * Extended `FacilitatorHandler` with Flex-specific lifecycle
+ * methods for flushing holds to chain and inspecting the hold manager.
+ */
 export type FlexFacilitator = FacilitatorHandler & {
   flush(): Promise<FlushResult[]>;
   getHoldManager(): HoldManager;
   stop(): void;
 };
 
+/**
+ * Creates a facilitator handler that verifies Flex payment authorizations,
+ * manages in-memory holds, and submits/finalizes settlements on-chain.
+ *
+ * Starts a background interval that periodically flushes settled holds
+ * and finalizes confirmed transactions. Call `stop()` to clear it.
+ *
+ * @param network - Solana cluster name (e.g. "mainnet", "devnet")
+ * @param rpc - Solana RPC client
+ * @param facilitatorSigner - Transaction signer for the facilitator
+ * @param config - Supported mints, splits, and timing configuration
+ * @returns A `FlexFacilitator` with verify/settle/flush/stop methods
+ */
 export const createFacilitatorHandler = async (
   network: string,
   rpc: Rpc<SolanaRpcApi>,

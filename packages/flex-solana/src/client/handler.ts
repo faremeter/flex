@@ -22,6 +22,7 @@ type Rpc = Parameters<typeof fetchEscrowAccount>[0];
 
 type SlotProvider = { getSlot(): { send(): Promise<bigint> } };
 
+/** Configuration for `createPaymentHandler`. */
 export type CreateFlexPaymentHandlerOpts = {
   network: string;
   escrow: Address;
@@ -35,6 +36,13 @@ export type CreateFlexPaymentHandlerOpts = {
 const MS_PER_SLOT = 400;
 const EXPIRY_BUFFER_SLOTS = 20n;
 
+/**
+ * Creates a client-side `PaymentHandler` that signs Flex payment
+ * authorizations against compatible x402 requirements.
+ *
+ * @param opts - Escrow, session key, and RPC configuration
+ * @returns A handler that produces signed payment payloads
+ */
 export function createPaymentHandler(
   opts: CreateFlexPaymentHandlerOpts,
 ): PaymentHandler {

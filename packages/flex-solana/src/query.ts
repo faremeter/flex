@@ -96,6 +96,13 @@ function convertPendingSettlement(
   };
 }
 
+/**
+ * Fetches a single escrow account by address.
+ *
+ * @param rpc - Solana RPC client
+ * @param addr - On-chain address of the escrow PDA
+ * @returns The decoded account data, or `null` if it does not exist
+ */
 export async function fetchEscrowAccount(
   rpc: FlexRpc,
   addr: Address,
@@ -105,6 +112,13 @@ export async function fetchEscrowAccount(
   return convertEscrowAccount(result.data);
 }
 
+/**
+ * Fetches a single session key account by address.
+ *
+ * @param rpc - Solana RPC client
+ * @param addr - On-chain address of the session key PDA
+ * @returns The decoded session key data, or `null` if it does not exist
+ */
 export async function fetchSessionKey(
   rpc: FlexRpc,
   addr: Address,
@@ -114,6 +128,13 @@ export async function fetchSessionKey(
   return convertSessionKey(result.data);
 }
 
+/**
+ * Fetches a single pending settlement account by address.
+ *
+ * @param rpc - Solana RPC client
+ * @param addr - On-chain address of the pending settlement PDA
+ * @returns The decoded settlement data, or `null` if it does not exist
+ */
 export async function fetchPendingSettlement(
   rpc: FlexRpc,
   addr: Address,
@@ -123,6 +144,14 @@ export async function fetchPendingSettlement(
   return convertPendingSettlement(result.data);
 }
 
+/**
+ * Finds all escrow accounts owned by a given wallet using
+ * `getProgramAccounts` with a discriminator + owner filter.
+ *
+ * @param rpc - Solana RPC client
+ * @param owner - Wallet address of the escrow owner
+ * @returns Array of escrow addresses and their decoded data
+ */
 export async function findEscrowsByOwner(
   rpc: FlexRpc,
   owner: Address,
@@ -161,6 +190,14 @@ export async function findEscrowsByOwner(
   }));
 }
 
+/**
+ * Finds all escrow accounts managed by a given facilitator using
+ * `getProgramAccounts` with a discriminator + facilitator filter.
+ *
+ * @param rpc - Solana RPC client
+ * @param facilitator - Address of the facilitator
+ * @returns Array of escrow addresses and their decoded data
+ */
 export async function findEscrowsByFacilitator(
   rpc: FlexRpc,
   facilitator: Address,
@@ -201,6 +238,14 @@ export async function findEscrowsByFacilitator(
   }));
 }
 
+/**
+ * Finds all pending settlement accounts belonging to an escrow using
+ * `getProgramAccounts` with a discriminator + escrow filter.
+ *
+ * @param rpc - Solana RPC client
+ * @param escrow - Address of the parent escrow PDA
+ * @returns Array of pending settlement addresses and their decoded data
+ */
 export async function findPendingSettlementsByEscrow(
   rpc: FlexRpc,
   escrow: Address,
