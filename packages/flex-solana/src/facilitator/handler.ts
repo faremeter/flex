@@ -30,7 +30,8 @@ import type {
 } from "@faremeter/types/facilitator";
 import { lookupX402Network } from "@faremeter/info/solana";
 import { isValidationError } from "@faremeter/types";
-import { generateMatcher, FLEX_SCHEME } from "../common";
+import { generateMatcher } from "../common";
+import { FLEX_SCHEME } from "../scheme";
 import { FlexPaymentPayload } from "../types";
 import {
   serializePaymentAuthorization,
@@ -51,15 +52,7 @@ import { logger } from "../logger";
 import { createHoldManager, type Hold, type HoldManager } from "./hold-manager";
 import type { EscrowAccountData, SessionKeyData } from "../types";
 
-type Split = { recipient: string; bps: number };
-
-export function mergeSplits(splits: Split[]): Split[] {
-  const merged = new Map<string, number>();
-  for (const s of splits) {
-    merged.set(s.recipient, (merged.get(s.recipient) ?? 0) + s.bps);
-  }
-  return [...merged.entries()].map(([recipient, bps]) => ({ recipient, bps }));
-}
+import { mergeSplits } from "./merge-splits";
 
 const MS_PER_SLOT = 400;
 const DEFAULT_MIN_GRACE_PERIOD_SLOTS = 150n;
@@ -121,7 +114,7 @@ export type FlushResult = {
   error?: string;
 };
 
-export type FinalizeResult = {
+type FinalizeResult = {
   authorizationId: bigint;
   success: boolean;
   transaction?: string;

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { mergeSplits } from "./handler";
+import { mergeSplits } from "./merge-splits";
 
 describe("mergeSplits", () => {
   test("passes through distinct recipients unchanged", () => {
