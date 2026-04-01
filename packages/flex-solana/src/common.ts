@@ -1,7 +1,7 @@
 import { generateRequirementsMatcher } from "@faremeter/types/x402";
 import { lookupX402Network } from "@faremeter/info/solana";
 
-export const FLEX_SCHEME = "@faremeter/flex";
+import { FLEX_SCHEME } from "./scheme";
 
 export function generateMatcher(
   network: string,
