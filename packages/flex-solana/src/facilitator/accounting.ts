@@ -10,6 +10,7 @@ import { fetchEscrowAccount, findPendingSettlementsByEscrow } from "../query";
 import { FLEX_PROGRAM_ADDRESS } from "../generated";
 import { logger } from "../logger";
 
+/** A single on-chain pending settlement as seen by the accounting view. */
 export type HoldEntry = {
   authorizationId: bigint;
   mint: Address;
@@ -21,6 +22,7 @@ export type HoldEntry = {
   pendingAddress: Address;
 };
 
+/** Snapshot of an escrow's vault balances, pending settlements, and available capacity. */
 export type EscrowAccounting = {
   escrow: Address;
   vaultBalances: Map<Address, bigint>;
@@ -32,6 +34,7 @@ export type EscrowAccounting = {
   canSubmit: boolean;
 };
 
+/** Maximum number of concurrent pending settlements an escrow supports. */
 export const MAX_PENDING_SETTLEMENTS = 16;
 
 async function deriveVaultAddress(
@@ -50,6 +53,15 @@ async function deriveVaultAddress(
   return addr;
 }
 
+/**
+ * Fetches a full accounting snapshot for an escrow: vault balances,
+ * on-chain pending settlements, and the available capacity per mint.
+ *
+ * @param rpc - Solana RPC client
+ * @param escrowAddress - Address of the escrow PDA
+ * @param mints - Token mints to query vault balances for
+ * @returns An `EscrowAccounting` snapshot
+ */
 export async function fetchEscrowAccounting(
   rpc: Rpc<SolanaRpcApi>,
   escrowAddress: Address,

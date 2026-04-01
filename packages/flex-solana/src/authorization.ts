@@ -6,11 +6,13 @@ const ED25519_PROGRAM_ID = address(
   "Ed25519SigVerify111111111111111111111111111",
 );
 
+/** A single split directing a share of a settlement to a token account. */
 export type SplitInput = {
   recipient: Address;
   bps: number;
 };
 
+/** Arguments for `serializePaymentAuthorization`. */
 export type SerializePaymentAuthorizationArgs = {
   programId: Address;
   escrow: Address;
@@ -21,6 +23,13 @@ export type SerializePaymentAuthorizationArgs = {
   splits: SplitInput[];
 };
 
+/**
+ * Serializes a payment authorization into the binary format expected
+ * by the Flex on-chain program for Ed25519 signature verification.
+ *
+ * @param args - Authorization fields to serialize
+ * @returns The serialized message bytes
+ */
 export function serializePaymentAuthorization(
   args: SerializePaymentAuthorizationArgs,
 ): Uint8Array<ArrayBuffer> {
@@ -45,6 +54,12 @@ export function serializePaymentAuthorization(
   return buf;
 }
 
+/**
+ * Signs a serialized payment authorization using the Web Crypto Ed25519 API.
+ *
+ * @param args - The message bytes and the session key pair
+ * @returns The 64-byte Ed25519 signature
+ */
 export async function signPaymentAuthorization(args: {
   message: Uint8Array<ArrayBuffer>;
   keyPair: CryptoKeyPair;
@@ -58,7 +73,8 @@ export async function signPaymentAuthorization(args: {
 }
 
 /**
- * Builds the instruction data for the Ed25519 precompile program.
+ * Builds an Ed25519 precompile instruction that verifies a payment
+ * authorization signature inline within a Solana transaction.
  *
  * Header layout:
  *   u8   num_signatures = 1

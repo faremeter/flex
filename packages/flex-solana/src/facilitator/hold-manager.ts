@@ -2,6 +2,7 @@ import type { Address } from "@solana/kit";
 import type { SplitInput } from "../authorization";
 import { MAX_PENDING_SETTLEMENTS } from "./accounting";
 
+/** An in-memory hold representing a payment authorization awaiting on-chain submission. */
 export type Hold = {
   escrow: Address;
   mint: Address;
@@ -23,13 +24,23 @@ export type Hold = {
   retryCount: number;
 };
 
+/** Parameters for creating a new hold (lifecycle fields are added internally). */
 export type TryHoldParams = Omit<
   Hold,
   "status" | "heldAt" | "submittedAtSlot" | "retryCount"
 >;
 
+/** Discriminated result from hold operations: success or failure with reason. */
 export type HoldResult = { ok: true } | { ok: false; reason: string };
 
+/**
+ * Creates an in-memory hold manager that tracks payment authorizations
+ * through their lifecycle: held -> settled -> submitting -> submitted -> finalizing.
+ *
+ * Enforces vault balance limits and pending settlement capacity per escrow.
+ *
+ * @returns A `HoldManager` instance
+ */
 export function createHoldManager() {
   const holds = new Map<string, Hold>();
 
@@ -228,4 +239,5 @@ export function createHoldManager() {
   };
 }
 
+/** The hold manager interface, inferred from `createHoldManager`. */
 export type HoldManager = ReturnType<typeof createHoldManager>;
