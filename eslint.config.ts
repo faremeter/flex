@@ -24,6 +24,7 @@ export default defineConfig(
     "**/tmp/**",
     "**/.anchor/**",
     "**/generated/**",
+    "typedoc.config.mjs",
   ]),
   {
     linterOptions: {
