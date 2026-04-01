@@ -1,9 +1,9 @@
 export PATH := $(PWD)/bin:$(PATH)
 export INSIDE_STAGING_DIR := false
 
-.PHONY: all build lint test format clean test-unit test-integration FORCE
+.PHONY: all build lint test format clean test-unit test-integration doc FORCE
 
-all: lint build test
+all: lint build doc test
 
 # TypeScript targets
 pre-build-ts:
@@ -26,6 +26,12 @@ test-integration: build-anchor
 	bun test --timeout 30000 tests/
 
 test-ts: test-unit test-integration
+
+doc: FORCE
+	bin/generate-readme
+	bun prettier --write packages/*/README.md
+	bun typedoc
+	bun prettier --write docs/api/
 
 packages/%: FORCE
 	cd $@ && rm -rf dist && bun run tsc

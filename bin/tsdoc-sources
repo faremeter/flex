@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Resolve the public API source files for a package by following
+# re-exports from src/index.ts. Outputs a comma-separated list
+# suitable for passing to tsdoc --src=.
+set -euo pipefail
+
+index="src/index.ts"
+if [[ ! -f "$index" ]]; then
+  echo "$index"
+  exit 0
+fi
+
+seen=()
+
+already_seen() {
+  local target="$1"
+  for s in "${seen[@]+"${seen[@]}"}"; do
+    if [[ "$s" == "$target" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_exports() {
+  local file="$1"
+  local dir
+  dir=$(dirname "$file")
+
+  if already_seen "$file"; then
+    return
+  fi
+  seen+=("$file")
+
+  local modules
+  modules=$(grep -E 'from "\.' "$file" | grep -vE '^import ' | grep -oE 'from "\./[^"]+' | sed 's/^from "//' | sort -u || true)
+
+  for mod in $modules; do
+    local resolved="$dir/${mod#./}"
+    if [[ "$resolved" == */generated* ]]; then
+      continue
+    fi
+    if [[ -f "${resolved}.ts" ]]; then
+      resolve_exports "${resolved}.ts"
+    elif [[ -f "${resolved}/index.ts" ]]; then
+      resolve_exports "${resolved}/index.ts"
+    fi
+  done
+}
+
+resolve_exports "$index"
+
+printf '%s\n' "${seen[@]}" | sort -u | paste -sd, -

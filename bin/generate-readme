@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+for pkg in "$root"/packages/*; do
+  name=$(basename "$pkg")
+
+  (
+    cd "$pkg"
+    sources=$("$root/bin/tsdoc-sources")
+    bun tsdoc --src="$sources" --dest=README.md --types --noemoji
+
+    sed -i.bak 's/SolanaRpcApiForTestClusters/SolanaRpcApi/g' README.md && rm README.md.bak
+
+    tsdoc_section=$(sed -n '/TSDOC_START/,/TSDOC_END/p' README.md)
+    if [[ -n "$tsdoc_section" ]] && ! echo "$tsdoc_section" | grep -q '^##'; then
+      echo "ERROR: tsdoc produced empty output for packages/$name" >&2
+      exit 1
+    fi
+  )
+done

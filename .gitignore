@@ -17,5 +17,8 @@ target/
 .anchor/
 test-ledger/
 
+# Generated API docs (typedoc output)
+docs/api/
+
 # Temporary files
 tmp/
