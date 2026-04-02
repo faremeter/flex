@@ -54,7 +54,7 @@
         "@solana-program/system": "^0.7.0",
         "@solana-program/token": "^0.5.0",
         "@solana/kit": "^6.1.0",
-        "litesvm": "^0.6.0",
+        "litesvm": "0.6.0",
       },
     },
   },
