@@ -6,10 +6,12 @@ import {
   getSubmitAuthorizationInstructionAsync,
   serializePaymentAuthorization,
   createEd25519VerifyInstruction,
+  getDepositInstructionAsync,
   FLEX_PROGRAM_ADDRESS,
   FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
   FLEX_ERROR__INVALID_SPLIT_COUNT,
+  FLEX_ERROR__INSUFFICIENT_BALANCE,
 } from "@faremeter/flex-solana";
 import { getTransferSolInstruction } from "@solana-program/system";
 import {
@@ -25,6 +27,8 @@ import {
   defined,
   waitForSlot,
   sendTx,
+  createTestMint,
+  createEscrowHelper,
 } from "./helpers";
 
 describe("finalize does not update last_activity_slot", () => {
@@ -466,4 +470,43 @@ describe("submit with too many splits", () => {
       FLEX_ERROR__INVALID_SPLIT_COUNT,
     );
   }, 30_000);
+});
+
+describe("deposit with zero amount", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("rejects deposit of zero tokens", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 580);
+    const mint = await createTestMint(rpc, payer);
+    const source = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      1_000n,
+    );
+
+    // Exercises the require!(amount > 0) guard in deposit.
+    await expectToFail(async () => {
+      const depositIx = await getDepositInstructionAsync({
+        depositor: owner,
+        escrow: escrowPDA,
+        mint: mint.address,
+        source: source.address,
+        amount: 0,
+      });
+      await sendTx(rpc, owner, [depositIx]);
+    }, FLEX_ERROR__INSUFFICIENT_BALANCE);
+  });
 });
