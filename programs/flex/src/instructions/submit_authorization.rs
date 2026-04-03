@@ -12,7 +12,7 @@ use crate::state::{
     EscrowAccount, PendingSettlement, SessionKey, SplitEntry, MAX_PENDING, MAX_SPLITS,
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct PaymentAuthorization {
     pub program_id: Pubkey,
     pub escrow: Pubkey,
@@ -68,26 +68,11 @@ pub struct SubmitAuthorization<'info> {
     pub system_program: Program<'info, System>,
 }
 
-fn verify_ed25519_introspection(
-    instructions_sysvar: &AccountInfo,
-    expected_pubkey: &Pubkey,
+pub fn validate_ed25519_ix_data(
+    ix_data: &[u8],
+    expected_pubkey: &[u8; 32],
     expected_message: &[u8],
 ) -> Result<()> {
-    let current_index = load_current_index_checked(instructions_sysvar)
-        .map_err(|_| error!(FlexError::InvalidEd25519Instruction))?;
-
-    require!(current_index > 0, FlexError::InvalidEd25519Instruction);
-
-    let ed25519_ix = load_instruction_at_checked((current_index - 1) as usize, instructions_sysvar)
-        .map_err(|_| error!(FlexError::InvalidEd25519Instruction))?;
-
-    require!(
-        ed25519_ix.program_id == ED25519_PROGRAM_ID,
-        FlexError::InvalidEd25519Instruction
-    );
-
-    let ix_data = &ed25519_ix.data;
-
     // Header: num_signatures (u8) + padding (u8) = 2 bytes
     // Each entry: 7 x u16 = 14 bytes
     require!(ix_data.len() >= 16, FlexError::InvalidEd25519Instruction);
@@ -115,7 +100,7 @@ fn verify_ed25519_introspection(
     );
     let extracted_pubkey = &ix_data[pk_offset..pk_offset + 32];
     require!(
-        extracted_pubkey == expected_pubkey.as_ref(),
+        extracted_pubkey == expected_pubkey,
         FlexError::InvalidSignature
     );
 
@@ -133,6 +118,32 @@ fn verify_ed25519_introspection(
     );
 
     Ok(())
+}
+
+fn verify_ed25519_introspection(
+    instructions_sysvar: &AccountInfo,
+    expected_pubkey: &Pubkey,
+    expected_message: &[u8],
+) -> Result<()> {
+    let current_index = load_current_index_checked(instructions_sysvar)
+        .map_err(|_| error!(FlexError::InvalidEd25519Instruction))?;
+
+    require!(current_index > 0, FlexError::InvalidEd25519Instruction);
+
+    let ed25519_ix = load_instruction_at_checked((current_index - 1) as usize, instructions_sysvar)
+        .map_err(|_| error!(FlexError::InvalidEd25519Instruction))?;
+
+    require!(
+        ed25519_ix.program_id == ED25519_PROGRAM_ID,
+        FlexError::InvalidEd25519Instruction
+    );
+
+    let pubkey_bytes: &[u8; 32] = expected_pubkey
+        .as_ref()
+        .try_into()
+        .map_err(|_| error!(FlexError::InvalidSignature))?;
+
+    validate_ed25519_ix_data(&ed25519_ix.data, pubkey_bytes, expected_message)
 }
 
 #[allow(clippy::too_many_lines)]

@@ -5,6 +5,30 @@ use crate::error::FlexError;
 use crate::events::Finalized;
 use crate::state::{EscrowAccount, PendingSettlement, SplitEntry};
 
+pub fn compute_split_amounts(
+    total_amount: u64,
+    splits: &[SplitEntry],
+    split_count: usize,
+) -> Result<Vec<u64>> {
+    let mut amounts = Vec::with_capacity(split_count);
+    let mut cumulative: u64 = 0;
+
+    for (i, split) in splits.iter().enumerate().take(split_count) {
+        let amount = if i == split_count - 1 {
+            total_amount - cumulative
+        } else {
+            total_amount
+                .checked_mul(split.bps as u64)
+                .and_then(|v| v.checked_div(10_000))
+                .ok_or(error!(FlexError::InvalidSplitRecipient))?
+        };
+        cumulative += amount;
+        amounts.push(amount);
+    }
+
+    Ok(amounts)
+}
+
 #[derive(Accounts)]
 pub struct Finalize<'info> {
     #[account(
@@ -95,21 +119,10 @@ pub fn finalize<'info>(ctx: Context<'_, '_, '_, 'info, Finalize<'info>>) -> Resu
         &[escrow_bump],
     ];
 
-    let mut cumulative: u64 = 0;
+    let amounts = compute_split_amounts(total_amount, &splits_fixed, split_count)?;
 
-    for (i, split) in splits_fixed.iter().enumerate().take(split_count) {
-        let amount = if i == split_count - 1 {
-            total_amount - cumulative
-        } else {
-            total_amount
-                .checked_mul(split.bps as u64)
-                .and_then(|v| v.checked_div(10_000))
-                .ok_or(error!(FlexError::InvalidSplitRecipient))?
-        };
-
-        cumulative += amount;
-
-        if amount > 0 {
+    for (i, amount) in amounts.iter().enumerate() {
+        if *amount > 0 {
             token::transfer(
                 CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
@@ -120,7 +133,7 @@ pub fn finalize<'info>(ctx: Context<'_, '_, '_, 'info, Finalize<'info>>) -> Resu
                     },
                 )
                 .with_signer(&[signer_seeds]),
-                amount,
+                *amount,
             )?;
         }
     }
