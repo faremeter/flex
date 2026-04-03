@@ -739,3 +739,70 @@ describe("close_token_accounts remaining_accounts validation", () => {
     }, FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR);
   });
 });
+
+describe("finalize rejects wrong-mint recipient", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("rejects recipient token account with wrong mint", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 710, {
+        refundTimeoutSlots: 150,
+      });
+
+    // Create a recipient token account for a different mint.
+    const wrongMint = await createTestMint(rpc, payer);
+    const wrongMintRecipient = await createFundedTokenAccount(
+      rpc,
+      wrongMint.address,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    // Submit with the wrong-mint recipient address in the splits.
+    // submit_authorization does not validate recipient mints.
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      50_000,
+      [{ recipient: wrongMintRecipient.address, bps: 10_000 }],
+      { refundTimeoutSlots: 150 },
+    );
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
+
+    // Finalize catches the mint mismatch.
+    await expectToFail(
+      () =>
+        finalizeHelper(
+          rpc,
+          facilitator,
+          escrowPDA,
+          facilitator.address,
+          pendingPDA,
+          vaultPDA,
+          [wrongMintRecipient.address],
+        ),
+      FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
+    );
+  });
+});
