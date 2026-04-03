@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
+import {
+  type Address,
+  generateKeyPairSigner,
+  type KeyPairSigner,
+} from "@solana/kit";
 import {
   fetchEscrowAccount,
   fetchPendingSettlement,
@@ -8,12 +12,15 @@ import {
   createEd25519VerifyInstruction,
   getDepositInstructionAsync,
   getCloseEscrowInstruction,
+  getRegisterSessionKeyInstructionAsync,
   FLEX_PROGRAM_ADDRESS,
   FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
   FLEX_ERROR__INVALID_SPLIT_COUNT,
   FLEX_ERROR__INSUFFICIENT_BALANCE,
   FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
+  FLEX_ERROR__PENDING_LIMIT_REACHED,
+  FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
 } from "@faremeter/flex-solana";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { getTransferSolInstruction } from "@solana-program/system";
@@ -25,8 +32,11 @@ import {
   setupEscrowWithPending,
   setupEscrowForAuth,
   finalizeHelper,
+  refundHelper,
   fetchTokenBalance,
   expectToFail,
+  expectToFailWithAnchorError,
+  ANCHOR_ERROR__ACCOUNT_ALREADY_IN_USE,
   defined,
   waitForSlot,
   sendTx,
@@ -804,5 +814,481 @@ describe("finalize rejects wrong-mint recipient", () => {
         ),
       FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
     );
+  });
+});
+
+describe("non-owner can deposit", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+  let thirdParty: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    thirdParty = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, payer);
+    await fundKeypair(rpc, thirdParty);
+  });
+
+  it("allows a third party to deposit into an escrow they do not own", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 720);
+    const mint = await createTestMint(rpc, payer);
+
+    const thirdPartySource = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      thirdParty.address,
+      payer,
+      500_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: thirdParty,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: thirdPartySource.address,
+      amount: 500_000,
+    });
+    await sendTx(rpc, thirdParty, [depositIx]);
+
+    const vaultPDA = defined(depositIx.accounts[3]).address;
+    expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(500_000n);
+  });
+});
+
+describe("authorization ID uniqueness is per-escrow not per-mint", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("rejects duplicate auth ID even with different mints", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 730);
+
+    const mintA = await createTestMint(rpc, payer);
+    const mintB = await createTestMint(rpc, payer);
+
+    const sourceA = await createFundedTokenAccount(
+      rpc,
+      mintA.address,
+      owner.address,
+      payer,
+      1_000_000n,
+    );
+    const sourceB = await createFundedTokenAccount(
+      rpc,
+      mintB.address,
+      owner.address,
+      payer,
+      1_000_000n,
+    );
+
+    const depositIxA = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mintA.address,
+      source: sourceA.address,
+      amount: 1_000_000,
+    });
+    const depositIxB = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mintB.address,
+      source: sourceB.address,
+      amount: 1_000_000,
+    });
+
+    const sessionKey = await generateKeyPairSigner();
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: 0,
+    });
+    const sessionKeyPDA = defined(registerIx.accounts[2]).address;
+
+    await sendTx(rpc, owner, [depositIxA, depositIxB, registerIx]);
+
+    const vaultA = defined(depositIxA.accounts[3]).address;
+    const vaultB = defined(depositIxB.accounts[3]).address;
+
+    const recipientA = await createFundedTokenAccount(
+      rpc,
+      mintA.address,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const recipientB = await createFundedTokenAccount(
+      rpc,
+      mintB.address,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mintA.address,
+      vaultA,
+      1,
+      100_000,
+      [{ recipient: recipientA.address, bps: 10_000 }],
+    );
+
+    // Same authId=1 on a different mint fails because the pending PDA
+    // seeds are [b"pending", escrow, authId] with no mint component.
+    await expectToFailWithAnchorError(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mintB.address,
+          vaultB,
+          1,
+          100_000,
+          [{ recipient: recipientB.address, bps: 10_000 }],
+        ),
+      ANCHOR_ERROR__ACCOUNT_ALREADY_IN_USE,
+    );
+  }, 30_000);
+});
+
+describe("finalize succeeds after deadman timeout", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("finalizes well past the deadman timeout", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 740, {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    // Submit two authorizations.
+    const pendingA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      50_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+      { refundTimeoutSlots: 150 },
+    );
+    const pendingB = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      2,
+      50_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+      { refundTimeoutSlots: 150 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    // Prove the deadman timeout has elapsed by voiding one pending.
+    const { getVoidPendingInstruction } =
+      await import("@faremeter/flex-solana");
+    const voidIx = getVoidPendingInstruction({
+      escrow: escrowPDA,
+      owner,
+      pending: pendingB,
+    });
+    await sendTx(rpc, owner, [voidIx]);
+
+    // Finalize the other settlement -- should succeed despite deadman.
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingA,
+      vaultPDA,
+      [recipient.address],
+    );
+
+    expect(await fetchTokenBalance(rpc, recipient.address)).toBe(50_000n);
+
+    // Vault retains the voided pending's tokens (1M - 50k finalized).
+    expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(950_000n);
+
+    const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrowAfter.pendingCount)).toBe(0);
+  });
+});
+
+describe("pending quota recovery after full refund", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("allows new submission after full refund frees a slot", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 750, {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        depositAmount: 10_000_000,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    const pendingPDAs: Record<number, Address> = {};
+    for (let i = 1; i <= 16; i++) {
+      pendingPDAs[i] = await submitAuthorizationHelper(
+        rpc,
+        escrowPDA,
+        facilitator,
+        sessionKey,
+        sessionKeyPDA,
+        mint,
+        vaultPDA,
+        i,
+        1_000,
+        splits,
+        { refundTimeoutSlots: 1_000_000 },
+      );
+    }
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          17,
+          1_000,
+          splits,
+          { refundTimeoutSlots: 1_000_000 },
+        ),
+      FLEX_ERROR__PENDING_LIMIT_REACHED,
+    );
+
+    // Full refund of auth #8 frees a slot.
+    const pending8 = defined(pendingPDAs[8]);
+    await refundHelper(rpc, escrowPDA, facilitator, pending8, 1_000);
+
+    // Verify the refunded pending account was closed.
+    const pending8Info = await rpc
+      .getAccountInfo(pending8, { encoding: "base64" })
+      .send();
+    expect(pending8Info.value).toBeNull();
+
+    // Now auth #17 succeeds.
+    await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      17,
+      1_000,
+      splits,
+      { refundTimeoutSlots: 1_000_000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.pendingCount)).toBe(16);
+  }, 120_000);
+});
+
+describe("sequential partial refunds respect reduced amount", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("rejects refund exceeding amount reduced by prior refunds", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      760,
+      {
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
+        settleAmount: 100_000,
+      },
+    );
+
+    await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 40_000);
+
+    const pending1 = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pending1.amount)).toBe(60_000);
+
+    await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 30_000);
+
+    const pending2 = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pending2.amount)).toBe(30_000);
+
+    // 40k exceeds the 30k remaining after two prior refunds.
+    await expectToFail(
+      () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 40_000),
+      FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
+    );
+  });
+});
+
+describe("partial refund then finalize distributes reduced amount", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("transfers the reduced amount to recipients after partial refund", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 770, {
+        refundTimeoutSlots: 150,
+      });
+
+    const r1 = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const r2 = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const splits = [
+      { recipient: r1.address, bps: 6_000 },
+      { recipient: r2.address, bps: 4_000 },
+    ];
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      splits,
+      { refundTimeoutSlots: 150 },
+    );
+
+    // Refund 40k, leaving 60k to be distributed.
+    await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 40_000);
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pending.amount)).toBe(60_000);
+
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
+
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
+      vaultPDA,
+      [r1.address, r2.address],
+    );
+
+    // 60k * 6000/10000 = 36k for r1, remainder 60k - 36k = 24k for r2.
+    expect(await fetchTokenBalance(rpc, r1.address)).toBe(36_000n);
+    expect(await fetchTokenBalance(rpc, r2.address)).toBe(24_000n);
+
+    // Vault retains the un-refunded portion (1M deposit - 60k finalized).
+    expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(940_000n);
   });
 });
