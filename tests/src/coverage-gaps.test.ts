@@ -3,8 +3,14 @@ import { generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
 import {
   fetchEscrowAccount,
   fetchPendingSettlement,
+  getSubmitAuthorizationInstructionAsync,
+  serializePaymentAuthorization,
+  createEd25519VerifyInstruction,
+  FLEX_PROGRAM_ADDRESS,
+  FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
 } from "@faremeter/flex-solana";
+import { getTransferSolInstruction } from "@solana-program/system";
 import {
   createRpc,
   fundKeypair,
@@ -17,6 +23,7 @@ import {
   expectToFail,
   defined,
   waitForSlot,
+  sendTx,
 } from "./helpers";
 
 describe("finalize does not update last_activity_slot", () => {
@@ -224,6 +231,128 @@ describe("finalize with wrong remaining accounts count", () => {
           [],
         ),
       FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
+    );
+  });
+});
+
+describe("ed25519 instruction position", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("fails when ed25519 instruction is not immediately before submit", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 540);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+    const expiresAtSlot = currentSlot + 50n;
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    const message = serializePaymentAuthorization({
+      programId: FLEX_PROGRAM_ADDRESS,
+      escrow: escrowPDA,
+      mint,
+      maxAmount: 100_000n,
+      authorizationId: 1n,
+      expiresAtSlot,
+      splits,
+    });
+
+    const signature = new Uint8Array(
+      await crypto.subtle.sign(
+        "Ed25519",
+        sessionKey.keyPair.privateKey,
+        message,
+      ),
+    );
+
+    const ed25519Ix = createEd25519VerifyInstruction({
+      publicKey: sessionKey.address,
+      message,
+      signature,
+    });
+
+    const submitIx = await getSubmitAuthorizationInstructionAsync({
+      escrow: escrowPDA,
+      facilitator,
+      sessionKey: sessionKeyPDA,
+      tokenAccount: vaultPDA,
+      mint,
+      maxAmount: 100_000,
+      settleAmount: 100_000,
+      authorizationId: 1,
+      expiresAtSlot,
+      splits,
+    });
+
+    // Insert a system transfer between the Ed25519 verify and the submit.
+    // The program checks current_index - 1, which will find the system
+    // transfer instead of the ed25519 verify instruction.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
+    const fillerIx: typeof submitIx = getTransferSolInstruction({
+      source: facilitator,
+      destination: facilitator.address,
+      amount: 0,
+    });
+
+    await expectToFail(
+      () => sendTx(rpc, facilitator, [ed25519Ix, fillerIx, submitIx]),
+      FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
+    );
+  });
+
+  it("fails when ed25519 instruction is missing entirely", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 541);
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+    const expiresAtSlot = currentSlot + 50n;
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    const submitIx = await getSubmitAuthorizationInstructionAsync({
+      escrow: escrowPDA,
+      facilitator,
+      sessionKey: sessionKeyPDA,
+      tokenAccount: vaultPDA,
+      mint,
+      maxAmount: 100_000,
+      settleAmount: 100_000,
+      authorizationId: 1,
+      expiresAtSlot,
+      splits,
+    });
+
+    // Submit with no preceding ed25519 instruction at all.
+    // current_index == 0, so the require!(current_index > 0) check fails.
+    await expectToFail(
+      () => sendTx(rpc, facilitator, [submitIx]),
+      FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
     );
   });
 });
