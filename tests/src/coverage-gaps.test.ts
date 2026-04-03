@@ -7,12 +7,14 @@ import {
   serializePaymentAuthorization,
   createEd25519VerifyInstruction,
   getDepositInstructionAsync,
+  getCloseEscrowInstruction,
   FLEX_PROGRAM_ADDRESS,
   FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
   FLEX_ERROR__INVALID_SPLIT_COUNT,
   FLEX_ERROR__INSUFFICIENT_BALANCE,
 } from "@faremeter/flex-solana";
+import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { getTransferSolInstruction } from "@solana-program/system";
 import {
   createRpc,
@@ -29,6 +31,7 @@ import {
   sendTx,
   createTestMint,
   createEscrowHelper,
+  withRemainingAccounts,
 } from "./helpers";
 
 describe("finalize does not update last_activity_slot", () => {
@@ -508,5 +511,75 @@ describe("deposit with zero amount", () => {
       });
       await sendTx(rpc, owner, [depositIx]);
     }, FLEX_ERROR__INSUFFICIENT_BALANCE);
+  });
+});
+
+describe("close escrow with empty vault", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("closes vault with zero balance after all funds finalized out", async () => {
+    const { escrowPDA, mint, vaultPDA, pendingPDA, splits } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 560, {
+        refundTimeoutSlots: 150,
+        depositAmount: 100_000,
+        settleAmount: 100_000,
+      });
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    await waitForSlot(rpc, pending.submittedAtSlot + 150n);
+
+    const recipientAddr = defined(splits[0]).recipient;
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
+      vaultPDA,
+      [recipientAddr],
+    );
+
+    // Vault is now empty
+    expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(0n);
+
+    // Close the escrow, providing the empty vault and a destination.
+    // This exercises the `if amount > 0` skip in close_token_accounts.
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const baseIx = getCloseEscrowInstruction({
+      escrow: escrowPDA,
+      owner,
+      facilitator,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+    await sendTx(rpc, owner, [ix]);
+
+    // Vault account is fully closed
+    const vaultInfo = await rpc
+      .getAccountInfo(vaultPDA, { encoding: "base64" })
+      .send();
+    expect(vaultInfo.value).toBeNull();
+
+    // Destination still has 0 tokens (no transfer happened)
+    expect(await fetchTokenBalance(rpc, dest.address)).toBe(0n);
   });
 });
