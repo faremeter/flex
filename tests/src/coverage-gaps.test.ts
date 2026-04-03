@@ -13,6 +13,7 @@ import {
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
   FLEX_ERROR__INVALID_SPLIT_COUNT,
   FLEX_ERROR__INSUFFICIENT_BALANCE,
+  FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
 } from "@faremeter/flex-solana";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { getTransferSolInstruction } from "@solana-program/system";
@@ -581,5 +582,160 @@ describe("close escrow with empty vault", () => {
 
     // Destination still has 0 tokens (no transfer happened)
     expect(await fetchTokenBalance(rpc, dest.address)).toBe(0n);
+  });
+});
+
+describe("close_token_accounts remaining_accounts validation", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("rejects destination owned by wrong party", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 700);
+    const mint = await createTestMint(rpc, payer);
+    const source = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      1_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: source.address,
+      amount: 1_000,
+    });
+    await sendTx(rpc, owner, [depositIx]);
+
+    const vaultPDA = defined(depositIx.accounts[3]).address;
+
+    // Destination owned by a third party, not the escrow owner.
+    const wrongOwner = await generateKeyPairSigner();
+    const wrongDest = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      wrongOwner.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(async () => {
+      const baseIx = getCloseEscrowInstruction({
+        escrow: escrowPDA,
+        owner,
+        facilitator,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [vaultPDA, wrongDest.address]);
+      await sendTx(rpc, owner, [ix]);
+    }, FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR);
+  });
+
+  it("rejects destination with mismatched mint", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 701);
+    const mintA = await createTestMint(rpc, payer);
+    const mintB = await createTestMint(rpc, payer);
+    const source = await createFundedTokenAccount(
+      rpc,
+      mintA.address,
+      owner.address,
+      payer,
+      1_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mintA.address,
+      source: source.address,
+      amount: 1_000,
+    });
+    await sendTx(rpc, owner, [depositIx]);
+
+    const vaultPDA = defined(depositIx.accounts[3]).address;
+
+    // Destination has wrong mint (mintB instead of mintA).
+    const wrongMintDest = await createFundedTokenAccount(
+      rpc,
+      mintB.address,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(async () => {
+      const baseIx = getCloseEscrowInstruction({
+        escrow: escrowPDA,
+        owner,
+        facilitator,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [
+        vaultPDA,
+        wrongMintDest.address,
+      ]);
+      await sendTx(rpc, owner, [ix]);
+    }, FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR);
+  });
+
+  it("rejects non-vault source account", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 702);
+    const mint = await createTestMint(rpc, payer);
+    const source = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      1_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: source.address,
+      amount: 1_000,
+    });
+    await sendTx(rpc, owner, [depositIx]);
+
+    // Use a regular token account (not the vault PDA) as the source.
+    const fakeSrc = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      0n,
+    );
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    await expectToFail(async () => {
+      const baseIx = getCloseEscrowInstruction({
+        escrow: escrowPDA,
+        owner,
+        facilitator,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [fakeSrc.address, dest.address]);
+      await sendTx(rpc, owner, [ix]);
+    }, FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR);
   });
 });
