@@ -9,6 +9,10 @@ pub use error::*;
 pub use events::*;
 pub use state::*;
 
+pub use instructions::compute_split_amounts;
+pub use instructions::validate_ed25519_ix_data;
+pub use instructions::PaymentAuthorization;
+
 use instructions::*;
 
 declare_id!("EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS");
