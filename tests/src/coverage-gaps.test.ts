@@ -9,6 +9,7 @@ import {
   FLEX_PROGRAM_ADDRESS,
   FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
+  FLEX_ERROR__INVALID_SPLIT_COUNT,
 } from "@faremeter/flex-solana";
 import { getTransferSolInstruction } from "@solana-program/system";
 import {
@@ -355,4 +356,114 @@ describe("ed25519 instruction position", () => {
       FLEX_ERROR__INVALID_ED25519_INSTRUCTION,
     );
   });
+});
+
+describe("submit with non-null session key expiry", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("succeeds when session key has a future expiry", async () => {
+    const currentSlot = await rpc.getSlot().send();
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 570, {
+        sessionKeyExpiresAtSlot: currentSlot + 100_000n,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    // This exercises the `if let Some(expires_at)` success path in
+    // submit_authorization where the key is not expired.
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      50_000,
+      [{ recipient: recipient.address, bps: 10_000 }],
+    );
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pending.amount)).toBe(50_000);
+  });
+});
+
+describe("submit with too many splits", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("rejects authorization with 6 splits", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 600);
+
+    const recipients = [];
+    for (let i = 0; i < 6; i++) {
+      const r = await createFundedTokenAccount(
+        rpc,
+        mint,
+        facilitator.address,
+        payer,
+        0n,
+      );
+      recipients.push(r);
+    }
+
+    // 6 splits exceeds MAX_SPLITS (5).
+    const splits = [
+      { recipient: defined(recipients[0]).address, bps: 2_000 },
+      { recipient: defined(recipients[1]).address, bps: 2_000 },
+      { recipient: defined(recipients[2]).address, bps: 2_000 },
+      { recipient: defined(recipients[3]).address, bps: 2_000 },
+      { recipient: defined(recipients[4]).address, bps: 1_000 },
+      { recipient: defined(recipients[5]).address, bps: 1_000 },
+    ];
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          1,
+          50_000,
+          splits,
+        ),
+      FLEX_ERROR__INVALID_SPLIT_COUNT,
+    );
+  }, 30_000);
 });
