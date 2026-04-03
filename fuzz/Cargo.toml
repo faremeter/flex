@@ -1,0 +1,128 @@
+[package]
+name = "flex-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+# Unit-level targets import the flex crate directly (anchor v2 types).
+# The stateful target does NOT depend on flex -- it loads the compiled
+# .so and constructs transactions using v3 solana types matching litesvm.
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+borsh = "1"
+sha2 = { version = "0.10", optional = true }
+
+[dependencies.flex]
+path = "../programs/flex"
+features = ["no-entrypoint"]
+optional = true
+
+[dependencies.anchor-lang]
+version = "0.32.0"
+optional = true
+
+# v3 solana crates matching litesvm 0.11.0
+[dependencies.litesvm]
+version = "0.11.0"
+features = ["precompiles"]
+optional = true
+
+[dependencies.litesvm-token]
+version = "0.11.0"
+optional = true
+
+[dependencies.solana-address]
+version = "2.0"
+optional = true
+
+[dependencies.solana-clock]
+version = "3.0"
+optional = true
+
+[dependencies.solana-hash]
+version = "3.1"
+optional = true
+
+[dependencies.solana-instruction]
+version = "3.0"
+optional = true
+
+[dependencies.solana-keypair]
+version = "3.1"
+optional = true
+
+[dependencies.solana-message]
+version = "3.0"
+optional = true
+
+[dependencies.solana-program-pack]
+version = "3.1"
+optional = true
+
+[dependencies.solana-pubkey]
+version = "3.0"
+optional = true
+
+[dependencies.solana-signer]
+version = "3.0"
+optional = true
+
+[dependencies.solana-system-interface]
+version = "2.0"
+optional = true
+
+[dependencies.solana-sysvar]
+version = "3.0"
+optional = true
+
+[dependencies.solana-transaction]
+version = "3.0"
+optional = true
+
+[dependencies.spl-token]
+version = "8.0"
+optional = true
+
+[features]
+default = ["unit"]
+unit = ["flex", "anchor-lang"]
+stateful = [
+    "litesvm",
+    "litesvm-token",
+    "solana-address",
+    "solana-clock",
+    "solana-hash",
+    "solana-instruction",
+    "solana-keypair",
+    "solana-message",
+    "solana-program-pack",
+    "solana-pubkey",
+    "solana-signer",
+    "solana-system-interface",
+    "solana-sysvar",
+    "solana-transaction",
+    "spl-token",
+    "sha2",
+]
+
+[[bin]]
+name = "ed25519_parser"
+path = "fuzz_targets/ed25519_parser.rs"
+doc = false
+
+[[bin]]
+name = "split_arithmetic"
+path = "fuzz_targets/split_arithmetic.rs"
+doc = false
+
+[[bin]]
+name = "stateful_sequence"
+path = "fuzz_targets/stateful_sequence.rs"
+doc = false
