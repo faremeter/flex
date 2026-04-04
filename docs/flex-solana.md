@@ -1,6 +1,6 @@
 # Flex Payment Scheme: Solana Implementation
 
-This document describes the Solana implementation of the Flex Payment Scheme defined in the [project README](../README.md).
+This document describes the Solana implementation of the Flex Payment Scheme defined in the [architecture document](./flex-arch.md).
 
 ## Overview
 
