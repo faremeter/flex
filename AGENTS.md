@@ -47,7 +47,7 @@ When writing or reviewing Anchor code, always load the `anchor-security` skill f
 
 Follow the security checklist and code quality standards in `CONVENTIONS.md` (Rust/Anchor Conventions > Security section).
 
-For project design context, read `/README.md` and `/docs/flex-solana.md`.
+For project design context, read `/docs/flex-arch.md` and `/docs/flex-solana.md`.
 
 ## DO NOT DO THIS BEFORE YOU'VE DONE ALL STEPS OF THE ABOVE
 
