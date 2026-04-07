@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import {
   type Address,
   generateKeyPairSigner,
+  type Instruction,
   type KeyPairSigner,
 } from "@solana/kit";
 import {
@@ -325,8 +326,7 @@ describe("ed25519 instruction position", () => {
     // Insert a system transfer between the Ed25519 verify and the submit.
     // The program checks current_index - 1, which will find the system
     // transfer instead of the ed25519 verify instruction.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
-    const fillerIx: typeof submitIx = getTransferSolInstruction({
+    const fillerIx: Instruction = getTransferSolInstruction({
       source: facilitator,
       destination: facilitator.address,
       amount: 0,
