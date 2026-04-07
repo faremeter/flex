@@ -76,8 +76,10 @@ clean:
 	rm -f .eslintcache .build-finished
 	find . -type d -name "dist" -a ! -path '*/node_modules/*' | xargs rm -rf
 	anchor clean
+	cargo clean --manifest-path fuzz/Cargo.toml
+	rm -rf fuzz/artifacts
 
 distclean: clean
-	rm -rf node_modules
+	rm -rf node_modules fuzz/corpus
 
 FORCE:
