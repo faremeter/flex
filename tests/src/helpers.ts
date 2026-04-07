@@ -158,16 +158,14 @@ export async function createTestMint(
   const rentLamports = await rpc
     .getMinimumBalanceForRentExemption(MINT_SIZE)
     .send();
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
-  const createAccountIx: Instruction = getCreateAccountInstruction({
+  const createAccountIx = getCreateAccountInstruction({
     payer,
     newAccount: mint,
     lamports: rentLamports,
     space: MINT_SIZE,
     programAddress: TOKEN_PROGRAM_ADDRESS,
   });
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
-  const initMintIx: Instruction = getInitializeMint2Instruction({
+  const initMintIx = getInitializeMint2Instruction({
     mint: mint.address,
     decimals: 6,
     mintAuthority: payer.address,
@@ -188,24 +186,21 @@ export async function createFundedTokenAccount(
   const rentLamports = await rpc
     .getMinimumBalanceForRentExemption(ACCOUNT_SIZE)
     .send();
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
-  const createIx: Instruction = getCreateAccountInstruction({
+  const createIx = getCreateAccountInstruction({
     payer: mintAuthority,
     newAccount: tokenAccount,
     lamports: rentLamports,
     space: ACCOUNT_SIZE,
     programAddress: TOKEN_PROGRAM_ADDRESS,
   });
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
-  const initIx: Instruction = getInitializeAccountInstruction({
+  const initIx = getInitializeAccountInstruction({
     account: tokenAccount.address,
     mint,
     owner,
   });
   const instructions: Instruction[] = [createIx, initIx];
   if (amount > 0n) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- upstream type declaration error
-    const mintToIx: Instruction = getMintToInstruction({
+    const mintToIx = getMintToInstruction({
       mint,
       token: tokenAccount.address,
       mintAuthority,
