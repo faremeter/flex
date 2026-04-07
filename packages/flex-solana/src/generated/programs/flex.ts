@@ -92,6 +92,13 @@ import {
   type SubmitAuthorizationAsyncInput,
   type VoidPendingInput,
 } from "../instructions";
+import {
+  findEscrowPda,
+  findPendingPda,
+  findRegisterSessionKeySessionKeyAccountPda,
+  findSessionKeyAccountPda,
+  findVaultPda,
+} from "../pdas";
 
 export const FLEX_PROGRAM_ADDRESS =
   "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS" as Address<"EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS">;
@@ -442,6 +449,7 @@ export function parseFlexInstruction<TProgram extends string>(
 export type FlexPlugin = {
   accounts: FlexPluginAccounts;
   instructions: FlexPluginInstructions;
+  pdas: FlexPluginPdas;
 };
 
 export type FlexPluginAccounts = {
@@ -496,6 +504,14 @@ export type FlexPluginInstructions = {
   voidPending: (
     input: VoidPendingInput,
   ) => ReturnType<typeof getVoidPendingInstruction> & SelfPlanAndSendFunctions;
+};
+
+export type FlexPluginPdas = {
+  sessionKeyAccount: typeof findSessionKeyAccountPda;
+  escrow: typeof findEscrowPda;
+  vault: typeof findVaultPda;
+  registerSessionKeySessionKeyAccount: typeof findRegisterSessionKeySessionKeyAccountPda;
+  pending: typeof findPendingPda;
 };
 
 export type FlexPluginRequirements = ClientWithRpc<
@@ -572,6 +588,14 @@ export function flexProgram() {
               client,
               getVoidPendingInstruction(input),
             ),
+        },
+        pdas: {
+          sessionKeyAccount: findSessionKeyAccountPda,
+          escrow: findEscrowPda,
+          vault: findVaultPda,
+          registerSessionKeySessionKeyAccount:
+            findRegisterSessionKeySessionKeyAccountPda,
+          pending: findPendingPda,
         },
       },
     };
