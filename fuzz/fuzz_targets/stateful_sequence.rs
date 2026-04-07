@@ -1887,7 +1887,8 @@ mod harness {
     static CLOSE_OK: AtomicU64 = AtomicU64::new(0);
 
     const LOG_INTERVAL: u64 = 500;
-    const HEALTH_CHECK_AFTER: u64 = 1000;
+    const HEALTH_CHECK_AFTER_ATTEMPTS: u64 = 1000;
+    const HEALTH_CHECK_STUCK_ITERS: u64 = 50000;
 
     fn health_check(i: u64) {
         if i == 0 {
@@ -1910,21 +1911,40 @@ mod harness {
             );
         }
 
-        if i >= HEALTH_CHECK_AFTER {
+        // Two separate health gates:
+        //
+        // 1. Once the fuzzer has actually reached the submission code path
+        //    enough times, verify productive outcomes. Gating on attempt
+        //    count instead of raw iteration count avoids tripping during
+        //    cold-start runs, where libfuzzer needs many iterations of short
+        //    random input before discovering byte sequences that decode to
+        //    scenarios with submit operations.
+        //
+        // 2. As a backstop, if the fuzzer has run for a long time and has
+        //    *still* never reached the submission code path at all, the
+        //    harness is broken (e.g. setup() always failing, or Arbitrary
+        //    decoding never producing submit ops). Catch that loudly.
+        let attempts = submits + submit_fails;
+        if attempts >= HEALTH_CHECK_AFTER_ATTEMPTS {
             assert!(
                 submits > 0,
-                "FUZZER HEALTH: {i} iterations but 0 successful submissions. \
+                "FUZZER HEALTH: {attempts} submit attempts but 0 successful. \
                  The fuzzer is not exercising the payment flow."
             );
             assert!(
                 finalizes > 0,
-                "FUZZER HEALTH: {i} iterations but 0 successful finalizations. \
+                "FUZZER HEALTH: {attempts} submit attempts but 0 successful finalizations. \
                  The fuzzer is not exercising the finalize path."
             );
             assert!(
                 rejected > 0,
-                "FUZZER HEALTH: {i} iterations but 0 bad-signature rejections. \
+                "FUZZER HEALTH: {attempts} submit attempts but 0 bad-signature rejections. \
                  The negative signature tests are not running."
+            );
+        } else if i >= HEALTH_CHECK_STUCK_ITERS {
+            panic!(
+                "FUZZER HEALTH: {i} iterations but only {attempts} submit attempts. \
+                 The fuzzer is not reaching the payment code path."
             );
         }
     }
