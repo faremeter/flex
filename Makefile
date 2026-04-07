@@ -1,7 +1,7 @@
 export PATH := $(PWD)/bin:$(PATH)
 export INSIDE_STAGING_DIR := false
 
-.PHONY: all build lint test format clean test-unit test-integration doc FORCE
+.PHONY: all build lint test format clean distclean test-unit test-integration doc FORCE
 
 all: lint build doc test
 
@@ -74,8 +74,10 @@ test: test-ts test-anchor
 
 clean:
 	rm -f .eslintcache .build-finished
-	rm -rf node_modules
 	find . -type d -name "dist" -a ! -path '*/node_modules/*' | xargs rm -rf
 	anchor clean
+
+distclean: clean
+	rm -rf node_modules
 
 FORCE:
