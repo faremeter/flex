@@ -1,7 +1,7 @@
 import { generateRequirementsMatcher } from "@faremeter/types/x402";
 import { lookupX402Network } from "@faremeter/info/solana";
 
-import { FLEX_SCHEME } from "./scheme";
+import { FLEX_SCHEME, UPTO_SCHEME } from "./scheme";
 
 /**
  * Creates a matcher that checks whether an x402 payment requirement
@@ -24,7 +24,7 @@ export function generateMatcher(
   const solanaNetwork = lookupX402Network(network);
 
   return generateRequirementsMatcher(
-    [FLEX_SCHEME],
+    [FLEX_SCHEME, UPTO_SCHEME],
     [solanaNetwork.caip2],
     [asset],
   );

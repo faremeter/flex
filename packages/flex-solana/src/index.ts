@@ -1,4 +1,4 @@
-export { FLEX_SCHEME } from "./scheme";
+export { FLEX_SCHEME, UPTO_SCHEME } from "./scheme";
 export { FLEX_PROGRAM_ADDRESS } from "./generated";
 export {
   serializePaymentAuthorization,
