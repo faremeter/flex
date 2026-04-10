@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "flex",
@@ -24,10 +25,12 @@
       "dependencies": {
         "@faremeter/info": "^0.17.1",
         "@faremeter/logs": "^0.17.1",
+        "@faremeter/middleware": "^0.17.1",
         "@faremeter/types": "^0.17.1",
         "@solana/kit": "^6.7.0",
         "@solana/program-client-core": "^6.7.0",
         "arktype": "^2.2.0",
+        "hono": "^4.9.0",
       },
     },
     "scripts": {
