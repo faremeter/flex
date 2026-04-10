@@ -254,6 +254,7 @@ A `FlexFacilitator` with verify/settle/flush/stop methods
 ## Constants
 
 - [FLEX_SCHEME](#flex_scheme)
+- [UPTO_SCHEME](#upto_scheme)
 - [FlexSplitEntry](#flexsplitentry)
 - [FlexPaymentPayload](#flexpaymentpayload)
 - [FlexPaymentRequirementsExtra](#flexpaymentrequirementsextra)
@@ -266,6 +267,14 @@ Scheme identifier used in x402 payment requirements for Flex.
 | Constant      | Type                |
 | ------------- | ------------------- |
 | `FLEX_SCHEME` | `"@faremeter/flex"` |
+
+### UPTO_SCHEME
+
+x402 standard "upto" scheme, settled via Flex.
+
+| Constant      | Type     |
+| ------------- | -------- |
+| `UPTO_SCHEME` | `"upto"` |
 
 ### FlexSplitEntry
 
