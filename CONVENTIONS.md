@@ -245,23 +245,21 @@ Run `make format` to auto-format all files.
 
 #### Functions
 
-| Pattern     | Use Case                       | Example                                         |
-| ----------- | ------------------------------ | ----------------------------------------------- |
-| `camelCase` | All functions                  | `handleMiddlewareRequest`                       |
-| `create*`   | Factory functions              | `createFacilitatorHandler`, `createLocalWallet` |
-| `is*`       | Boolean predicates             | `isValidationError`, `isKnownCluster`           |
-| `get*`      | Retrieval without side effects | `getTokenBalance`, `getSupported`               |
-| `lookup*`   | Search/lookup operations       | `lookupKnownSPLToken`, `lookupX402Network`      |
-| `generate*` | Builder/generator functions    | `generateMatcher`, `generateDomain`             |
-| `handle*`   | Event/request handlers         | `handleSettle`, `handleVerify`                  |
+| Pattern     | Use Case                       | Example                                  |
+| ----------- | ------------------------------ | ---------------------------------------- |
+| `camelCase` | All functions                  | `handleMiddlewareRequest`                |
+| `create*`   | Factory functions              | `createHoldManager`, `createLocalWallet` |
+| `is*`       | Boolean predicates             | `isValidationError`, `isKnownCluster`    |
+| `get*`      | Retrieval without side effects | `getTokenBalance`, `getSupported`        |
+| `handle*`   | Event/request handlers         | `handleSettle`, `handleVerify`           |
 
 #### Variables
 
-| Pattern                | Use Case                    | Example                                      |
-| ---------------------- | --------------------------- | -------------------------------------------- |
-| `camelCase`            | Regular variables           | `paymentRequiredResponse`, `recentBlockhash` |
-| `SCREAMING_SNAKE_CASE` | Constants, environment vars | `X402_EXACT_SCHEME`, `PAYER_KEYPAIR_PATH`    |
-| `_` prefix             | Unused parameters           | `_ctx`, `_unused`                            |
+| Pattern                | Use Case                    | Example                                         |
+| ---------------------- | --------------------------- | ----------------------------------------------- |
+| `camelCase`            | Regular variables           | `paymentRequiredResponse`, `recentBlockhash`    |
+| `SCREAMING_SNAKE_CASE` | Constants, environment vars | `MAX_PENDING_SETTLEMENTS`, `PAYER_KEYPAIR_PATH` |
+| `_` prefix             | Unused parameters           | `_ctx`, `_unused`                               |
 
 #### Acronyms in Names
 
@@ -543,24 +541,24 @@ const handleVerify = async (requirements, payment) => {
 Use async factory functions that return objects with async methods:
 
 ```typescript
-export const createFacilitatorHandler = async (
-  network: string,
-  rpc: Rpc<SolanaRpcApi>,
-  feePayerKeypair: Keypair,
-  mint: PublicKey,
-  config?: FacilitatorOptions,
-): Promise<FacilitatorHandler> => {
-  // Async initialization
-  const mintInfo = await fetchMint(rpc, address(mint.toBase58()));
+export function createHoldManager() {
+  const holds = new Map<string, Hold>();
 
-  // Return object with async methods
+  function tryHold(params: TryHoldParams, ...): HoldResult {
+    // Validation and hold tracking
+  }
+
+  function releaseHold(escrow: Address, authorizationId: bigint): void {
+    // Release logic
+  }
+
+  // Return object with methods
   return {
-    getSupported,
-    getRequirements,
-    handleVerify,
-    handleSettle,
+    tryHold,
+    releaseHold,
+    // ...
   };
-};
+}
 ```
 
 #### Parallel Execution
