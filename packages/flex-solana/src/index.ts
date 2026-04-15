@@ -25,6 +25,8 @@ export type {
 } from "./types";
 export * as facilitator from "./facilitator/index";
 
+export { findVaultPda } from "./generated";
+
 export {
   getCreateEscrowInstructionAsync,
   getDepositInstructionAsync,
@@ -34,6 +36,7 @@ export {
   getSubmitAuthorizationInstructionAsync,
   getRefundInstruction,
   getFinalizeInstruction,
+  getFinalizeInstructionDataEncoder,
   getCloseEscrowInstruction,
   getVoidPendingInstruction,
   getEmergencyCloseInstruction,
