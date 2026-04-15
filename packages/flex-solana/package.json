@@ -15,33 +15,19 @@
       "import": "./dist/src/index.js",
       "types": "./dist/src/index.d.ts"
     },
-    "./client": {
-      "require": "./dist/src/client/index.js",
-      "import": "./dist/src/client/index.js",
-      "types": "./dist/src/client/index.d.ts"
-    },
     "./facilitator": {
       "require": "./dist/src/facilitator/index.js",
       "import": "./dist/src/facilitator/index.js",
       "types": "./dist/src/facilitator/index.d.ts"
-    },
-    "./hono": {
-      "require": "./dist/src/hono/index.js",
-      "import": "./dist/src/hono/index.js",
-      "types": "./dist/src/hono/index.d.ts"
     }
   },
   "scripts": {
     "tsc": "tsc --build"
   },
   "dependencies": {
-    "@faremeter/info": "^0.17.1",
     "@faremeter/logs": "^0.17.1",
-    "@faremeter/middleware": "^0.17.1",
-    "@faremeter/types": "^0.17.1",
     "@solana/kit": "^6.7.0",
     "@solana/program-client-core": "^6.7.0",
-    "arktype": "^2.2.0",
-    "hono": "^4.9.0"
+    "arktype": "^2.2.0"
   }
 }

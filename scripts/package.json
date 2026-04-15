@@ -7,16 +7,11 @@
     "tsc": "tsc --build"
   },
   "dependencies": {
-    "@faremeter/facilitator": "^0.17.1",
-    "@faremeter/fetch": "^0.17.1",
     "@faremeter/flex-solana": "workspace:*",
     "@faremeter/info": "^0.17.1",
     "@faremeter/logs": "^0.17.1",
-    "@faremeter/middleware": "^0.17.1",
-    "@hono/node-server": "^1.14.1",
     "@solana/kit": "^6.7.0",
-    "dotenv": "^16.4.7",
-    "hono": "4.9.0"
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@codama/nodes-from-anchor": "^1.4.0",

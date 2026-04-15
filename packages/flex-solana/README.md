@@ -1,6 +1,6 @@
 # @faremeter/flex-solana
 
-Flex Payment Scheme SDK for Solana. Provides instruction generation, account queries, payment authorization, and client/facilitator handlers for integrating with the Flex escrow program.
+Flex Payment Scheme SDK for Solana. Provides instruction generation, account queries, and payment authorization for integrating with the Flex escrow program.
 
 ## Installation
 
@@ -23,9 +23,9 @@ bun add @faremeter/flex-solana
 - [findEscrowsByOwner](#findescrowsbyowner)
 - [findEscrowsByFacilitator](#findescrowsbyfacilitator)
 - [findPendingSettlementsByEscrow](#findpendingsettlementsbyescrow)
-- [createPaymentHandler](#createpaymenthandler)
 - [fetchEscrowAccounting](#fetchescrowaccounting)
-- [createFacilitatorHandler](#createfacilitatorhandler)
+- [createHoldManager](#createholdmanager)
+- [mergeSplits](#mergesplits)
 
 ### serializePaymentAuthorization
 
@@ -192,23 +192,6 @@ Returns:
 
 Array of pending settlement addresses and their decoded data
 
-### createPaymentHandler
-
-Creates a client-side `PaymentHandler` that signs Flex payment
-authorizations against compatible x402 requirements.
-
-| Function               | Type                                                     |
-| ---------------------- | -------------------------------------------------------- |
-| `createPaymentHandler` | `(opts: CreateFlexPaymentHandlerOpts) => PaymentHandler` |
-
-Parameters:
-
-- `opts`: - Escrow, session key, and RPC configuration
-
-Returns:
-
-A handler that produces signed payment payloads
-
 ### fetchEscrowAccounting
 
 Fetches a full accounting snapshot for an escrow: vault balances,
@@ -228,53 +211,33 @@ Returns:
 
 An `EscrowAccounting` snapshot
 
-### createFacilitatorHandler
+### createHoldManager
 
-Creates a facilitator handler that verifies Flex payment authorizations,
-manages in-memory holds, and submits/finalizes settlements on-chain.
+Creates an in-memory hold manager that tracks payment authorizations
+through their lifecycle: held -> settled -> submitting -> submitted -> finalizing.
 
-Starts a background interval that periodically flushes settled holds
-and finalizes confirmed transactions. Call `stop()` to clear it.
+Enforces vault balance limits and pending settlement capacity per escrow.
 
-| Function                   | Type                                                                                                                             |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `createFacilitatorHandler` | `(network: string, rpc: Rpc<SolanaRpcApi>, facilitatorSigner: TransactionSigner, config: FlexFacilitatorConfig) => Promise<...>` |
-
-Parameters:
-
-- `network`: - Solana cluster name (e.g. "mainnet", "devnet")
-- `rpc`: - Solana RPC client
-- `facilitatorSigner`: - Transaction signer for the facilitator
-- `config`: - Supported mints, splits, and timing configuration
+| Function            | Type                                                                                                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `createHoldManager` | `() => { tryHold: (params: TryHoldParams, vaultBalance: bigint, onChainCommitted: bigint, onChainPendingCount: bigint) => HoldResult; releaseHold: (escrow: Address, authorizationId: bigint) => void; ... 11 more ...; pendingCount: () => number; }` |
 
 Returns:
 
-A `FlexFacilitator` with verify/settle/flush/stop methods
+A `HoldManager` instance
+
+### mergeSplits
+
+| Function      | Type                           |
+| ------------- | ------------------------------ |
+| `mergeSplits` | `(splits: Split[]) => Split[]` |
 
 ## Constants
 
-- [FLEX_SCHEME](#flex_scheme)
-- [UPTO_SCHEME](#upto_scheme)
 - [FlexSplitEntry](#flexsplitentry)
 - [FlexPaymentPayload](#flexpaymentpayload)
 - [FlexPaymentRequirementsExtra](#flexpaymentrequirementsextra)
 - [MAX_PENDING_SETTLEMENTS](#max_pending_settlements)
-
-### FLEX_SCHEME
-
-Scheme identifier used in x402 payment requirements for Flex.
-
-| Constant      | Type                |
-| ------------- | ------------------- |
-| `FLEX_SCHEME` | `"@faremeter/flex"` |
-
-### UPTO_SCHEME
-
-x402 standard "upto" scheme, settled via Flex.
-
-| Constant      | Type     |
-| ------------- | -------- |
-| `UPTO_SCHEME` | `"upto"` |
 
 ### FlexSplitEntry
 
@@ -318,11 +281,12 @@ Maximum number of concurrent pending settlements an escrow supports.
 - [EscrowAccountData](#escrowaccountdata)
 - [SessionKeyData](#sessionkeydata)
 - [PendingSettlementData](#pendingsettlementdata)
-- [CreateFlexPaymentHandlerOpts](#createflexpaymenthandleropts)
 - [HoldEntry](#holdentry)
 - [EscrowAccounting](#escrowaccounting)
-- [FlushResult](#flushresult)
-- [FlexFacilitator](#flexfacilitator)
+- [Hold](#hold)
+- [TryHoldParams](#tryholdparams)
+- [HoldResult](#holdresult)
+- [HoldManager](#holdmanager)
 
 ### SplitInput
 
@@ -388,14 +352,6 @@ Decoded on-chain state of a pending settlement awaiting finalization.
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `PendingSettlementData` | `{ version: number; escrow: Address; mint: Address; amount: bigint; originalAmount: bigint; maxAmount: bigint; authorizationId: bigint; expiresAtSlot: bigint; submittedAtSlot: bigint; sessionKey: Address; splitCount: number; splits: { recipient: Address; bps: number }[]; bump: number; }` |
 
-### CreateFlexPaymentHandlerOpts
-
-Configuration for `createPaymentHandler`.
-
-| Type                           | Type                                                                                                                                                                   |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CreateFlexPaymentHandlerOpts` | `{ network: string; escrow: Address; mint: Address; sessionKeyPair: CryptoKeyPair; sessionKeyAddress: Address; rpc: Rpc and SlotProvider; programAddress?: Address; }` |
-
 ### HoldEntry
 
 A single on-chain pending settlement as seen by the accounting view.
@@ -412,21 +368,36 @@ Snapshot of an escrow's vault balances, pending settlements, and available capac
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `EscrowAccounting` | `{ escrow: Address; vaultBalances: Map<Address, bigint>; holds: HoldEntry[]; totalPendingByMint: Map<Address, bigint>; pendingCount: bigint; maxPending: number; availableByMint: Map<Address, bigint>; canSubmit: boolean; }` |
 
-### FlushResult
+### Hold
 
-Outcome of submitting a single hold to the on-chain program.
+An in-memory hold representing a payment authorization awaiting on-chain submission.
 
-| Type          | Type                                                                                   |
-| ------------- | -------------------------------------------------------------------------------------- |
-| `FlushResult` | `{ authorizationId: bigint; success: boolean; transaction?: string; error?: string; }` |
+| Type   | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Hold` | `{ escrow: Address; mint: Address; settleAmount: bigint; maxAmount: bigint; authorizationId: bigint; expiresAtSlot: bigint; sessionKeyAddress: Address; sessionKeyPDA: Address; vault: Address; splits: SplitInput[]; signatureBytes: Uint8Array; message: Uint8Array; payer: Address; validUntilSlot: bigint; status: "held" or "settled" or "submitting" or "submitted" or "finalizing"; heldAt: number; submittedAtSlot: bigint or null; retryCount: number; }` |
 
-### FlexFacilitator
+### TryHoldParams
 
-Extended `FacilitatorHandler` with Flex-specific lifecycle
-methods for flushing holds to chain and inspecting the hold manager.
+Parameters for creating a new hold (lifecycle fields are added internally).
 
-| Type              | Type                                                                                                       |
-| ----------------- | ---------------------------------------------------------------------------------------------------------- |
-| `FlexFacilitator` | `FacilitatorHandler and { flush(): Promise<FlushResult[]>; getHoldManager(): HoldManager; stop(): void; }` |
+| Type            | Type                                                                      |
+| --------------- | ------------------------------------------------------------------------- |
+| `TryHoldParams` | `Omit< Hold, "status" or "heldAt" or "submittedAtSlot" or "retryCount" >` |
+
+### HoldResult
+
+Discriminated result from hold operations: success or failure with reason.
+
+| Type         | Type                                            |
+| ------------ | ----------------------------------------------- |
+| `HoldResult` | `{ ok: true } or { ok: false; reason: string }` |
+
+### HoldManager
+
+The hold manager interface, inferred from `createHoldManager`.
+
+| Type          | Type                                   |
+| ------------- | -------------------------------------- |
+| `HoldManager` | `ReturnType<typeof createHoldManager>` |
 
 <!-- TSDOC_END -->

@@ -1,4 +1,3 @@
-export { FLEX_SCHEME, UPTO_SCHEME } from "./scheme";
 export { FLEX_PROGRAM_ADDRESS } from "./generated";
 export {
   serializePaymentAuthorization,
@@ -24,7 +23,6 @@ export type {
   SessionKeyData,
   PendingSettlementData,
 } from "./types";
-export * as client from "./client/index";
 export * as facilitator from "./facilitator/index";
 
 export {
