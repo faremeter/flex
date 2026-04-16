@@ -29,5 +29,8 @@
     "@solana/kit": "^6.7.0",
     "@solana/program-client-core": "^6.7.0",
     "arktype": "^2.2.0"
+  },
+  "devDependencies": {
+    "tsc-esm-fix": "^3.1.2"
   }
 }

@@ -34,13 +34,13 @@ doc: FORCE
 	bun prettier --write docs/api/
 
 packages/%: FORCE
-	cd $@ && rm -rf dist && bun run tsc
+	cd $@ && rm -rf dist && bun run tsc && bun run tsc-esm-fix
 
 apps/%: FORCE
-	cd $@ && rm -rf dist && bun run tsc
+	cd $@ && rm -rf dist && bun run tsc && bun run tsc-esm-fix
 
 scripts: FORCE
-	cd scripts && rm -rf dist && bun run tsc
+	cd scripts && rm -rf dist && bun run tsc && bun run tsc-esm-fix
 
 tests: FORCE
 	cd tests && bun run tsc
