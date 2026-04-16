@@ -50,13 +50,27 @@ step::30::update_package_versions() {
 		[[ $actual == "$NEW_VERSION" ]] || log::fatal "$pkgfile: expected version $NEW_VERSION, got $actual"
 	done
 
+	bun install
+
+	local cargofiles cargofile
+	cargofiles=(programs/*/Cargo.toml)
+
+	for cargofile in "${cargofiles[@]}"; do
+		[[ -f $cargofile ]] || continue
+		sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" "$cargofile"
+
+		actual=$(sed -n 's/^version = "\(.*\)"/\1/p' "$cargofile")
+		[[ $actual == "$NEW_VERSION" ]] || log::fatal "$cargofile: expected version $NEW_VERSION, got $actual"
+	done
+
+	cargo check --workspace
 	make format
 }
 
 step::40::commit_and_tag() {
 	log::info "committing and tagging $NEW_TAG"
 
-	git add packages/*/package.json
+	git add bun.lock Cargo.lock packages/*/package.json programs/*/Cargo.toml
 	git commit -m "Update faremeter/flex version to $NEW_TAG"
 	git tag -s "$NEW_TAG" -m "faremeter/flex $NEW_TAG"
 
