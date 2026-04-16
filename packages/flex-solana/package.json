@@ -1,6 +1,6 @@
 {
   "name": "@faremeter/flex-solana",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Flex Payment Scheme SDK for Solana",
   "license": "LGPL-3.0-only",
   "type": "module",
