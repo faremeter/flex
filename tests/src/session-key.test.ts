@@ -10,6 +10,8 @@ import {
   FLEX_ERROR__SESSION_KEY_REVOKED,
   FLEX_ERROR__SESSION_KEY_STILL_ACTIVE,
   FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE,
+  FLEX_ERROR__SESSION_KEYS_EXIST,
+  getCloseEscrowInstruction,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
@@ -20,6 +22,7 @@ import {
   expectToFailWithAnchorError,
   ANCHOR_ERROR__CONSTRAINT_HAS_ONE,
   defined,
+  waitForSlot,
 } from "./helpers";
 
 const rpc = createRpc();
@@ -408,5 +411,132 @@ describe("close_session_key", () => {
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrowAfter.sessionKeyCount).toBe(1);
+  });
+
+  it("closes active key in deadman mode after timeout expires", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 304, {
+      deadmanTimeoutSlots: 1000,
+    });
+
+    const sessionKey = await generateKeyPairSigner();
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: 100_000_000,
+    });
+    const skMeta = registerIx.accounts[2];
+    if (!skMeta) throw new Error("session key meta missing");
+    const skPDA = skMeta.address;
+    await sendTx(rpc, owner, [registerIx]);
+
+    // Key is active and not revoked — normal close should fail
+    await expectToFail(async () => {
+      const closeIx = getCloseSessionKeyInstruction({
+        owner,
+        escrow: escrowPDA,
+        sessionKeyAccount: skPDA,
+      });
+      await sendTx(rpc, owner, [closeIx]);
+    }, FLEX_ERROR__SESSION_KEY_STILL_ACTIVE);
+
+    // Wait for deadman timeout
+    const currentSlot = await rpc.getSlot().send();
+    await waitForSlot(rpc, currentSlot + 1100n);
+
+    // Deadman mode: close active key directly
+    const closeIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: skPDA,
+    });
+    await sendTx(rpc, owner, [closeIx]);
+
+    const info = await rpc.getAccountInfo(skPDA, { encoding: "base64" }).send();
+    expect(info.value).toBeNull();
+
+    const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowAfter.sessionKeyCount).toBe(0);
+  });
+
+  it("closes revoked key in grace period via deadman mode", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 305, {
+      deadmanTimeoutSlots: 1000,
+    });
+
+    const sessionKey = await generateKeyPairSigner();
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: 100_000_000,
+    });
+    const skMeta = registerIx.accounts[2];
+    if (!skMeta) throw new Error("session key meta missing");
+    const skPDA = skMeta.address;
+    await sendTx(rpc, owner, [registerIx]);
+
+    // Revoke the key (grace period is 100M slots — won't expire)
+    const revokeIx = getRevokeSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: skPDA,
+    });
+    await sendTx(rpc, owner, [revokeIx]);
+
+    // Normal close should fail: grace period hasn't elapsed
+    await expectToFail(async () => {
+      const closeIx = getCloseSessionKeyInstruction({
+        owner,
+        escrow: escrowPDA,
+        sessionKeyAccount: skPDA,
+      });
+      await sendTx(rpc, owner, [closeIx]);
+    }, FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE);
+
+    // Wait for deadman timeout
+    const currentSlot = await rpc.getSlot().send();
+    await waitForSlot(rpc, currentSlot + 1100n);
+
+    // Deadman mode bypasses grace period check
+    const closeIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: skPDA,
+    });
+    await sendTx(rpc, owner, [closeIx]);
+
+    const info = await rpc.getAccountInfo(skPDA, { encoding: "base64" }).send();
+    expect(info.value).toBeNull();
+
+    const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowAfter.sessionKeyCount).toBe(0);
+  });
+});
+
+describe("close_escrow requires session key cleanup", () => {
+  it("rejects close_escrow when session keys exist", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 310);
+
+    const sessionKey = await generateKeyPairSigner();
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: 0,
+    });
+    await sendTx(rpc, owner, [registerIx]);
+
+    await expectToFailWithAnchorError(async () => {
+      const closeIx = getCloseEscrowInstruction({
+        owner,
+        facilitator,
+        escrow: escrowPDA,
+      });
+      await sendTx(rpc, owner, [closeIx]);
+    }, FLEX_ERROR__SESSION_KEYS_EXIST);
   });
 });

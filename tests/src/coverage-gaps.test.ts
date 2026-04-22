@@ -24,6 +24,8 @@ import {
   FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
   FLEX_ERROR__OWNER_ONLY,
   findVaultPda,
+  getRevokeSessionKeyInstruction,
+  getCloseSessionKeyInstruction,
 } from "@faremeter/flex-solana";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { getTransferSolInstruction } from "@solana-program/system";
@@ -543,7 +545,7 @@ describe("close escrow with empty vault", () => {
   });
 
   it("closes vault with zero balance after all funds finalized out", async () => {
-    const { escrowPDA, mint, vaultPDA, pendingPDA, splits } =
+    const { escrowPDA, mint, vaultPDA, pendingPDA, splits, sessionKeyPDA } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 560, {
         refundTimeoutSlots: 150,
         depositAmount: 100_000,
@@ -566,6 +568,19 @@ describe("close escrow with empty vault", () => {
 
     // Vault is now empty
     expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(0n);
+
+    // Revoke and close session key before closing escrow
+    const revokeIx = getRevokeSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    const closeKeyIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [revokeIx, closeKeyIx]);
 
     // Close the escrow, providing the empty vault and a destination.
     // This exercises the `if amount > 0` skip in close_token_accounts.

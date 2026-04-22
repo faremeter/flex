@@ -115,4 +115,7 @@ pub enum FlexError {
 
     #[msg("Split calculation arithmetic overflow")]
     SplitCalculationOverflow,
+
+    #[msg("Cannot close escrow with active session keys")]
+    SessionKeysExist,
 }

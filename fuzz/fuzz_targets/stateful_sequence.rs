@@ -942,10 +942,15 @@ mod harness {
             }
 
             FuzzOp::CloseSessionKey => {
+                let current_slot =
+                    env.svm.get_sysvar::<solana_clock::Clock>().slot;
+                let deadman_expired = current_slot
+                    > env.last_activity_slot + env.config.deadman_timeout;
+
                 let sk_idx = {
                     let mut idx = None;
                     for (i, (_, _, revoked)) in env.session_keys.iter().enumerate() {
-                        if *revoked {
+                        if *revoked || deadman_expired {
                             idx = Some(i);
                             break;
                         }
@@ -959,8 +964,8 @@ mod harness {
                         "close_session_key",
                         &[],
                         vec![
-                            AccountMeta::new_readonly(env.owner.pubkey(), true),
-                            AccountMeta::new_readonly(env.escrow_pda, false),
+                            AccountMeta::new(env.owner.pubkey(), true),
+                            AccountMeta::new(env.escrow_pda, false),
                             AccountMeta::new(session_key_pda, false),
                         ],
                     );
@@ -1002,6 +1007,13 @@ mod harness {
                         env.pending_amounts.is_empty(),
                         "SECURITY: emergency_close succeeded with {} pending settlements",
                         env.pending_amounts.len()
+                    );
+
+                    // Post-hoc: emergency close requires no session keys
+                    assert!(
+                        env.session_key_count == 0,
+                        "SECURITY: emergency_close succeeded with session_key_count={}",
+                        env.session_key_count
                     );
 
                     // Post-hoc: vaults should be closed (funds go home)
@@ -1058,6 +1070,13 @@ mod harness {
                     assert!(
                         env.svm.get_account(&env.vault_b_pda).is_none(),
                         "SECURITY: vault B still exists after close_escrow"
+                    );
+
+                    // Post-hoc: close_escrow requires no session keys
+                    assert!(
+                        env.session_key_count == 0,
+                        "SECURITY: close_escrow succeeded with session_key_count={}",
+                        env.session_key_count
                     );
 
                     CLOSE_OK.fetch_add(1, Ordering::Relaxed);
@@ -1474,6 +1493,13 @@ mod harness {
                 for i in 0..n {
                     let void = FuzzOp::VoidPending { auth_id: i };
                     exec_op(env, &void);
+                    if !env.escrow_alive { return; }
+                }
+
+                // Close all session keys (deadman mode) before emergency_close
+                while !env.session_keys.is_empty() {
+                    let close_key = FuzzOp::CloseSessionKey;
+                    exec_op(env, &close_key);
                     if !env.escrow_alive { return; }
                 }
 
