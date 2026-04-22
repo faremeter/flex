@@ -60,6 +60,10 @@ pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 
     if vault.data_is_empty() {
         require!(
+            ctx.accounts.depositor.key() == escrow.owner,
+            FlexError::OwnerOnly
+        );
+        require!(
             (escrow.mint_count as usize) < MAX_MINTS,
             FlexError::MintLimitReached
         );

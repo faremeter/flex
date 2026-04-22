@@ -86,6 +86,8 @@ export const FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG = 0x1791; // 6033
 export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1792; // 6034
 /** DeadmanTooCloseToRefund: Deadman timeout must be at least 2x refund timeout */
 export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1793; // 6035
+/** OwnerOnly: Only the escrow owner can create new vault accounts */
+export const FLEX_ERROR__OWNER_ONLY = 0x1794; // 6036
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -104,6 +106,7 @@ export type FlexError =
   | typeof FLEX_ERROR__INVALID_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR
   | typeof FLEX_ERROR__MINT_LIMIT_REACHED
+  | typeof FLEX_ERROR__OWNER_ONLY
   | typeof FLEX_ERROR__PENDING_COUNT_MISMATCH
   | typeof FLEX_ERROR__PENDING_LIMIT_REACHED
   | typeof FLEX_ERROR__PENDING_SETTLEMENTS_EXIST
@@ -144,6 +147,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__INVALID_SPLIT_RECIPIENT]: `Recipient is not a valid token account for the specified mint`,
     [FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR]: `Token account pair validation failed`,
     [FLEX_ERROR__MINT_LIMIT_REACHED]: `Maximum mints per escrow reached`,
+    [FLEX_ERROR__OWNER_ONLY]: `Only the escrow owner can create new vault accounts`,
     [FLEX_ERROR__PENDING_COUNT_MISMATCH]: `Remaining accounts count does not match pending_count`,
     [FLEX_ERROR__PENDING_LIMIT_REACHED]: `Maximum pending settlements reached`,
     [FLEX_ERROR__PENDING_SETTLEMENTS_EXIST]: `Cannot close escrow with pending settlements`,

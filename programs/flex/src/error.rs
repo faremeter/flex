@@ -109,4 +109,7 @@ pub enum FlexError {
 
     #[msg("Deadman timeout must be at least 2x refund timeout")]
     DeadmanTooCloseToRefund,
+
+    #[msg("Only the escrow owner can create new vault accounts")]
+    OwnerOnly,
 }
