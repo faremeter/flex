@@ -15,14 +15,22 @@ pub fn compute_split_amounts(
 
     for (i, split) in splits.iter().enumerate().take(split_count) {
         let amount = if i == split_count - 1 {
-            total_amount - cumulative
-        } else {
             total_amount
-                .checked_mul(split.bps as u64)
+                .checked_sub(cumulative)
+                .ok_or(error!(FlexError::SplitCalculationOverflow))?
+        } else {
+            // Widen to u128 to avoid overflow: total_amount (u64) * bps (u16)
+            // can exceed u64 when total_amount > ~1.84e15 with large bps values.
+            let wide = (total_amount as u128)
+                .checked_mul(split.bps as u128)
                 .and_then(|v| v.checked_div(10_000))
-                .ok_or(error!(FlexError::InvalidSplitRecipient))?
+                .ok_or(error!(FlexError::SplitCalculationOverflow))?;
+            // Safe: bps <= 10_000 guarantees wide / 10_000 <= total_amount
+            wide as u64
         };
-        cumulative += amount;
+        cumulative = cumulative
+            .checked_add(amount)
+            .ok_or(error!(FlexError::SplitCalculationOverflow))?;
         amounts.push(amount);
     }
 

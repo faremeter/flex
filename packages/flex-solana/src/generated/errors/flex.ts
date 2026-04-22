@@ -88,6 +88,8 @@ export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1792; // 6034
 export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1793; // 6035
 /** OwnerOnly: Only the escrow owner can create new vault accounts */
 export const FLEX_ERROR__OWNER_ONLY = 0x1794; // 6036
+/** SplitCalculationOverflow: Split calculation arithmetic overflow */
+export const FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW = 0x1795; // 6037
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -125,6 +127,7 @@ export type FlexError =
   | typeof FLEX_ERROR__SETTLE_AMOUNT_ZERO
   | typeof FLEX_ERROR__SETTLE_EXCEEDS_MAX
   | typeof FLEX_ERROR__SPLIT_BPS_ZERO
+  | typeof FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW
   | typeof FLEX_ERROR__UNAUTHORIZED_FACILITATOR
   | typeof FLEX_ERROR__UNSUPPORTED_ACCOUNT_VERSION;
 
@@ -166,6 +169,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__SETTLE_AMOUNT_ZERO]: `Settle amount must be greater than zero`,
     [FLEX_ERROR__SETTLE_EXCEEDS_MAX]: `Settle amount exceeds max authorized amount`,
     [FLEX_ERROR__SPLIT_BPS_ZERO]: `A split entry has bps of zero`,
+    [FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW]: `Split calculation arithmetic overflow`,
     [FLEX_ERROR__UNAUTHORIZED_FACILITATOR]: `Signer is not the registered facilitator`,
     [FLEX_ERROR__UNSUPPORTED_ACCOUNT_VERSION]: `Account version not supported by this program`,
   };

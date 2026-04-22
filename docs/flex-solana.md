@@ -1354,6 +1354,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6034 | DeadmanTimeoutTooLong       | Deadman timeout exceeds maximum of 2592000 slots                                    |
 | 6035 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
 | 6036 | OwnerOnly                   | Only the escrow owner can create new vault accounts                                 |
+| 6037 | SplitCalculationOverflow    | Split calculation arithmetic overflow                                               |
 
 ## Event Emission
 

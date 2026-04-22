@@ -1442,3 +1442,81 @@ describe("deposit succeeds when vault PDA is pre-funded", () => {
     expect(balance).toBe(500_000n);
   });
 });
+
+describe("split calculation handles large amounts without overflow", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("finalizes a settlement whose amount would overflow u64 in split math", async () => {
+    // 4 quadrillion tokens with a 50/50 split: 4e15 * 5000 = 2e19 > u64::MAX
+    const largeAmount = 4_000_000_000_000_000;
+
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 90, {
+        depositAmount: largeAmount,
+        refundTimeoutSlots: 150,
+      });
+
+    const r1 = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const r2 = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+
+    const splits = [
+      { recipient: r1.address, bps: 5_000 },
+      { recipient: r2.address, bps: 5_000 },
+    ];
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      largeAmount,
+      splits,
+    );
+
+    const currentSlot = await rpc.getSlot().send();
+    await waitForSlot(rpc, currentSlot + 200n);
+
+    await finalizeHelper(
+      rpc,
+      owner,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
+      vaultPDA,
+      [r1.address, r2.address],
+    );
+
+    // Each recipient gets exactly half
+    const expectedHalf = BigInt(largeAmount) / 2n;
+    expect(await fetchTokenBalance(rpc, r1.address)).toBe(expectedHalf);
+    expect(await fetchTokenBalance(rpc, r2.address)).toBe(expectedHalf);
+  });
+});
