@@ -936,7 +936,7 @@ describe("refund", () => {
     );
   });
 
-  it("full refund closes pending settlement account", async () => {
+  it("full refund keeps PDA alive with zero amount", async () => {
     const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
       rpc,
       owner,
@@ -955,14 +955,14 @@ describe("refund", () => {
 
     await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 50_000);
 
-    const pendingAfter = await fetchPendingSettlement(rpc, pendingPDA);
-    expect(pendingAfter).toBeNull();
+    const pendingAfter = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pendingAfter.amount)).toBe(0);
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowAfter.pendingCount)).toBe(0);
+    expect(Number(escrowAfter.pendingCount)).toBe(1);
   });
 
-  it("allows reuse of authorization_id after full refund", async () => {
+  it("blocks replay of same authorization_id after full refund", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 126, {
         refundTimeoutSlots: 1_000_000,
@@ -995,26 +995,66 @@ describe("refund", () => {
 
     await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 50_000);
 
-    const closed = await fetchPendingSettlement(rpc, pendingPDA);
-    expect(closed).toBeNull();
+    // The PDA is still alive after full refund, so Anchor's init constraint
+    // on submit_authorization will reject reuse of the same authorization_id.
+    await expectToFailWithAnchorError(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          42,
+          50_000,
+          splits,
+          { refundTimeoutSlots: 1_000_000 },
+        ),
+      ANCHOR_ERROR__ACCOUNT_ALREADY_IN_USE,
+    );
+  });
 
-    const pendingPDA2 = await submitAuthorizationHelper(
+  it("zero-amount pending finalizes successfully after refund window", async () => {
+    const { escrowPDA, vaultPDA, pendingPDA, splits } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 127, {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
+        settleAmount: 50_000,
+      });
+
+    await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 50_000);
+
+    const pendingAfter = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    expect(Number(pendingAfter.amount)).toBe(0);
+    await waitForSlot(rpc, pendingAfter.submittedAtSlot + 150n);
+
+    const recipientAccounts = splits.map((s) => s.recipient);
+    const vaultBefore = await fetchTokenBalance(rpc, vaultPDA);
+
+    await finalizeHelper(
       rpc,
-      escrowPDA,
       facilitator,
-      sessionKey,
-      sessionKeyPDA,
-      mint,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
       vaultPDA,
-      42,
-      50_000,
-      splits,
-      { refundTimeoutSlots: 1_000_000 },
+      recipientAccounts,
     );
 
-    const reopened = defined(await fetchPendingSettlement(rpc, pendingPDA2));
-    expect(Number(reopened.authorizationId)).toBe(42);
-    expect(Number(reopened.amount)).toBe(50_000);
+    // No tokens should have moved since amount was zero.
+    const vaultAfter = await fetchTokenBalance(rpc, vaultPDA);
+    expect(vaultAfter).toBe(vaultBefore);
+
+    // PDA should be closed after finalize.
+    const pendingInfo = await rpc
+      .getAccountInfo(pendingPDA, { encoding: "base64" })
+      .send();
+    expect(pendingInfo.value).toBeNull();
+
+    const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrowAfter.pendingCount)).toBe(0);
   });
 
   it("fails after refund window expires", async () => {

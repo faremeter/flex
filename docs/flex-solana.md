@@ -687,12 +687,8 @@ pub fn refund(
 **Effects**:
 
 1. Reduce `pending_settlement.amount` by `refund_amount`
-2. If `amount` becomes zero (full refund):
-   - Close the PendingSettlement PDA immediately
-   - Return rent to `escrow.facilitator`
-   - Decrement `escrow.pending_count`
 
-**Notes**: A full refund closes the pending settlement immediately rather than leaving a zero-amount settlement to be finalized later. This saves a transaction and returns rent to the facilitator promptly.
+**Notes**: A full refund reduces `amount` to zero but does not close the PendingSettlement PDA. The PDA remains on-chain until finalized (which transfers zero tokens and closes the PDA normally) or voided. This prevents authorization ID replay: because the PDA survives, `init` will reject any attempt to resubmit the same authorization ID, blocking signature replay attacks against the escrow.
 
 **Refund and Splits**: Refund reduces `pending.amount`. The split percentages (bps) remain constant. The reduced amount is distributed proportionally at finalize time. For example, if a 100-token settlement with a 70/30 split is partially refunded to 50 tokens, finalize distributes 35 tokens (70%) and 15 tokens (30%).
 
@@ -1577,24 +1573,6 @@ The program uses `anchor_spl::token::Token` exclusively. Token-2022 accounts wit
 All accounts set `version = 1` but no instruction checks the version field. The `UnsupportedAccountVersion` error is defined but never referenced. Adding version checks before a second version exists would be dead code.
 
 **Revisit when:** A state migration is needed. At that point, add version checks and a migration instruction.
-
-### Manual account closure in refund does not zero discriminator
-
-`programs/flex/src/instructions/refund.rs`
-
-When a full refund closes the pending settlement account, it zeroes lamports, reassigns to the system program, and resizes to zero -- but does not write `CLOSED_ACCOUNT_DISCRIMINATOR` like Anchor's `close` constraint does. This is a defense-in-depth gap against revival attacks within the same transaction. The practical risk is minimal since the account is resized to zero and reassigned to the system program. The `finalize` path uses Anchor's `close` constraint properly.
-
-**Revisit when:** An auditor flags this or if the refund instruction is modified to participate in larger composite transactions.
-
-### Replay after full refund
-
-After a full refund closes a `PendingSettlement` PDA, the same `authorization_id` can be reused to create a new pending settlement at the same PDA address, provided the authorization has not expired and the facilitator cooperates (they are a required signer on `submit_authorization`). The Ed25519 signature from the original authorization remains valid because the signed message parameters have not changed.
-
-**Why this is accepted:** The facilitator already has strictly greater power -- they can submit arbitrary authorizations (within session key bounds) and issue partial refunds. Replaying a refunded authorization is a subset of what a malicious facilitator can already do. The replay window is bounded by the authorization's `expires_at_slot`, which is itself bounded by `clock.slot + refund_timeout_slots` at original submission time.
-
-**Mitigation:** Facilitators must not reuse `authorization_id` values. The SDK uses random `u64` values, making accidental collision negligible. Clients should monitor for unexpected pending settlements.
-
-**Revisit when:** The trust model changes to support untrusted facilitators, or if `authorization_id` uniqueness needs to survive across full-refund cycles.
 
 ### Wrong error code for zero-amount deposit
 
