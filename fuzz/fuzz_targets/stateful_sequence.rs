@@ -851,6 +851,7 @@ mod harness {
                     vec![
                         AccountMeta::new(env.escrow_pda, false),
                         AccountMeta::new(env.owner.pubkey(), true),
+                        AccountMeta::new(env.facilitator.pubkey(), false),
                         AccountMeta::new(pending_pda, false),
                     ],
                 );
@@ -1657,6 +1658,7 @@ mod harness {
                     vec![
                         AccountMeta::new(env.escrow_pda, false),
                         AccountMeta::new(env.facilitator.pubkey(), true),
+                        AccountMeta::new(env.facilitator.pubkey(), false),
                         AccountMeta::new(pending_pda, false),
                     ],
                 );

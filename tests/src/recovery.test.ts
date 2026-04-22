@@ -43,7 +43,7 @@ describe("void_pending", () => {
     await fundKeypair(rpc, payer);
   });
 
-  it("closes pending settlement and returns rent to owner", async () => {
+  it("closes pending settlement and returns rent to facilitator", async () => {
     const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
       rpc,
       owner,
@@ -57,13 +57,14 @@ describe("void_pending", () => {
     await waitForSlot(rpc, escrowBefore.lastActivitySlot + 1001n);
     expect(escrowBefore.pendingCount).toBe(1n);
 
-    const { value: ownerBalanceBefore } = await rpc
-      .getBalance(owner.address)
+    const { value: facilitatorBalanceBefore } = await rpc
+      .getBalance(facilitator.address)
       .send();
 
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
       owner,
+      facilitator: facilitator.address,
       pending: pendingPDA,
     });
     await sendTx(rpc, owner, [voidIx]);
@@ -76,10 +77,10 @@ describe("void_pending", () => {
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrowAfter.pendingCount).toBe(0n);
 
-    const { value: ownerBalanceAfter } = await rpc
-      .getBalance(owner.address)
+    const { value: facilitatorBalanceAfter } = await rpc
+      .getBalance(facilitator.address)
       .send();
-    expect(ownerBalanceAfter).toBeGreaterThan(ownerBalanceBefore);
+    expect(facilitatorBalanceAfter).toBeGreaterThan(facilitatorBalanceBefore);
   }, 15_000);
 
   it("fails before deadman timeout", async () => {
@@ -96,6 +97,7 @@ describe("void_pending", () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
         owner,
+        facilitator: facilitator.address,
         pending: pendingPDA,
       });
       await sendTx(rpc, owner, [voidIx]);
@@ -122,9 +124,37 @@ describe("void_pending", () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
         owner: wrongOwner,
+        facilitator: facilitator.address,
         pending: pendingPDA,
       });
       await sendTx(rpc, wrongOwner, [voidIx]);
+    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
+  }, 15_000);
+
+  it("fails with wrong facilitator", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      205,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    const wrongFacilitator = await generateKeyPairSigner();
+    await fundKeypair(rpc, wrongFacilitator);
+
+    await expectToFailWithAnchorError(async () => {
+      const voidIx = getVoidPendingInstruction({
+        escrow: escrowPDA,
+        owner,
+        facilitator: wrongFacilitator.address,
+        pending: pendingPDA,
+      });
+      await sendTx(rpc, owner, [voidIx]);
     }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
   }, 15_000);
 
@@ -145,6 +175,7 @@ describe("void_pending", () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
         owner,
+        facilitator: facilitator.address,
         pending: pendingPDA,
       });
       await sendTx(rpc, owner, [voidIx]);
@@ -167,6 +198,7 @@ describe("void_pending", () => {
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
       owner,
+      facilitator: facilitator.address,
       pending: pendingPDA,
     });
     await sendTx(rpc, owner, [voidIx]);
@@ -243,6 +275,7 @@ describe("emergency_close", () => {
     const void1Ix = getVoidPendingInstruction({
       escrow: escrowPDA,
       owner,
+      facilitator: facilitator.address,
       pending: pending1,
     });
     await sendTx(rpc, owner, [void1Ix]);
@@ -250,6 +283,7 @@ describe("emergency_close", () => {
     const void2Ix = getVoidPendingInstruction({
       escrow: escrowPDA,
       owner,
+      facilitator: facilitator.address,
       pending: pending2,
     });
     await sendTx(rpc, owner, [void2Ix]);
@@ -540,6 +574,7 @@ describe("force_close is removed", () => {
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
       owner,
+      facilitator: facilitator.address,
       pending: pendingPDA,
     });
     await sendTx(rpc, owner, [voidIx]);

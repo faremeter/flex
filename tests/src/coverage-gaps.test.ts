@@ -1042,6 +1042,7 @@ describe("finalize succeeds after deadman timeout", () => {
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
       owner,
+      facilitator: facilitator.address,
       pending: pendingB,
     });
     await sendTx(rpc, owner, [voidIx]);

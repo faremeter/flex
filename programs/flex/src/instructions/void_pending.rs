@@ -8,6 +8,7 @@ pub struct VoidPending<'info> {
     #[account(
         mut,
         has_one = owner,
+        has_one = facilitator,
         seeds = [b"escrow", escrow.owner.as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump,
     )]
@@ -16,9 +17,13 @@ pub struct VoidPending<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
+    /// CHECK: Receives rent from closed pending. Validated via has_one on escrow.
+    #[account(mut)]
+    pub facilitator: UncheckedAccount<'info>,
+
     #[account(
         mut,
-        close = owner,
+        close = facilitator,
         has_one = escrow,
         seeds = [b"pending", escrow.key().as_ref(), &pending.authorization_id.to_le_bytes()],
         bump = pending.bump,
