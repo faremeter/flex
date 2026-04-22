@@ -112,4 +112,7 @@ pub enum FlexError {
 
     #[msg("Only the escrow owner can create new vault accounts")]
     OwnerOnly,
+
+    #[msg("Split calculation arithmetic overflow")]
+    SplitCalculationOverflow,
 }
