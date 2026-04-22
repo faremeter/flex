@@ -29,7 +29,6 @@ pub struct Refund<'info> {
 pub fn refund(ctx: Context<Refund>, refund_amount: u64) -> Result<()> {
     let clock = Clock::get()?;
     let escrow_key = ctx.accounts.escrow.key();
-    let pending_count = ctx.accounts.escrow.pending_count;
     let refund_timeout_slots = ctx.accounts.escrow.refund_timeout_slots;
 
     let window_end = ctx
@@ -50,20 +49,6 @@ pub fn refund(ctx: Context<Refund>, refund_amount: u64) -> Result<()> {
 
     let authorization_id = ctx.accounts.pending.authorization_id;
     let remaining = ctx.accounts.pending.amount;
-
-    if remaining == 0 {
-        let pending_info = ctx.accounts.pending.to_account_info();
-        let facilitator_info = ctx.accounts.facilitator.to_account_info();
-
-        **facilitator_info.lamports.borrow_mut() += pending_info.lamports();
-        **pending_info.lamports.borrow_mut() = 0;
-        pending_info.assign(&anchor_lang::solana_program::system_program::ID);
-        pending_info.resize(0)?;
-
-        ctx.accounts.escrow.pending_count = pending_count
-            .checked_sub(1)
-            .ok_or(error!(FlexError::PendingCountMismatch))?;
-    }
 
     ctx.accounts.escrow.last_activity_slot = clock.slot;
 

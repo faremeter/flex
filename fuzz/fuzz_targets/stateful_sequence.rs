@@ -753,7 +753,7 @@ mod harness {
                                 a < before,
                                 "SECURITY: refund did not decrease pending amount ({before} -> {a})"
                             ),
-                            None => {} // account closed (full refund)
+                            None => {} // PDA does not exist (wrong auth_id)
                         }
                     }
 
@@ -1288,7 +1288,7 @@ mod harness {
                 exec_op(env, &submit);
                 if !env.escrow_alive { return; }
 
-                // Full refund closes the PDA
+                // Full refund zeros the amount but keeps the PDA alive
                 let refund = FuzzOp::Refund {
                     auth_id: *auth_id,
                     amount: u32::MAX,

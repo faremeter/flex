@@ -1083,11 +1083,11 @@ describe("pending quota recovery after full refund", () => {
     await fundKeypair(rpc, payer);
   });
 
-  it("allows new submission after full refund frees a slot", async () => {
+  it("allows new submission after finalize frees a slot", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 750, {
-        refundTimeoutSlots: 1_000_000,
-        deadmanTimeoutSlots: 2_000_000,
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
         depositAmount: 10_000_000,
       });
 
@@ -1113,7 +1113,6 @@ describe("pending quota recovery after full refund", () => {
         i,
         1_000,
         splits,
-        { refundTimeoutSlots: 1_000_000 },
       );
     }
 
@@ -1130,16 +1129,24 @@ describe("pending quota recovery after full refund", () => {
           17,
           1_000,
           splits,
-          { refundTimeoutSlots: 1_000_000 },
         ),
       FLEX_ERROR__PENDING_LIMIT_REACHED,
     );
 
-    // Full refund of auth #8 frees a slot.
+    // Finalize pending #8 to free a slot.
     const pending8 = defined(pendingPDAs[8]);
-    await refundHelper(rpc, escrowPDA, facilitator, pending8, 1_000);
+    const pending8Data = defined(await fetchPendingSettlement(rpc, pending8));
+    await waitForSlot(rpc, pending8Data.submittedAtSlot + 150n);
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pending8,
+      vaultPDA,
+      [recipient.address],
+    );
 
-    // Verify the refunded pending account was closed.
     const pending8Info = await rpc
       .getAccountInfo(pending8, { encoding: "base64" })
       .send();
@@ -1157,7 +1164,6 @@ describe("pending quota recovery after full refund", () => {
       17,
       1_000,
       splits,
-      { refundTimeoutSlots: 1_000_000 },
     );
 
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
