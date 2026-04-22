@@ -356,6 +356,7 @@ pub fn close_escrow(
 **Constraints**:
 
 - `pending_count == 0` (no pending settlements)
+- `session_key_count == 0` (all session keys must be closed first)
 - Number of token account pairs in remaining_accounts equals `mint_count * 2`
 
 **Remaining Accounts**: Token accounts are passed as remaining accounts in pairs:
@@ -552,7 +553,10 @@ pub fn close_session_key(
 - `owner` (signer) - Must match `escrow.owner`; receives rent
 - `session_key` (mut, close) - The session key PDA to close
 
-**Constraints**: Session key must be revoked and grace period must have elapsed.
+**Constraints**:
+
+- **Normal mode**: Session key must be revoked and grace period must have elapsed.
+- **Deadman mode**: When `clock.slot > escrow.last_activity_slot + escrow.deadman_timeout_slots`, all constraints are bypassed — active, non-revoked keys can be closed directly. This supports emergency cleanup when the facilitator is unresponsive.
 
 **Effects**:
 
@@ -726,7 +730,7 @@ pub fn finalize(
 
 #### `void_pending`
 
-Voids a single pending settlement after the deadman switch timeout expires. This is the first phase of emergency recovery.
+Voids a single pending settlement after the deadman switch timeout expires. This is the first step of emergency recovery.
 
 ```rust
 pub fn void_pending(
@@ -754,7 +758,7 @@ pub fn void_pending(
 
 #### `emergency_close`
 
-Closes the escrow account unilaterally after the deadman switch timeout expires. This is the second phase of emergency recovery.
+Closes the escrow account unilaterally after the deadman switch timeout expires. This is the final step of emergency recovery.
 
 ```rust
 pub fn emergency_close(
@@ -776,6 +780,7 @@ pub fn emergency_close(
 
 - `current_slot - escrow.last_activity_slot > escrow.deadman_timeout_slots`
 - `escrow.pending_count == 0` (all pending settlements must be voided first)
+- `escrow.session_key_count == 0` (all session keys must be closed first; use `close_session_key` in deadman mode)
 
 **Remaining Accounts**:
 
@@ -791,7 +796,7 @@ pub fn emergency_close(
 1. Transfer all token account balances to owner destination accounts
 2. Close all token account PDAs and escrow account PDA, returning rent to owner
 
-**Notes**: This allows clients to recover funds if a facilitator becomes unresponsive. The two-phase approach (void pending, then close) ensures each transaction stays within size limits.
+**Notes**: This allows clients to recover funds if a facilitator becomes unresponsive. The multi-step approach (void pendings, close session keys, then close escrow) ensures each transaction stays within size limits.
 
 ### Emergency Recovery Workflow
 
@@ -799,13 +804,14 @@ When a facilitator becomes unresponsive and the deadman timeout expires:
 
 1. **Query pending settlements**: Use `getProgramAccounts` to find all pending settlements for the escrow
 2. **Void each pending settlement**: Call `void_pending` for each one (can be batched, ~4-5 per transaction)
-3. **Close the escrow**: Call `emergency_close` with all token account pairs
+3. **Close session keys**: Call `close_session_key` for each session key (deadman mode bypasses revocation/grace-period checks)
+4. **Close the escrow**: Call `emergency_close` with all token account pairs
 
-This two-phase approach:
+This multi-step approach:
 
 - Keeps each transaction under size limits
-- Allows progress even with many pending settlements
-- Pending settlement rent is returned to the facilitator (who paid at submission); escrow and token account rent is returned to the owner
+- Allows progress even with many pending settlements and session keys
+- Pending settlement rent is returned to the facilitator (who paid at submission); session key and escrow rent is returned to the owner
 
 **Protocol Limits**: To keep recovery manageable, the protocol enforces:
 
@@ -1087,7 +1093,7 @@ This gives facilitators time to submit any outstanding authorizations while allo
 
 ### Escrow Closure Gating
 
-The `close_escrow` instruction checks on-chain that `pending_count == 0`. This ensures no pending settlements exist before the escrow can be closed normally. The facilitator must finalize all pending settlements before co-signing escrow closure.
+The `close_escrow` and `emergency_close` instructions check on-chain that `pending_count == 0` and `session_key_count == 0`. This ensures no pending settlements or session keys exist before the escrow can be closed. For normal closure, the facilitator must finalize all pending settlements before co-signing. For emergency closure, the owner must void all pending settlements and close all session keys (deadman mode) before closing the escrow.
 
 ### Duplicate Account Prevention
 
@@ -1355,6 +1361,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6035 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
 | 6036 | OwnerOnly                   | Only the escrow owner can create new vault accounts                                 |
 | 6037 | SplitCalculationOverflow    | Split calculation arithmetic overflow                                               |
+| 6038 | SessionKeysExist            | Cannot close escrow with active session keys                                        |
 
 ## Event Emission
 

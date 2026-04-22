@@ -90,6 +90,8 @@ export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1793; // 6035
 export const FLEX_ERROR__OWNER_ONLY = 0x1794; // 6036
 /** SplitCalculationOverflow: Split calculation arithmetic overflow */
 export const FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW = 0x1795; // 6037
+/** SessionKeysExist: Cannot close escrow with active session keys */
+export const FLEX_ERROR__SESSION_KEYS_EXIST = 0x1796; // 6038
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -123,6 +125,7 @@ export type FlexError =
   | typeof FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE
   | typeof FLEX_ERROR__SESSION_KEY_LIMIT_REACHED
   | typeof FLEX_ERROR__SESSION_KEY_REVOKED
+  | typeof FLEX_ERROR__SESSION_KEYS_EXIST
   | typeof FLEX_ERROR__SESSION_KEY_STILL_ACTIVE
   | typeof FLEX_ERROR__SETTLE_AMOUNT_ZERO
   | typeof FLEX_ERROR__SETTLE_EXCEEDS_MAX
@@ -165,6 +168,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE]: `Cannot close session key during grace period`,
     [FLEX_ERROR__SESSION_KEY_LIMIT_REACHED]: `Maximum session keys per escrow reached`,
     [FLEX_ERROR__SESSION_KEY_REVOKED]: `Session key revoked and grace period elapsed`,
+    [FLEX_ERROR__SESSION_KEYS_EXIST]: `Cannot close escrow with active session keys`,
     [FLEX_ERROR__SESSION_KEY_STILL_ACTIVE]: `Session key must be revoked before closing`,
     [FLEX_ERROR__SETTLE_AMOUNT_ZERO]: `Settle amount must be greater than zero`,
     [FLEX_ERROR__SETTLE_EXCEEDS_MAX]: `Settle amount exceeds max authorized amount`,

@@ -9,6 +9,9 @@ import {
   FLEX_PROGRAM_ADDRESS,
   FLEX_ERROR__DEADMAN_NOT_EXPIRED,
   FLEX_ERROR__PENDING_SETTLEMENTS_EXIST,
+  FLEX_ERROR__SESSION_KEYS_EXIST,
+  getCloseSessionKeyInstruction,
+  getRevokeSessionKeyInstruction,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
@@ -291,6 +294,14 @@ describe("emergency_close", () => {
     const escrowPreClose = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrowPreClose.pendingCount).toBe(0n);
 
+    // Close session key via deadman mode before emergency_close
+    const closeKeyIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [closeKeyIx]);
+
     const dest = await createFundedTokenAccount(
       rpc,
       mint,
@@ -322,14 +333,24 @@ describe("emergency_close", () => {
   }, 30_000);
 
   it("fails before deadman timeout even with no pending settlements", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
-      rpc,
+    const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 212, {
+        deadmanTimeoutSlots: 100_000,
+        depositAmount: 1_000,
+      });
+
+    // Revoke and close session key so the test isolates deadman behavior
+    const revokeIx = getRevokeSessionKeyInstruction({
       owner,
-      facilitator,
-      payer,
-      212,
-      { deadmanTimeoutSlots: 100_000, depositAmount: 1_000 },
-    );
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    const closeKeyIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [revokeIx, closeKeyIx]);
 
     const dest = await createFundedTokenAccount(
       rpc,
@@ -383,14 +404,23 @@ describe("emergency_close", () => {
   }, 15_000);
 
   it("fails at exact deadman timeout slot", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
-      rpc,
+    const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 214, {
+        deadmanTimeoutSlots: 1000,
+      });
+
+    // Revoke and close session key so the test isolates deadman behavior
+    const revokeIx = getRevokeSessionKeyInstruction({
       owner,
-      facilitator,
-      payer,
-      214,
-      { deadmanTimeoutSlots: 1000 },
-    );
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    const closeKeyIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [revokeIx, closeKeyIx]);
 
     const dest = await createFundedTokenAccount(
       rpc,
@@ -415,14 +445,21 @@ describe("emergency_close", () => {
   }, 15_000);
 
   it("succeeds one slot after deadman timeout", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
-      rpc,
+    const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 215, {
+        deadmanTimeoutSlots: 1000,
+      });
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
+
+    // Close session key via deadman mode
+    const closeKeyIx = getCloseSessionKeyInstruction({
       owner,
-      facilitator,
-      payer,
-      215,
-      { deadmanTimeoutSlots: 1000 },
-    );
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [closeKeyIx]);
 
     const dest = await createFundedTokenAccount(
       rpc,
@@ -431,9 +468,6 @@ describe("emergency_close", () => {
       payer,
       0n,
     );
-
-    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    await waitForSlot(rpc, escrow.lastActivitySlot + 1001n);
 
     const baseIx = getEmergencyCloseInstruction({
       escrow: escrowPDA,
@@ -560,7 +594,7 @@ describe("force_close is removed", () => {
   }, 15_000);
 
   it("recovery still works via void_pending + emergency_close", async () => {
-    const { escrowPDA, mint, vaultPDA, pendingPDA } =
+    const { escrowPDA, mint, vaultPDA, pendingPDA, sessionKeyPDA } =
       await setupEscrowWithPending(rpc, owner, facilitator, payer, 221, {
         deadmanTimeoutSlots: 1000,
         settleAmount: 50_000,
@@ -582,6 +616,14 @@ describe("force_close is removed", () => {
     const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(escrowMid.pendingCount).toBe(0n);
 
+    // Close session key via deadman mode
+    const closeKeyIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [closeKeyIx]);
+
     const dest = await createFundedTokenAccount(
       rpc,
       mint,
@@ -600,6 +642,83 @@ describe("force_close is removed", () => {
 
     const destBalance = await fetchTokenBalance(rpc, dest.address);
     expect(destBalance).toBe(1_000_000n);
+
+    const escrowInfo = await rpc
+      .getAccountInfo(escrowPDA, { encoding: "base64" })
+      .send();
+    expect(escrowInfo.value).toBeNull();
+  }, 30_000);
+
+  it("rejects emergency_close when session keys exist", async () => {
+    const { escrowPDA, mint, vaultPDA } = await setupEscrowForAuth(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      570,
+      { deadmanTimeoutSlots: 1000 },
+    );
+
+    // Session key already registered by setupEscrowForAuth — don't close it
+    const currentSlot = await rpc.getSlot().send();
+    await waitForSlot(rpc, currentSlot + 1100n);
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    await expectToFailWithAnchorError(async () => {
+      const baseIx = getEmergencyCloseInstruction({
+        escrow: escrowPDA,
+        owner,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      });
+      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+      await sendTx(rpc, owner, [ix]);
+    }, FLEX_ERROR__SESSION_KEYS_EXIST);
+  });
+
+  it("completes emergency cleanup with deadman session key close", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 571, {
+        deadmanTimeoutSlots: 1000,
+      });
+
+    // Wait for deadman timeout
+    const currentSlot = await rpc.getSlot().send();
+    await waitForSlot(rpc, currentSlot + 1100n);
+
+    // Close session key via deadman mode (key is active, not revoked)
+    const closeKeyIx = getCloseSessionKeyInstruction({
+      owner,
+      escrow: escrowPDA,
+      sessionKeyAccount: sessionKeyPDA,
+    });
+    await sendTx(rpc, owner, [closeKeyIx]);
+
+    const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowAfter.sessionKeyCount).toBe(0);
+
+    // Now emergency_close should succeed
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const baseIx = getEmergencyCloseInstruction({
+      escrow: escrowPDA,
+      owner,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
+    await sendTx(rpc, owner, [ix]);
 
     const escrowInfo = await rpc
       .getAccountInfo(escrowPDA, { encoding: "base64" })

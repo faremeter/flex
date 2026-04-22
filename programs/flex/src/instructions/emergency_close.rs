@@ -14,6 +14,7 @@ pub struct EmergencyClose<'info> {
         close = owner,
         has_one = owner,
         constraint = escrow.pending_count == 0 @ FlexError::PendingSettlementsExist,
+        constraint = escrow.session_key_count == 0 @ FlexError::SessionKeysExist,
         seeds = [b"escrow", escrow.owner.as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump,
     )]

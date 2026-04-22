@@ -29,22 +29,31 @@ pub struct CloseSessionKey<'info> {
 
 pub fn close_session_key(ctx: Context<CloseSessionKey>) -> Result<()> {
     let ska = &ctx.accounts.session_key_account;
+    let escrow = &ctx.accounts.escrow;
     let session_key = ska.key;
 
-    require!(!ska.active, FlexError::SessionKeyStillActive);
-
-    let revoked_at_slot = ska
-        .revoked_at_slot
-        .ok_or(error!(FlexError::SessionKeyStillActive))?;
-    let grace_end = revoked_at_slot
-        .checked_add(ska.revocation_grace_period_slots)
-        .ok_or(error!(FlexError::SessionKeyGracePeriodActive))?;
-
     let clock = Clock::get()?;
-    require!(
-        clock.slot >= grace_end,
-        FlexError::SessionKeyGracePeriodActive
-    );
+
+    let deadman_expired = escrow
+        .last_activity_slot
+        .checked_add(escrow.deadman_timeout_slots)
+        .is_some_and(|timeout_slot| clock.slot > timeout_slot);
+
+    if !deadman_expired {
+        require!(!ska.active, FlexError::SessionKeyStillActive);
+
+        let revoked_at_slot = ska
+            .revoked_at_slot
+            .ok_or(error!(FlexError::SessionKeyStillActive))?;
+        let grace_end = revoked_at_slot
+            .checked_add(ska.revocation_grace_period_slots)
+            .ok_or(error!(FlexError::SessionKeyGracePeriodActive))?;
+
+        require!(
+            clock.slot >= grace_end,
+            FlexError::SessionKeyGracePeriodActive
+        );
+    }
 
     let escrow_key = ctx.accounts.escrow.key();
     let new_count = ctx
