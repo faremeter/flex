@@ -756,15 +756,16 @@ pub fn void_pending(
 **Accounts**:
 
 - `escrow` (mut) - The escrow account (for updating `pending_count`)
-- `owner` (signer, mut) - Escrow owner; receives rent from closed pending settlement
+- `owner` (signer, mut) - Must match `escrow.owner`
+- `facilitator` (mut) - Receives rent from closed pending settlement. Validated via `has_one` on escrow.
 - `pending` (mut, close) - The pending settlement to void
 
 **Effects**:
 
-1. Close the PendingSettlement PDA, returning rent to `escrow.owner`
+1. Close the PendingSettlement PDA, returning rent to the facilitator (who paid at submission)
 2. Decrement `escrow.pending_count`
 
-**Notes**: Call this instruction repeatedly to void all pending settlements before calling `emergency_close`. Each call handles one pending settlement, keeping transactions simple and under size limits. Rent is returned to the owner (not the facilitator) because emergency recovery occurs when the facilitator is unresponsive.
+**Notes**: Call this instruction repeatedly to void all pending settlements before calling `emergency_close`. Each call handles one pending settlement, keeping transactions simple and under size limits.
 
 #### `emergency_close`
 
@@ -819,7 +820,7 @@ This two-phase approach:
 
 - Keeps each transaction under size limits
 - Allows progress even with many pending settlements
-- Returns all rent to owner (facilitator is unresponsive)
+- Pending settlement rent is returned to the facilitator (who paid at submission); escrow and token account rent is returned to the owner
 
 **Protocol Limits**: To keep recovery manageable, the protocol enforces:
 
@@ -1320,12 +1321,12 @@ Estimated compute units per instruction (excluding transaction overhead):
 | Escrow Account     | Owner (at creation)          | Owner                     | Owner                        |
 | Token Account      | Depositor (at first deposit) | Owner                     | Owner                        |
 | Session Key        | Owner (at registration)      | Owner                     | Owner                        |
-| Pending Settlement | Facilitator (at submission)  | Facilitator               | Owner                        |
+| Pending Settlement | Facilitator (at submission)  | Facilitator               | Facilitator                  |
 
 **Notes:**
 
 - Token account rent is paid by whoever first deposits that mint, not the escrow owner. This prevents griefing where someone creates many token accounts to lock up the owner's SOL.
-- During emergency recovery (`void_pending`), pending settlement rent is returned to the owner rather than the facilitator, since the facilitator is unresponsive.
+- Pending settlement rent is always returned to the facilitator (who paid at submission), regardless of whether closure is via `finalize`, `refund`, or `void_pending`.
 
 ## Error Codes
 

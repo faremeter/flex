@@ -51,6 +51,7 @@ export type VoidPendingInstruction<
   TProgram extends string = typeof FLEX_PROGRAM_ADDRESS,
   TAccountEscrow extends string | AccountMeta<string> = string,
   TAccountOwner extends string | AccountMeta<string> = string,
+  TAccountFacilitator extends string | AccountMeta<string> = string,
   TAccountPending extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
@@ -64,6 +65,9 @@ export type VoidPendingInstruction<
         ? WritableSignerAccount<TAccountOwner> &
             AccountSignerMeta<TAccountOwner>
         : TAccountOwner,
+      TAccountFacilitator extends string
+        ? WritableAccount<TAccountFacilitator>
+        : TAccountFacilitator,
       TAccountPending extends string
         ? WritableAccount<TAccountPending>
         : TAccountPending,
@@ -101,25 +105,34 @@ export function getVoidPendingInstructionDataCodec(): FixedSizeCodec<
 export type VoidPendingInput<
   TAccountEscrow extends string = string,
   TAccountOwner extends string = string,
+  TAccountFacilitator extends string = string,
   TAccountPending extends string = string,
 > = {
   escrow: Address<TAccountEscrow>;
   owner: TransactionSigner<TAccountOwner>;
+  facilitator: Address<TAccountFacilitator>;
   pending: Address<TAccountPending>;
 };
 
 export function getVoidPendingInstruction<
   TAccountEscrow extends string,
   TAccountOwner extends string,
+  TAccountFacilitator extends string,
   TAccountPending extends string,
   TProgramAddress extends Address = typeof FLEX_PROGRAM_ADDRESS,
 >(
-  input: VoidPendingInput<TAccountEscrow, TAccountOwner, TAccountPending>,
+  input: VoidPendingInput<
+    TAccountEscrow,
+    TAccountOwner,
+    TAccountFacilitator,
+    TAccountPending
+  >,
   config?: { programAddress?: TProgramAddress },
 ): VoidPendingInstruction<
   TProgramAddress,
   TAccountEscrow,
   TAccountOwner,
+  TAccountFacilitator,
   TAccountPending
 > {
   // Program address.
@@ -129,6 +142,7 @@ export function getVoidPendingInstruction<
   const originalAccounts = {
     escrow: { value: input.escrow ?? null, isWritable: true },
     owner: { value: input.owner ?? null, isWritable: true },
+    facilitator: { value: input.facilitator ?? null, isWritable: true },
     pending: { value: input.pending ?? null, isWritable: true },
   };
   const accounts = originalAccounts as Record<
@@ -141,6 +155,7 @@ export function getVoidPendingInstruction<
     accounts: [
       getAccountMeta("escrow", accounts.escrow),
       getAccountMeta("owner", accounts.owner),
+      getAccountMeta("facilitator", accounts.facilitator),
       getAccountMeta("pending", accounts.pending),
     ],
     data: getVoidPendingInstructionDataEncoder().encode({}),
@@ -149,6 +164,7 @@ export function getVoidPendingInstruction<
     TProgramAddress,
     TAccountEscrow,
     TAccountOwner,
+    TAccountFacilitator,
     TAccountPending
   >);
 }
@@ -161,7 +177,8 @@ export type ParsedVoidPendingInstruction<
   accounts: {
     escrow: TAccountMetas[0];
     owner: TAccountMetas[1];
-    pending: TAccountMetas[2];
+    facilitator: TAccountMetas[2];
+    pending: TAccountMetas[3];
   };
   data: VoidPendingInstructionData;
 };
@@ -174,12 +191,12 @@ export function parseVoidPendingInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedVoidPendingInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 3,
+        expectedAccountMetas: 4,
       },
     );
   }
@@ -194,6 +211,7 @@ export function parseVoidPendingInstruction<
     accounts: {
       escrow: getNextAccount(),
       owner: getNextAccount(),
+      facilitator: getNextAccount(),
       pending: getNextAccount(),
     },
     data: getVoidPendingInstructionDataDecoder().decode(instruction.data),
