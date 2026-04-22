@@ -76,19 +76,42 @@ pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 
         let rent = Rent::get()?;
         let space = TokenAccount::LEN;
-        let lamports = rent.minimum_balance(space);
+        let required_lamports = rent.minimum_balance(space);
+        let current_lamports = vault.lamports();
 
-        system_program::create_account(
+        if required_lamports > current_lamports {
+            let shortfall = required_lamports - current_lamports;
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.depositor.to_account_info(),
+                        to: vault.to_account_info(),
+                    },
+                ),
+                shortfall,
+            )?;
+        }
+
+        system_program::allocate(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
-                system_program::CreateAccount {
-                    from: ctx.accounts.depositor.to_account_info(),
-                    to: vault.to_account_info(),
+                system_program::Allocate {
+                    account_to_allocate: vault.to_account_info(),
                 },
             )
             .with_signer(&[signer_seeds]),
-            lamports,
             space as u64,
+        )?;
+
+        system_program::assign(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Assign {
+                    account_to_assign: vault.to_account_info(),
+                },
+            )
+            .with_signer(&[signer_seeds]),
             ctx.accounts.token_program.key,
         )?;
 

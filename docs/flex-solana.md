@@ -312,7 +312,7 @@ pub fn deposit(
 **Token Account Creation**:
 The token account PDA is passed as an `UncheckedAccount` with seed validation. The handler checks `data_is_empty()` on the account to determine whether it needs to be created:
 
-- **If empty** (account does not exist): the handler creates the token account via CPI (`create_account` + `initialize_account3`), with the depositor as payer and the escrow PDA as token authority. `escrow.mint_count` is incremented after validating the mint limit.
+- **If empty** (account does not exist): the handler creates the token account via CPI (`transfer` (conditional) + `allocate` + `assign` + `initialize_account3`), with the depositor as payer and the escrow PDA as token authority. The transfer only occurs if the PDA's current lamport balance is below the rent-exempt minimum, in which case the depositor covers the shortfall. `escrow.mint_count` is incremented after validating the mint limit. This pattern (instead of `create_account`) tolerates pre-existing lamports on the PDA, preventing a DoS attack where an adversary sends dust to the predictable vault address before the first deposit.
 - **If not empty** (account exists): the handler deserializes the account as a `TokenAccount` and validates that its mint and authority match the expected values.
 
 This approach avoids `init_if_needed`, which hides whether the account was created or already existed. Without reliable creation detection, `mint_count` could be incorrectly incremented when depositing into a vault that was previously drained to zero by `finalize` -- making the escrow uncloseable.

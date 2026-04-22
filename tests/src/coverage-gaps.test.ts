@@ -22,6 +22,7 @@ import {
   FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
   FLEX_ERROR__PENDING_LIMIT_REACHED,
   FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
+  findVaultPda,
 } from "@faremeter/flex-solana";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { getTransferSolInstruction } from "@solana-program/system";
@@ -1297,5 +1298,103 @@ describe("partial refund then finalize distributes reduced amount", () => {
 
     // Vault retains the un-refunded portion (1M deposit - 60k finalized).
     expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(940_000n);
+  });
+});
+
+describe("deposit succeeds when vault PDA is pre-funded", () => {
+  const rpc = createRpc();
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("creates vault when PDA has dust lamports from an attacker", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 80);
+    const mint = await createTestMint(rpc, payer);
+
+    const [vaultAddress] = await findVaultPda({
+      escrow: escrowPDA,
+      mint: mint.address,
+    });
+
+    // Attacker sends dust to the predictable vault PDA address
+    const dustIx = getTransferSolInstruction({
+      source: payer,
+      destination: vaultAddress,
+      amount: 1,
+    });
+    await sendTx(rpc, payer, [dustIx]);
+
+    const source = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      1_000_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: source.address,
+      amount: 500_000,
+    });
+    await sendTx(rpc, owner, [depositIx]);
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.mintCount)).toBe(1);
+
+    const balance = await fetchTokenBalance(rpc, vaultAddress);
+    expect(balance).toBe(500_000n);
+  });
+
+  it("creates vault when PDA is overfunded beyond rent-exempt minimum", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 81);
+    const mint = await createTestMint(rpc, payer);
+
+    const [vaultAddress] = await findVaultPda({
+      escrow: escrowPDA,
+      mint: mint.address,
+    });
+
+    // Attacker overfunds the vault PDA with more than rent-exempt minimum
+    // (rent-exempt for a token account is ~2.04M lamports)
+    const overfundIx = getTransferSolInstruction({
+      source: payer,
+      destination: vaultAddress,
+      amount: 5_000_000,
+    });
+    await sendTx(rpc, payer, [overfundIx]);
+
+    const source = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      1_000_000n,
+    );
+
+    const depositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: source.address,
+      amount: 500_000,
+    });
+    await sendTx(rpc, owner, [depositIx]);
+
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.mintCount)).toBe(1);
+
+    const balance = await fetchTokenBalance(rpc, vaultAddress);
+    expect(balance).toBe(500_000n);
   });
 });
