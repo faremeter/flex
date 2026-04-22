@@ -40,7 +40,6 @@ export {
   getCloseEscrowInstruction,
   getVoidPendingInstruction,
   getEmergencyCloseInstruction,
-  getForceCloseInstruction,
   getFlexErrorMessage,
 } from "./generated";
 export type { FlexError, SplitEntry } from "./generated";
@@ -63,7 +62,6 @@ export {
   FLEX_ERROR__DUPLICATE_ACCOUNTS,
   FLEX_ERROR__SESSION_KEY_LIMIT_REACHED,
   FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
-  FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED,
   FLEX_ERROR__INVALID_SPLIT_BPS,
   FLEX_ERROR__SPLIT_BPS_ZERO,
   FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT,

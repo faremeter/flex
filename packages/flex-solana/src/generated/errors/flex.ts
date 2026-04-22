@@ -56,38 +56,36 @@ export const FLEX_ERROR__SESSION_KEY_LIMIT_REACHED = 0x1782; // 6018
 export const FLEX_ERROR__INVALID_ED25519_INSTRUCTION = 0x1783; // 6019
 /** InvalidSplitRecipient: Recipient is not a valid token account for the specified mint */
 export const FLEX_ERROR__INVALID_SPLIT_RECIPIENT = 0x1784; // 6020
-/** ForceCloseTimeoutNotExpired: Cannot force close before extended timeout */
-export const FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED = 0x1785; // 6021
 /** InvalidSplitCount: Split count must be between 1 and 5 */
-export const FLEX_ERROR__INVALID_SPLIT_COUNT = 0x1786; // 6022
+export const FLEX_ERROR__INVALID_SPLIT_COUNT = 0x1785; // 6021
 /** InvalidSplitBps: Split bps do not sum to 10000 */
-export const FLEX_ERROR__INVALID_SPLIT_BPS = 0x1787; // 6023
+export const FLEX_ERROR__INVALID_SPLIT_BPS = 0x1786; // 6022
 /** SplitBpsZero: A split entry has bps of zero */
-export const FLEX_ERROR__SPLIT_BPS_ZERO = 0x1788; // 6024
+export const FLEX_ERROR__SPLIT_BPS_ZERO = 0x1787; // 6023
 /** DuplicateSplitRecipient: Duplicate recipient in splits */
-export const FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT = 0x1789; // 6025
+export const FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT = 0x1788; // 6024
 /** SessionKeyStillActive: Session key must be revoked before closing */
-export const FLEX_ERROR__SESSION_KEY_STILL_ACTIVE = 0x178a; // 6026
+export const FLEX_ERROR__SESSION_KEY_STILL_ACTIVE = 0x1789; // 6025
 /** SessionKeyCountUnderflow: Session key count underflow */
-export const FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW = 0x178b; // 6027
+export const FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW = 0x178a; // 6026
 /** SettleExceedsMax: Settle amount exceeds max authorized amount */
-export const FLEX_ERROR__SETTLE_EXCEEDS_MAX = 0x178c; // 6028
+export const FLEX_ERROR__SETTLE_EXCEEDS_MAX = 0x178b; // 6027
 /** SettleAmountZero: Settle amount must be greater than zero */
-export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178d; // 6029
+export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178c; // 6028
 /** ExpiryTooFar: Authorization expiry exceeds refund timeout */
-export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178e; // 6030
+export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178d; // 6029
 /** RefundAmountZero: Refund amount must be greater than zero */
-export const FLEX_ERROR__REFUND_AMOUNT_ZERO = 0x178f; // 6031
+export const FLEX_ERROR__REFUND_AMOUNT_ZERO = 0x178e; // 6030
 /** RefundTimeoutTooShort: Refund timeout below minimum of 150 slots */
-export const FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT = 0x1790; // 6032
+export const FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT = 0x178f; // 6031
 /** DeadmanTimeoutTooShort: Deadman timeout below minimum of 1000 slots */
-export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT = 0x1791; // 6033
+export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT = 0x1790; // 6032
 /** RefundTimeoutTooLong: Refund timeout exceeds maximum of 1296000 slots */
-export const FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG = 0x1792; // 6034
+export const FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG = 0x1791; // 6033
 /** DeadmanTimeoutTooLong: Deadman timeout exceeds maximum of 2592000 slots */
-export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1793; // 6035
+export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1792; // 6034
 /** DeadmanTooCloseToRefund: Deadman timeout must be at least 2x refund timeout */
-export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1794; // 6036
+export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1793; // 6035
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -98,7 +96,6 @@ export type FlexError =
   | typeof FLEX_ERROR__DUPLICATE_ACCOUNTS
   | typeof FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__EXPIRY_TOO_FAR
-  | typeof FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED
   | typeof FLEX_ERROR__INSUFFICIENT_BALANCE
   | typeof FLEX_ERROR__INVALID_ED25519_INSTRUCTION
   | typeof FLEX_ERROR__INVALID_SIGNATURE
@@ -139,7 +136,6 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__DUPLICATE_ACCOUNTS]: `Same account passed multiple times`,
     [FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT]: `Duplicate recipient in splits`,
     [FLEX_ERROR__EXPIRY_TOO_FAR]: `Authorization expiry exceeds refund timeout`,
-    [FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED]: `Cannot force close before extended timeout`,
     [FLEX_ERROR__INSUFFICIENT_BALANCE]: `Token account balance insufficient`,
     [FLEX_ERROR__INVALID_ED25519_INSTRUCTION]: `Ed25519 instruction malformed or missing`,
     [FLEX_ERROR__INVALID_SIGNATURE]: `Ed25519 signature verification failed`,

@@ -807,53 +807,6 @@ pub fn emergency_close(
 
 **Notes**: This allows clients to recover funds if a facilitator becomes unresponsive. The two-phase approach (void pending, then close) ensures each transaction stays within size limits.
 
-#### `force_close`
-
-Last-resort escape hatch that closes the escrow even if `pending_count` is inconsistent with actual PDA state. This handles edge cases where accounting becomes corrupted.
-
-```rust
-pub fn force_close(
-    ctx: Context<ForceClose>,
-) -> Result<()>
-```
-
-**Signers**: Owner only
-
-**Accounts**:
-
-- `escrow` (mut, close) - The escrow account to close
-- `owner` (signer, mut) - Escrow owner; receives all rent and token balances
-- `token_program` - SPL Token program
-- `system_program` - System program
-- Remaining accounts: Token account pairs (as in `close_escrow`)
-
-**Constraints**:
-
-- `current_slot - escrow.last_activity_slot > escrow.deadman_timeout_slots * 2` (double the normal deadman timeout)
-
-**Effects**:
-
-1. Transfer all token account balances to owner destination accounts
-2. Close all token account PDAs and escrow account PDA, returning rent to owner
-3. Does NOT check `pending_count` (this is the key difference from `emergency_close`)
-
-**When to use `force_close`:**
-
-| Scenario                                     | Use                                    |
-| -------------------------------------------- | -------------------------------------- |
-| Normal unresponsive facilitator              | `void_pending` + `emergency_close`     |
-| `pending_count` field corrupted              | `force_close` after 2x deadman timeout |
-| Bug causes accounting mismatch               | `force_close` after 2x deadman timeout |
-| PendingSettlement PDAs exist but not tracked | `force_close` after 2x deadman timeout |
-
-**Security rationale:** The extended timeout (2x deadman) ensures this is truly a last resort. In normal operation, `void_pending` + `emergency_close` should always work. The `force_close` instruction exists only for catastrophic accounting failures.
-
-**Warning:** Any pending settlement PDAs that exist when `force_close` is called become orphaned. Their rent is not recovered. This is acceptable because:
-
-1. The scenario should be extremely rare
-2. Rent is small (~0.002 SOL per PDA)
-3. Recovering funds is more important than rent optimization
-
 ### Emergency Recovery Workflow
 
 When a facilitator becomes unresponsive and the deadman timeout expires:
@@ -1399,22 +1352,21 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6018 | SessionKeyLimitReached      | Maximum session keys per escrow reached                                             |
 | 6019 | InvalidEd25519Instruction   | Ed25519 instruction malformed or missing required data                              |
 | 6020 | InvalidSplitRecipient       | Recipient is not a valid token account for the specified mint (checked at finalize) |
-| 6021 | ForceCloseTimeoutNotExpired | Cannot force close before extended timeout (2x deadman)                             |
-| 6022 | InvalidSplitCount           | splits.len() < 1 or > MAX_SPLITS                                                    |
-| 6023 | InvalidSplitBps             | Split bps do not sum to 10000                                                       |
-| 6024 | SplitBpsZero                | A split entry has bps == 0                                                          |
-| 6025 | DuplicateSplitRecipient     | Same recipient appears more than once in splits                                     |
-| 6026 | SessionKeyStillActive       | Session key must be revoked before closing                                          |
-| 6027 | SessionKeyCountUnderflow    | Session key count underflow                                                         |
-| 6028 | SettleExceedsMax            | Settle amount exceeds max authorized amount                                         |
-| 6029 | SettleAmountZero            | Settle amount must be greater than zero                                             |
-| 6030 | ExpiryTooFar                | Authorization expiry exceeds refund timeout                                         |
-| 6031 | RefundAmountZero            | Refund amount must be greater than zero                                             |
-| 6032 | RefundTimeoutTooShort       | Refund timeout below minimum of 150 slots                                           |
-| 6033 | DeadmanTimeoutTooShort      | Deadman timeout below minimum of 1000 slots                                         |
-| 6034 | RefundTimeoutTooLong        | Refund timeout exceeds maximum of 1296000 slots                                     |
-| 6035 | DeadmanTimeoutTooLong       | Deadman timeout exceeds maximum of 2592000 slots                                    |
-| 6036 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
+| 6021 | InvalidSplitCount           | splits.len() < 1 or > MAX_SPLITS                                                    |
+| 6022 | InvalidSplitBps             | Split bps do not sum to 10000                                                       |
+| 6023 | SplitBpsZero                | A split entry has bps == 0                                                          |
+| 6024 | DuplicateSplitRecipient     | Same recipient appears more than once in splits                                     |
+| 6025 | SessionKeyStillActive       | Session key must be revoked before closing                                          |
+| 6026 | SessionKeyCountUnderflow    | Session key count underflow                                                         |
+| 6027 | SettleExceedsMax            | Settle amount exceeds max authorized amount                                         |
+| 6028 | SettleAmountZero            | Settle amount must be greater than zero                                             |
+| 6029 | ExpiryTooFar                | Authorization expiry exceeds refund timeout                                         |
+| 6030 | RefundAmountZero            | Refund amount must be greater than zero                                             |
+| 6031 | RefundTimeoutTooShort       | Refund timeout below minimum of 150 slots                                           |
+| 6032 | DeadmanTimeoutTooShort      | Deadman timeout below minimum of 1000 slots                                         |
+| 6033 | RefundTimeoutTooLong        | Refund timeout exceeds maximum of 1296000 slots                                     |
+| 6034 | DeadmanTimeoutTooLong       | Deadman timeout exceeds maximum of 2592000 slots                                    |
+| 6035 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
 
 ## Event Emission
 
@@ -1438,9 +1390,7 @@ pub struct EscrowClosed {
     pub escrow: Pubkey,
     pub owner: Pubkey,
     pub index: u64,
-    /// True if closed via emergency_close or force_close, false if normal close.
-    /// Both emergency_close and force_close emit this event with emergency: true.
-    /// Indexers should check the instruction name to distinguish between them.
+    /// True if closed via emergency_close, false if normal close.
     pub emergency: bool,
 }
 
