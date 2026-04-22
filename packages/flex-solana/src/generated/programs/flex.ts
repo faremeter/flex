@@ -49,7 +49,6 @@ import {
   getDepositInstructionAsync,
   getEmergencyCloseInstruction,
   getFinalizeInstruction,
-  getForceCloseInstruction,
   getRefundInstruction,
   getRegisterSessionKeyInstructionAsync,
   getRevokeSessionKeyInstruction,
@@ -61,7 +60,6 @@ import {
   parseDepositInstruction,
   parseEmergencyCloseInstruction,
   parseFinalizeInstruction,
-  parseForceCloseInstruction,
   parseRefundInstruction,
   parseRegisterSessionKeyInstruction,
   parseRevokeSessionKeyInstruction,
@@ -73,14 +71,12 @@ import {
   type DepositAsyncInput,
   type EmergencyCloseInput,
   type FinalizeInput,
-  type ForceCloseInput,
   type ParsedCloseEscrowInstruction,
   type ParsedCloseSessionKeyInstruction,
   type ParsedCreateEscrowInstruction,
   type ParsedDepositInstruction,
   type ParsedEmergencyCloseInstruction,
   type ParsedFinalizeInstruction,
-  type ParsedForceCloseInstruction,
   type ParsedRefundInstruction,
   type ParsedRegisterSessionKeyInstruction,
   type ParsedRevokeSessionKeyInstruction,
@@ -159,7 +155,6 @@ export enum FlexInstruction {
   Deposit,
   EmergencyClose,
   Finalize,
-  ForceClose,
   Refund,
   RegisterSessionKey,
   RevokeSessionKey,
@@ -236,17 +231,6 @@ export function identifyFlexInstruction(
     )
   ) {
     return FlexInstruction.Finalize;
-  }
-  if (
-    containsBytes(
-      data,
-      fixEncoderSize(getBytesEncoder(), 8).encode(
-        new Uint8Array([71, 1, 6, 64, 15, 200, 254, 234]),
-      ),
-      0,
-    )
-  ) {
-    return FlexInstruction.ForceClose;
   }
   if (
     containsBytes(
@@ -331,9 +315,6 @@ export type ParsedFlexInstruction<
       instructionType: FlexInstruction.Finalize;
     } & ParsedFinalizeInstruction<TProgram>)
   | ({
-      instructionType: FlexInstruction.ForceClose;
-    } & ParsedForceCloseInstruction<TProgram>)
-  | ({
       instructionType: FlexInstruction.Refund;
     } & ParsedRefundInstruction<TProgram>)
   | ({
@@ -394,13 +375,6 @@ export function parseFlexInstruction<TProgram extends string>(
       return {
         instructionType: FlexInstruction.Finalize,
         ...parseFinalizeInstruction(instruction),
-      };
-    }
-    case FlexInstruction.ForceClose: {
-      assertIsInstructionWithAccounts(instruction);
-      return {
-        instructionType: FlexInstruction.ForceClose,
-        ...parseForceCloseInstruction(instruction),
       };
     }
     case FlexInstruction.Refund: {
@@ -483,9 +457,6 @@ export type FlexPluginInstructions = {
   finalize: (
     input: FinalizeInput,
   ) => ReturnType<typeof getFinalizeInstruction> & SelfPlanAndSendFunctions;
-  forceClose: (
-    input: ForceCloseInput,
-  ) => ReturnType<typeof getForceCloseInstruction> & SelfPlanAndSendFunctions;
   refund: (
     input: RefundInput,
   ) => ReturnType<typeof getRefundInstruction> & SelfPlanAndSendFunctions;
@@ -561,11 +532,6 @@ export function flexProgram() {
             ),
           finalize: (input) =>
             addSelfPlanAndSendFunctions(client, getFinalizeInstruction(input)),
-          forceClose: (input) =>
-            addSelfPlanAndSendFunctions(
-              client,
-              getForceCloseInstruction(input),
-            ),
           refund: (input) =>
             addSelfPlanAndSendFunctions(client, getRefundInstruction(input)),
           registerSessionKey: (input) =>

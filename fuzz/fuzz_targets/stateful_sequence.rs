@@ -85,7 +85,6 @@ mod harness {
         RegisterNewSessionKey { grace_period_slots: u16 },
         CloseSessionKey,
         EmergencyClose,
-        ForceClose,
         CloseEscrow,
         AdvanceSlots { slots: u32 },
         // Compound operations that produce useful multi-step sequences
@@ -1012,50 +1011,6 @@ mod harness {
                     assert!(
                         env.svm.get_account(&env.vault_b_pda).is_none(),
                         "SECURITY: vault B still exists after emergency_close"
-                    );
-
-                    CLOSE_OK.fetch_add(1, Ordering::Relaxed);
-                    env.escrow_alive = false;
-                    env.pending_amounts.clear();
-                    env.pending_splits.clear();
-                    env.pending_mints.clear();
-                    env.submitted_at_slots.clear();
-                }
-            }
-
-            FuzzOp::ForceClose => {
-                // Nuclear option: skips pending_count check at 2x deadman.
-                // remaining_accounts: [vault, owner_dest] pairs for each mint.
-                let accounts = vec![
-                    AccountMeta::new(env.escrow_pda, false),
-                    AccountMeta::new(env.owner.pubkey(), true),
-                    AccountMeta::new_readonly(spl_token_id(), false),
-                    AccountMeta::new(env.vault_pda, false),
-                    AccountMeta::new(env.owner_token, false),
-                    AccountMeta::new(env.vault_b_pda, false),
-                    AccountMeta::new(env.owner_token_b, false),
-                ];
-
-                let ix = build_ix("force_close", &[], accounts);
-
-                if send(&mut env.svm, &env.owner, &[ix]) {
-                    let current_slot =
-                        env.svm.get_sysvar::<solana_clock::Clock>().slot;
-
-                    // Post-hoc: force close requires 2x deadman timeout elapsed
-                    assert!(
-                        current_slot > env.last_activity_slot + env.config.deadman_timeout * 2,
-                        "SECURITY: force_close succeeded before 2x deadman timeout"
-                    );
-
-                    // Post-hoc: vaults should be closed
-                    assert!(
-                        env.svm.get_account(&env.vault_pda).is_none(),
-                        "SECURITY: vault A still exists after force_close"
-                    );
-                    assert!(
-                        env.svm.get_account(&env.vault_b_pda).is_none(),
-                        "SECURITY: vault B still exists after force_close"
                     );
 
                     CLOSE_OK.fetch_add(1, Ordering::Relaxed);

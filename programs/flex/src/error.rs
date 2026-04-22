@@ -65,9 +65,6 @@ pub enum FlexError {
     #[msg("Recipient is not a valid token account for the specified mint")]
     InvalidSplitRecipient,
 
-    #[msg("Cannot force close before extended timeout")]
-    ForceCloseTimeoutNotExpired,
-
     #[msg("Split count must be between 1 and 5")]
     InvalidSplitCount,
 

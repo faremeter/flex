@@ -12,7 +12,6 @@ export * from "./createEscrow";
 export * from "./deposit";
 export * from "./emergencyClose";
 export * from "./finalize";
-export * from "./forceClose";
 export * from "./refund";
 export * from "./registerSessionKey";
 export * from "./revokeSessionKey";

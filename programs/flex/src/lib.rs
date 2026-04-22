@@ -106,8 +106,4 @@ pub mod flex {
     ) -> Result<()> {
         instructions::emergency_close(ctx)
     }
-
-    pub fn force_close<'info>(ctx: Context<'_, '_, '_, 'info, ForceClose<'info>>) -> Result<()> {
-        instructions::force_close(ctx)
-    }
 }

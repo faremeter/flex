@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { generateKeyPairSigner } from "@solana/kit";
-import type { KeyPairSigner } from "@solana/kit";
+import { AccountRole, generateKeyPairSigner } from "@solana/kit";
+import type { Instruction, KeyPairSigner } from "@solana/kit";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import {
   fetchEscrowAccount,
   getVoidPendingInstruction,
   getEmergencyCloseInstruction,
-  getForceCloseInstruction,
+  FLEX_PROGRAM_ADDRESS,
   FLEX_ERROR__DEADMAN_NOT_EXPIRED,
   FLEX_ERROR__PENDING_SETTLEMENTS_EXIST,
-  FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
@@ -452,7 +451,7 @@ describe("emergency_close", () => {
   }, 15_000);
 });
 
-describe("force_close", () => {
+describe("force_close is removed", () => {
   const rpc = createRpc();
 
   let owner: KeyPairSigner;
@@ -468,7 +467,7 @@ describe("force_close", () => {
     await fundKeypair(rpc, payer);
   });
 
-  it("works at 2x deadman timeout even with pending settlements", async () => {
+  it("rejects the force_close discriminant even when timing conditions are met", async () => {
     const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
       rpc,
       owner,
@@ -479,8 +478,6 @@ describe("force_close", () => {
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrowBefore.pendingCount).toBe(1n);
-
     await waitForSlot(rpc, escrowBefore.lastActivitySlot + 2001n);
 
     const dest = await createFundedTokenAccount(
@@ -491,7 +488,74 @@ describe("force_close", () => {
       0n,
     );
 
-    const baseIx = getForceCloseInstruction({
+    // Build a raw instruction using the old force_close Anchor discriminant.
+    // This proves the on-chain program no longer recognizes this instruction,
+    // not just that the TS client stopped exposing it.
+    const FORCE_CLOSE_DISCRIMINATOR = new Uint8Array([
+      71, 1, 6, 64, 15, 200, 254, 234,
+    ]);
+
+    const rawIx: Instruction = {
+      programAddress: FLEX_PROGRAM_ADDRESS,
+      data: FORCE_CLOSE_DISCRIMINATOR,
+      accounts: [
+        { address: escrowPDA, role: AccountRole.WRITABLE },
+        { address: owner.address, role: AccountRole.WRITABLE_SIGNER },
+        { address: TOKEN_PROGRAM_ADDRESS, role: AccountRole.READONLY },
+        { address: vaultPDA, role: AccountRole.WRITABLE },
+        { address: dest.address, role: AccountRole.WRITABLE },
+      ],
+    };
+
+    try {
+      await sendTx(rpc, owner, [rawIx]);
+      throw new Error("should have thrown");
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "should have thrown") {
+        throw err;
+      }
+      // The program should reject an unknown discriminant.
+      // We don't assert a specific error code because Anchor's dispatch
+      // returns a generic error for unrecognized instruction data.
+      expect(err).toBeDefined();
+    }
+
+    // Escrow must still be alive -- force_close must not have succeeded.
+    const escrowAfter = await fetchEscrowAccount(rpc, escrowPDA);
+    expect(escrowAfter).not.toBeNull();
+  }, 15_000);
+
+  it("recovery still works via void_pending + emergency_close", async () => {
+    const { escrowPDA, mint, vaultPDA, pendingPDA } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 221, {
+        deadmanTimeoutSlots: 1000,
+        settleAmount: 50_000,
+      });
+
+    const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowBefore.pendingCount).toBe(1n);
+
+    await waitForSlot(rpc, escrowBefore.lastActivitySlot + 1001n);
+
+    const voidIx = getVoidPendingInstruction({
+      escrow: escrowPDA,
+      owner,
+      pending: pendingPDA,
+    });
+    await sendTx(rpc, owner, [voidIx]);
+
+    const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowMid.pendingCount).toBe(0n);
+
+    const dest = await createFundedTokenAccount(
+      rpc,
+      mint,
+      owner.address,
+      payer,
+      0n,
+    );
+
+    const baseIx = getEmergencyCloseInstruction({
       escrow: escrowPDA,
       owner,
       tokenProgram: TOKEN_PROGRAM_ADDRESS,
@@ -506,136 +570,5 @@ describe("force_close", () => {
       .getAccountInfo(escrowPDA, { encoding: "base64" })
       .send();
     expect(escrowInfo.value).toBeNull();
-  }, 15_000);
-
-  it("fails before 2x deadman timeout", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
-      rpc,
-      owner,
-      facilitator,
-      payer,
-      221,
-      { deadmanTimeoutSlots: 100_000, settleAmount: 50_000 },
-    );
-
-    const dest = await createFundedTokenAccount(
-      rpc,
-      mint,
-      owner.address,
-      payer,
-      0n,
-    );
-
-    await expectToFail(async () => {
-      const baseIx = getForceCloseInstruction({
-        escrow: escrowPDA,
-        owner,
-        tokenProgram: TOKEN_PROGRAM_ADDRESS,
-      });
-      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
-      await sendTx(rpc, owner, [ix]);
-    }, FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED);
-  }, 15_000);
-
-  it("fails at exact 2x deadman timeout slot", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
-      rpc,
-      owner,
-      facilitator,
-      payer,
-      223,
-      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
-    );
-
-    const dest = await createFundedTokenAccount(
-      rpc,
-      mint,
-      owner.address,
-      payer,
-      0n,
-    );
-
-    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    await waitForSlot(rpc, escrow.lastActivitySlot + 2000n);
-
-    await expectToFail(async () => {
-      const baseIx = getForceCloseInstruction({
-        escrow: escrowPDA,
-        owner,
-        tokenProgram: TOKEN_PROGRAM_ADDRESS,
-      });
-      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
-      await sendTx(rpc, owner, [ix]);
-    }, FLEX_ERROR__FORCE_CLOSE_TIMEOUT_NOT_EXPIRED);
-  }, 15_000);
-
-  it("succeeds one slot after 2x deadman timeout", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
-      rpc,
-      owner,
-      facilitator,
-      payer,
-      224,
-      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
-    );
-
-    const dest = await createFundedTokenAccount(
-      rpc,
-      mint,
-      owner.address,
-      payer,
-      0n,
-    );
-
-    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    await waitForSlot(rpc, escrow.lastActivitySlot + 2001n);
-
-    const baseIx = getForceCloseInstruction({
-      escrow: escrowPDA,
-      owner,
-      tokenProgram: TOKEN_PROGRAM_ADDRESS,
-    });
-    const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
-    await sendTx(rpc, owner, [ix]);
-
-    const escrowInfo = await rpc
-      .getAccountInfo(escrowPDA, { encoding: "base64" })
-      .send();
-    expect(escrowInfo.value).toBeNull();
-  }, 15_000);
-
-  it("fails with wrong owner", async () => {
-    const { escrowPDA, mint, vaultPDA } = await setupEscrowWithPending(
-      rpc,
-      owner,
-      facilitator,
-      payer,
-      222,
-      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
-    );
-
-    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    await waitForSlot(rpc, escrow.lastActivitySlot + 2001n);
-
-    const dest = await createFundedTokenAccount(
-      rpc,
-      mint,
-      owner.address,
-      payer,
-      0n,
-    );
-
-    const wrongOwner = await generateKeyPairSigner();
-    await fundKeypair(rpc, wrongOwner);
-
-    await expectToFailWithAnchorError(async () => {
-      const baseIx = getForceCloseInstruction({
-        escrow: escrowPDA,
-        owner: wrongOwner,
-        tokenProgram: TOKEN_PROGRAM_ADDRESS,
-      });
-      const ix = withRemainingAccounts(baseIx, [vaultPDA, dest.address]);
-      await sendTx(rpc, wrongOwner, [ix]);
-    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
-  }, 15_000);
+  }, 30_000);
 });
