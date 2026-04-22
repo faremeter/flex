@@ -103,7 +103,7 @@ pub struct EscrowAccount {
 }
 ```
 
-**Activity Tracking:** The `last_activity_slot` field tracks facilitator activity for the deadman switch. It is updated by `submit_authorization` and `refund` (both require facilitator signature). It is NOT updated by `finalize` (permissionless crank) or `deposit` (anyone can deposit). This ensures the deadman timer reflects genuine facilitator engagement.
+**Activity Tracking:** The `last_activity_slot` field tracks facilitator activity for the deadman switch. It is updated by `submit_authorization` and `refund` (both require facilitator signature). It is NOT updated by `finalize` (permissionless crank) or `deposit` (does not require facilitator). This ensures the deadman timer reflects genuine facilitator engagement.
 
 **Design Rationale:** The deadman switch protects clients from unresponsive facilitators. The activity tracking is intentionally asymmetric:
 
@@ -292,12 +292,12 @@ pub fn deposit(
 ) -> Result<()>
 ```
 
-**Signers**: Depositor (anyone with tokens)
+**Signers**: Depositor (must be the escrow owner for first deposit of a mint; anyone for subsequent deposits into an existing vault)
 
 **Accounts**:
 
 - `escrow` (mut) - The escrow account (for updating `mint_count`)
-- `depositor` (signer, mut) - Party depositing tokens; pays rent if token account is created
+- `depositor` (signer, mut) - Party depositing tokens; must be escrow owner when creating a new vault
 - `mint` - SPL token mint
 - `vault` (unchecked, mut, PDA) - Passed as `UncheckedAccount`; created via CPI if empty, validated if existing
 - `source` - Depositor's token account (must have sufficient balance)
@@ -306,13 +306,14 @@ pub fn deposit(
 
 **Constraints**:
 
+- `depositor == escrow.owner` when creating a new token account (prevents slot exhaustion and freeze-authority attacks)
 - `escrow.mint_count < 8` when creating a new token account (enforces mint limit)
 - `amount > 0`
 
 **Token Account Creation**:
 The token account PDA is passed as an `UncheckedAccount` with seed validation. The handler checks `data_is_empty()` on the account to determine whether it needs to be created:
 
-- **If empty** (account does not exist): the handler creates the token account via CPI (`transfer` (conditional) + `allocate` + `assign` + `initialize_account3`), with the depositor as payer and the escrow PDA as token authority. The transfer only occurs if the PDA's current lamport balance is below the rent-exempt minimum, in which case the depositor covers the shortfall. `escrow.mint_count` is incremented after validating the mint limit. This pattern (instead of `create_account`) tolerates pre-existing lamports on the PDA, preventing a DoS attack where an adversary sends dust to the predictable vault address before the first deposit.
+- **If empty** (account does not exist): the handler verifies that the depositor is the escrow owner, then creates the token account via CPI (`transfer` (conditional) + `allocate` + `assign` + `initialize_account3`), with the owner as payer and the escrow PDA as token authority. The transfer only occurs if the PDA's current lamport balance is below the rent-exempt minimum, in which case the owner covers the shortfall. `escrow.mint_count` is incremented after validating the mint limit. This pattern (instead of `create_account`) tolerates pre-existing lamports on the PDA, preventing a DoS attack where an adversary sends dust to the predictable vault address before the first deposit.
 - **If not empty** (account exists): the handler deserializes the account as a `TokenAccount` and validates that its mint and authority match the expected values.
 
 This approach avoids `init_if_needed`, which hides whether the account was created or already existed. Without reliable creation detection, `mint_count` could be incorrectly incremented when depositing into a vault that was previously drained to zero by `finalize` -- making the escrow uncloseable.
@@ -325,24 +326,12 @@ This approach avoids `init_if_needed`, which hides whether the account was creat
 
 **Notes**:
 
-- Anyone can deposit to an escrow account (permissionless)
-- The depositor pays rent for new token accounts, not the escrow owner
+- Only the escrow owner can create new vaults (first deposit of a mint); subsequent deposits are permissionless
+- The owner pays rent for new token accounts (since only the owner can create them)
 - Maximum 8 different mints per escrow (returns `MintLimitReached` if exceeded)
 - Deposits do not update `last_activity_slot` (only facilitator actions do)
 
-**Mint Griefing Consideration:** Since deposits are permissionless, a malicious actor could deposit tiny amounts of unwanted tokens to consume the 8-mint limit. Mitigations:
-
-- The 8-mint limit is generous for typical use cases
-- Each deposit requires the attacker to pay rent (~0.002 SOL per mint)
-- Clients can create a new escrow if their mint limit is exhausted
-- Future versions may add owner-controlled mint whitelisting if this becomes problematic
-
-**Rent Ownership Trade-off:** When a depositor creates a new token account by depositing a mint for the first time, they pay the rent (~0.002 SOL). However, when the escrow is closed, this rent is returned to the escrow owner, not the original depositor. This design choice:
-
-- Simplifies closure logic (all rent goes to one destination)
-- Prevents griefing where attackers create token accounts to lock up the owner's SOL
-- Means third-party depositors should understand they forfeit the rent
-- Is acceptable because rent is minimal and depositors are typically the escrow owner anyway
+**Vault Creation Restriction:** Only the escrow owner can create new vault token accounts (first deposit of a given mint). This prevents two attack vectors: (1) an attacker exhausting the 8-mint limit with unwanted tokens, and (2) an attacker depositing a token whose freeze authority they control, which would permanently block escrow closure. Subsequent deposits into existing vaults remain permissionless.
 
 #### `close_escrow`
 
@@ -1321,7 +1310,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 
 **Notes:**
 
-- Token account rent is paid by whoever first deposits that mint, not the escrow owner. This prevents griefing where someone creates many token accounts to lock up the owner's SOL.
+- Token account rent is paid by the escrow owner (who is the only party permitted to create new vaults).
 - Pending settlement rent is always returned to the facilitator (who paid at submission), regardless of whether closure is via `finalize`, `refund`, or `void_pending`.
 
 ## Error Codes
@@ -1364,6 +1353,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6033 | RefundTimeoutTooLong        | Refund timeout exceeds maximum of 1296000 slots                                     |
 | 6034 | DeadmanTimeoutTooLong       | Deadman timeout exceeds maximum of 2592000 slots                                    |
 | 6035 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
+| 6036 | OwnerOnly                   | Only the escrow owner can create new vault accounts                                 |
 
 ## Event Emission
 
@@ -1586,7 +1576,7 @@ All accounts set `version = 1` but no instruction checks the version field. The 
 
 `programs/flex/src/error.rs`
 
-The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6036) that happen to match the current ordering but are not enforced in code.
+The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6036) that happen to match the current ordering but are not enforced in code. The range will expand as new error variants are added.
 
 **Revisit when:** Next program upgrade. Assign explicit discriminant values to each variant to match the documented table.
 

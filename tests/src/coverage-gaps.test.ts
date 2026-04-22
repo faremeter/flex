@@ -22,6 +22,7 @@ import {
   FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
   FLEX_ERROR__PENDING_LIMIT_REACHED,
   FLEX_ERROR__REFUND_EXCEEDS_AMOUNT,
+  FLEX_ERROR__OWNER_ONLY,
   findVaultPda,
 } from "@faremeter/flex-solana";
 import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
@@ -818,7 +819,7 @@ describe("finalize rejects wrong-mint recipient", () => {
   });
 });
 
-describe("non-owner can deposit", () => {
+describe("first vault creation restricted to owner", () => {
   const rpc = createRpc();
   let owner: KeyPairSigner;
   let facilitator: KeyPairSigner;
@@ -835,7 +836,7 @@ describe("non-owner can deposit", () => {
     await fundKeypair(rpc, thirdParty);
   });
 
-  it("allows a third party to deposit into an escrow they do not own", async () => {
+  it("rejects first deposit from non-owner", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 720);
     const mint = await createTestMint(rpc, payer);
 
@@ -854,10 +855,53 @@ describe("non-owner can deposit", () => {
       source: thirdPartySource.address,
       amount: 500_000,
     });
-    await sendTx(rpc, thirdParty, [depositIx]);
 
-    const vaultPDA = defined(depositIx.accounts[3]).address;
-    expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(500_000n);
+    await expectToFailWithAnchorError(
+      () => sendTx(rpc, thirdParty, [depositIx]),
+      FLEX_ERROR__OWNER_ONLY,
+    );
+  });
+
+  it("allows non-owner to deposit into an existing vault", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 721);
+    const mint = await createTestMint(rpc, payer);
+
+    // Owner creates the vault with the first deposit
+    const ownerSource = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      owner.address,
+      payer,
+      500_000n,
+    );
+    const ownerDepositIx = await getDepositInstructionAsync({
+      depositor: owner,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: ownerSource.address,
+      amount: 100_000,
+    });
+    await sendTx(rpc, owner, [ownerDepositIx]);
+
+    // Third party deposits into the existing vault
+    const thirdPartySource = await createFundedTokenAccount(
+      rpc,
+      mint.address,
+      thirdParty.address,
+      payer,
+      500_000n,
+    );
+    const thirdPartyDepositIx = await getDepositInstructionAsync({
+      depositor: thirdParty,
+      escrow: escrowPDA,
+      mint: mint.address,
+      source: thirdPartySource.address,
+      amount: 200_000,
+    });
+    await sendTx(rpc, thirdParty, [thirdPartyDepositIx]);
+
+    const vaultPDA = defined(ownerDepositIx.accounts[3]).address;
+    expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(300_000n);
   });
 });
 
