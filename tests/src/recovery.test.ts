@@ -10,6 +10,9 @@ import {
   FLEX_ERROR__DEADMAN_NOT_EXPIRED,
   FLEX_ERROR__PENDING_SETTLEMENTS_EXIST,
   FLEX_ERROR__SESSION_KEYS_EXIST,
+  FLEX_ERROR__VOID_CONDITION_NOT_MET,
+  FLEX_ERROR__INVALID_VOID_AUTHORITY,
+  fetchPendingSettlement,
   getCloseSessionKeyInstruction,
   getRevokeSessionKeyInstruction,
 } from "@faremeter/flex-solana";
@@ -66,7 +69,7 @@ describe("void_pending", () => {
 
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
-      owner,
+      authority: owner,
       facilitator: facilitator.address,
       pending: pendingPDA,
     });
@@ -99,15 +102,15 @@ describe("void_pending", () => {
     await expectToFail(async () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
-        owner,
+        authority: owner,
         facilitator: facilitator.address,
         pending: pendingPDA,
       });
       await sendTx(rpc, owner, [voidIx]);
-    }, FLEX_ERROR__DEADMAN_NOT_EXPIRED);
+    }, FLEX_ERROR__VOID_CONDITION_NOT_MET);
   }, 15_000);
 
-  it("fails with wrong owner", async () => {
+  it("fails with unauthorized authority", async () => {
     const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
       rpc,
       owner,
@@ -123,15 +126,15 @@ describe("void_pending", () => {
     const wrongOwner = await generateKeyPairSigner();
     await fundKeypair(rpc, wrongOwner);
 
-    await expectToFailWithAnchorError(async () => {
+    await expectToFail(async () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
-        owner: wrongOwner,
+        authority: wrongOwner,
         facilitator: facilitator.address,
         pending: pendingPDA,
       });
       await sendTx(rpc, wrongOwner, [voidIx]);
-    }, ANCHOR_ERROR__CONSTRAINT_HAS_ONE);
+    }, FLEX_ERROR__INVALID_VOID_AUTHORITY);
   }, 15_000);
 
   it("fails with wrong facilitator", async () => {
@@ -153,7 +156,7 @@ describe("void_pending", () => {
     await expectToFailWithAnchorError(async () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
-        owner,
+        authority: owner,
         facilitator: wrongFacilitator.address,
         pending: pendingPDA,
       });
@@ -177,12 +180,12 @@ describe("void_pending", () => {
     await expectToFail(async () => {
       const voidIx = getVoidPendingInstruction({
         escrow: escrowPDA,
-        owner,
+        authority: owner,
         facilitator: facilitator.address,
         pending: pendingPDA,
       });
       await sendTx(rpc, owner, [voidIx]);
-    }, FLEX_ERROR__DEADMAN_NOT_EXPIRED);
+    }, FLEX_ERROR__VOID_CONDITION_NOT_MET);
   }, 15_000);
 
   it("succeeds one slot after deadman timeout", async () => {
@@ -200,7 +203,7 @@ describe("void_pending", () => {
 
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
-      owner,
+      authority: owner,
       facilitator: facilitator.address,
       pending: pendingPDA,
     });
@@ -210,6 +213,138 @@ describe("void_pending", () => {
       .getAccountInfo(pendingPDA, { encoding: "base64" })
       .send();
     expect(pendingInfo.value).toBeNull();
+  }, 15_000);
+
+  it("voids via finalization deadline on an active escrow", async () => {
+    // Submit pending A, wait, then submit pending B to bump last_activity_slot.
+    // This creates a window where A's per-settlement deadline has passed
+    // but the escrow-level deadman timeout has not expired (anchored to B's
+    // submission time).
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 230, {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
+        depositAmount: 1_000_000,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    // Submit pending A
+    const pendingA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      50_000,
+      splits,
+    );
+
+    const pendingAData = defined(await fetchPendingSettlement(rpc, pendingA));
+    // A's deadline = submitted_at_A + 150 + 1000 = submitted_at_A + 1150
+
+    // Wait 500 slots, then submit pending B to push last_activity_slot forward
+    await waitForSlot(rpc, pendingAData.submittedAtSlot + 500n);
+
+    await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      2,
+      50_000,
+      splits,
+    );
+
+    const escrowAfterB = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    // Deadman = last_activity_slot + 1000 ≈ (submitted_at_A + 500) + 1000
+
+    // Wait past A's deadline but not past deadman
+    await waitForSlot(rpc, pendingAData.submittedAtSlot + 1151n);
+
+    // Verify deadman is NOT expired
+    const currentSlot = await rpc.getSlot().send();
+    expect(currentSlot).toBeLessThanOrEqual(
+      escrowAfterB.lastActivitySlot + 1000n,
+    );
+
+    const voidIx = getVoidPendingInstruction({
+      escrow: escrowPDA,
+      authority: owner,
+      facilitator: facilitator.address,
+      pending: pendingA,
+    });
+    await sendTx(rpc, owner, [voidIx]);
+
+    const pendingInfo = await rpc
+      .getAccountInfo(pendingA, { encoding: "base64" })
+      .send();
+    expect(pendingInfo.value).toBeNull();
+  }, 15_000);
+
+  it("facilitator can void as authority", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      231,
+      { deadmanTimeoutSlots: 1000, settleAmount: 50_000 },
+    );
+
+    const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    await waitForSlot(rpc, escrowBefore.lastActivitySlot + 1001n);
+
+    const voidIx = getVoidPendingInstruction({
+      escrow: escrowPDA,
+      authority: facilitator,
+      facilitator: facilitator.address,
+      pending: pendingPDA,
+    });
+    await sendTx(rpc, facilitator, [voidIx]);
+
+    const pendingInfo = await rpc
+      .getAccountInfo(pendingPDA, { encoding: "base64" })
+      .send();
+    expect(pendingInfo.value).toBeNull();
+  }, 15_000);
+
+  it("fails when neither deadman nor deadline condition is met", async () => {
+    const { escrowPDA, pendingPDA } = await setupEscrowWithPending(
+      rpc,
+      owner,
+      facilitator,
+      payer,
+      233,
+      {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 100_000,
+        settleAmount: 50_000,
+      },
+    );
+
+    await expectToFail(async () => {
+      const voidIx = getVoidPendingInstruction({
+        escrow: escrowPDA,
+        authority: owner,
+        facilitator: facilitator.address,
+        pending: pendingPDA,
+      });
+      await sendTx(rpc, owner, [voidIx]);
+    }, FLEX_ERROR__VOID_CONDITION_NOT_MET);
   }, 15_000);
 });
 
@@ -277,7 +412,7 @@ describe("emergency_close", () => {
 
     const void1Ix = getVoidPendingInstruction({
       escrow: escrowPDA,
-      owner,
+      authority: owner,
       facilitator: facilitator.address,
       pending: pending1,
     });
@@ -285,7 +420,7 @@ describe("emergency_close", () => {
 
     const void2Ix = getVoidPendingInstruction({
       escrow: escrowPDA,
-      owner,
+      authority: owner,
       facilitator: facilitator.address,
       pending: pending2,
     });
@@ -607,7 +742,7 @@ describe("force_close is removed", () => {
 
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
-      owner,
+      authority: owner,
       facilitator: facilitator.address,
       pending: pendingPDA,
     });

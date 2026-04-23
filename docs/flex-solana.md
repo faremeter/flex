@@ -706,7 +706,10 @@ pub fn finalize(
 - `token_program` - SPL Token program
 - Remaining accounts: `split_count` recipient token accounts (mut)
 
-**Constraints**: `current_slot >= submitted_at_slot + escrow.refund_timeout_slots`
+**Constraints**:
+
+- `current_slot >= submitted_at_slot + escrow.refund_timeout_slots` (refund window must have closed)
+- `current_slot <= submitted_at_slot + escrow.refund_timeout_slots + escrow.deadman_timeout_slots` (finalization deadline must not have passed)
 
 **Remaining Accounts**: The caller must pass exactly `pending.split_count` recipient token accounts as remaining accounts, in the same order as the `splits` array. Each account must be a valid SPL token account with a mint matching the settlement's mint.
 
@@ -730,7 +733,7 @@ pub fn finalize(
 
 #### `void_pending`
 
-Voids a single pending settlement after the deadman switch timeout expires. This is the first step of emergency recovery.
+Voids a single pending settlement. This is the first step of emergency recovery.
 
 ```rust
 pub fn void_pending(
@@ -738,23 +741,28 @@ pub fn void_pending(
 ) -> Result<()>
 ```
 
-**Signers**: Owner only
+**Signers**: Owner or facilitator (via `authority` account)
 
-**Constraints**: `current_slot - escrow.last_activity_slot > escrow.deadman_timeout_slots`
+**Constraints** (either condition suffices):
+
+- Deadman timeout expired: `current_slot > escrow.last_activity_slot + escrow.deadman_timeout_slots`
+- Finalization deadline passed: `current_slot > pending.submitted_at_slot + escrow.refund_timeout_slots + escrow.deadman_timeout_slots`
 
 **Accounts**:
 
 - `escrow` (mut) - The escrow account (for updating `pending_count`)
-- `owner` (signer, mut) - Must match `escrow.owner`
+- `authority` (signer) - Must be `escrow.owner` or `escrow.facilitator`
 - `facilitator` (mut) - Receives rent from closed pending settlement. Validated via `has_one` on escrow.
 - `pending` (mut, close) - The pending settlement to void
 
 **Effects**:
 
-1. Close the PendingSettlement PDA, returning rent to the facilitator (who paid at submission)
-2. Decrement `escrow.pending_count`
+1. Validate authority is owner or facilitator
+2. Validate at least one voiding condition is met
+3. Close the PendingSettlement PDA, returning rent to the facilitator (who paid at submission)
+4. Decrement `escrow.pending_count`
 
-**Notes**: Call this instruction repeatedly to void all pending settlements before calling `emergency_close`. Each call handles one pending settlement, keeping transactions simple and under size limits.
+**Notes**: Call this instruction repeatedly to void all pending settlements before calling `emergency_close`. Each call handles one pending settlement, keeping transactions simple and under size limits. The finalization deadline allows voiding stuck settlements on an active escrow without waiting for the global deadman timeout.
 
 #### `emergency_close`
 
@@ -1080,6 +1088,12 @@ Pending settlements cannot be finalized until the refund timeout expires. During
 
 If `current_slot - last_activity_slot > deadman_timeout_slots`, the client can invoke `emergency_close` to recover funds without facilitator cooperation. This prevents facilitators from holding funds hostage.
 
+### Finalization Deadline
+
+Each pending settlement has a finalization deadline of `submitted_at_slot + refund_timeout_slots + deadman_timeout_slots`. After this deadline, `finalize` rejects the settlement and `void_pending` accepts it. The finalization window is `deadman_timeout_slots` long (minimum 1,000 slots), reusing the escrow's existing facilitator-responsiveness parameter.
+
+This prevents stuck settlements from occupying slots indefinitely on an active escrow. Without the deadline, a facilitator could submit an authorization and never finalize it, permanently consuming one of 16 pending slots. The deadline provides a bounded escape hatch: either party (owner or facilitator) can void the settlement after the deadline passes, freeing the slot.
+
 ### Session Key Revocation
 
 When a client revokes a session key:
@@ -1362,6 +1376,9 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6036 | OwnerOnly                   | Only the escrow owner can create new vault accounts                                 |
 | 6037 | SplitCalculationOverflow    | Split calculation arithmetic overflow                                               |
 | 6038 | SessionKeysExist            | Cannot close escrow with active session keys                                        |
+| 6039 | FinalizationDeadlinePassed  | Finalization deadline has passed                                                    |
+| 6040 | VoidConditionNotMet         | Neither deadman timeout nor finalization deadline has passed                        |
+| 6041 | InvalidVoidAuthority        | Authority must be escrow owner or facilitator                                       |
 
 ## Event Emission
 

@@ -97,6 +97,15 @@ pub fn finalize<'info>(ctx: Context<'_, '_, '_, 'info, Finalize<'info>>) -> Resu
 
     require!(clock.slot >= window_end, FlexError::RefundWindowNotExpired);
 
+    let deadline = window_end
+        .checked_add(ctx.accounts.escrow.deadman_timeout_slots)
+        .ok_or(error!(FlexError::FinalizationDeadlinePassed))?;
+
+    require!(
+        clock.slot <= deadline,
+        FlexError::FinalizationDeadlinePassed
+    );
+
     require!(
         ctx.remaining_accounts.len() == split_count,
         FlexError::InvalidSplitRecipient

@@ -118,4 +118,13 @@ pub enum FlexError {
 
     #[msg("Cannot close escrow with active session keys")]
     SessionKeysExist,
+
+    #[msg("Finalization deadline has passed")]
+    FinalizationDeadlinePassed,
+
+    #[msg("Neither deadman timeout nor finalization deadline has passed")]
+    VoidConditionNotMet,
+
+    #[msg("Authority must be escrow owner or facilitator")]
+    InvalidVoidAuthority,
 }

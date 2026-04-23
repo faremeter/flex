@@ -26,10 +26,10 @@ import {
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
+  type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type TransactionSigner,
   type WritableAccount,
-  type WritableSignerAccount,
 } from "@solana/kit";
 import {
   getAccountMetaFactory,
@@ -50,7 +50,7 @@ export function getVoidPendingDiscriminatorBytes() {
 export type VoidPendingInstruction<
   TProgram extends string = typeof FLEX_PROGRAM_ADDRESS,
   TAccountEscrow extends string | AccountMeta<string> = string,
-  TAccountOwner extends string | AccountMeta<string> = string,
+  TAccountAuthority extends string | AccountMeta<string> = string,
   TAccountFacilitator extends string | AccountMeta<string> = string,
   TAccountPending extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -61,10 +61,10 @@ export type VoidPendingInstruction<
       TAccountEscrow extends string
         ? WritableAccount<TAccountEscrow>
         : TAccountEscrow,
-      TAccountOwner extends string
-        ? WritableSignerAccount<TAccountOwner> &
-            AccountSignerMeta<TAccountOwner>
-        : TAccountOwner,
+      TAccountAuthority extends string
+        ? ReadonlySignerAccount<TAccountAuthority> &
+            AccountSignerMeta<TAccountAuthority>
+        : TAccountAuthority,
       TAccountFacilitator extends string
         ? WritableAccount<TAccountFacilitator>
         : TAccountFacilitator,
@@ -104,26 +104,26 @@ export function getVoidPendingInstructionDataCodec(): FixedSizeCodec<
 
 export type VoidPendingInput<
   TAccountEscrow extends string = string,
-  TAccountOwner extends string = string,
+  TAccountAuthority extends string = string,
   TAccountFacilitator extends string = string,
   TAccountPending extends string = string,
 > = {
   escrow: Address<TAccountEscrow>;
-  owner: TransactionSigner<TAccountOwner>;
+  authority: TransactionSigner<TAccountAuthority>;
   facilitator: Address<TAccountFacilitator>;
   pending: Address<TAccountPending>;
 };
 
 export function getVoidPendingInstruction<
   TAccountEscrow extends string,
-  TAccountOwner extends string,
+  TAccountAuthority extends string,
   TAccountFacilitator extends string,
   TAccountPending extends string,
   TProgramAddress extends Address = typeof FLEX_PROGRAM_ADDRESS,
 >(
   input: VoidPendingInput<
     TAccountEscrow,
-    TAccountOwner,
+    TAccountAuthority,
     TAccountFacilitator,
     TAccountPending
   >,
@@ -131,7 +131,7 @@ export function getVoidPendingInstruction<
 ): VoidPendingInstruction<
   TProgramAddress,
   TAccountEscrow,
-  TAccountOwner,
+  TAccountAuthority,
   TAccountFacilitator,
   TAccountPending
 > {
@@ -141,7 +141,7 @@ export function getVoidPendingInstruction<
   // Original accounts.
   const originalAccounts = {
     escrow: { value: input.escrow ?? null, isWritable: true },
-    owner: { value: input.owner ?? null, isWritable: true },
+    authority: { value: input.authority ?? null, isWritable: false },
     facilitator: { value: input.facilitator ?? null, isWritable: true },
     pending: { value: input.pending ?? null, isWritable: true },
   };
@@ -154,7 +154,7 @@ export function getVoidPendingInstruction<
   return Object.freeze({
     accounts: [
       getAccountMeta("escrow", accounts.escrow),
-      getAccountMeta("owner", accounts.owner),
+      getAccountMeta("authority", accounts.authority),
       getAccountMeta("facilitator", accounts.facilitator),
       getAccountMeta("pending", accounts.pending),
     ],
@@ -163,7 +163,7 @@ export function getVoidPendingInstruction<
   } as VoidPendingInstruction<
     TProgramAddress,
     TAccountEscrow,
-    TAccountOwner,
+    TAccountAuthority,
     TAccountFacilitator,
     TAccountPending
   >);
@@ -176,7 +176,7 @@ export type ParsedVoidPendingInstruction<
   programAddress: Address<TProgram>;
   accounts: {
     escrow: TAccountMetas[0];
-    owner: TAccountMetas[1];
+    authority: TAccountMetas[1];
     facilitator: TAccountMetas[2];
     pending: TAccountMetas[3];
   };
@@ -210,7 +210,7 @@ export function parseVoidPendingInstruction<
     programAddress: instruction.programAddress,
     accounts: {
       escrow: getNextAccount(),
-      owner: getNextAccount(),
+      authority: getNextAccount(),
       facilitator: getNextAccount(),
       pending: getNextAccount(),
     },

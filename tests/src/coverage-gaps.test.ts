@@ -1101,7 +1101,7 @@ describe("finalize succeeds after deadman timeout", () => {
       await import("@faremeter/flex-solana");
     const voidIx = getVoidPendingInstruction({
       escrow: escrowPDA,
-      owner,
+      authority: owner,
       facilitator: facilitator.address,
       pending: pendingB,
     });

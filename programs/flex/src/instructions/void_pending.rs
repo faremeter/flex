@@ -7,15 +7,13 @@ use crate::state::{EscrowAccount, PendingSettlement};
 pub struct VoidPending<'info> {
     #[account(
         mut,
-        has_one = owner,
         has_one = facilitator,
         seeds = [b"escrow", escrow.owner.as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump,
     )]
     pub escrow: Account<'info, EscrowAccount>,
 
-    #[account(mut)]
-    pub owner: Signer<'info>,
+    pub authority: Signer<'info>,
 
     /// CHECK: Receives rent from closed pending. Validated via has_one on escrow.
     #[account(mut)]
@@ -33,14 +31,31 @@ pub struct VoidPending<'info> {
 
 pub fn void_pending(ctx: Context<VoidPending>) -> Result<()> {
     let escrow = &ctx.accounts.escrow;
+    let authority_key = ctx.accounts.authority.key();
     let clock = Clock::get()?;
 
-    let timeout_slot = escrow
+    require!(
+        authority_key == escrow.owner || authority_key == escrow.facilitator,
+        FlexError::InvalidVoidAuthority
+    );
+
+    let deadman_expired = escrow
         .last_activity_slot
         .checked_add(escrow.deadman_timeout_slots)
-        .ok_or(error!(FlexError::DeadmanNotExpired))?;
+        .is_some_and(|timeout_slot| clock.slot > timeout_slot);
 
-    require!(clock.slot > timeout_slot, FlexError::DeadmanNotExpired);
+    let deadline_passed = ctx
+        .accounts
+        .pending
+        .submitted_at_slot
+        .checked_add(escrow.refund_timeout_slots)
+        .and_then(|v| v.checked_add(escrow.deadman_timeout_slots))
+        .is_some_and(|deadline| clock.slot > deadline);
+
+    require!(
+        deadman_expired || deadline_passed,
+        FlexError::VoidConditionNotMet
+    );
 
     ctx.accounts.escrow.pending_count = escrow
         .pending_count

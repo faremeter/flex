@@ -115,8 +115,8 @@ mod harness {
         SubmitWithOwnerAsSigner { auth_id: u8, amount: u32 },
         // Wrong signer: owner tries to refund (only facilitator should).
         RefundWithOwnerAsSigner { auth_id: u8, amount: u32 },
-        // Wrong signer: facilitator tries to void (only owner should).
-        VoidWithFacilitatorAsSigner { auth_id: u8 },
+        // Facilitator exercises void_pending as a valid authority.
+        VoidWithFacilitatorAsAuthority { auth_id: u8 },
         // Wrong signer: facilitator tries emergency_close (only owner should).
         EmergencyCloseWithFacilitator,
     }
@@ -808,10 +808,17 @@ mod harness {
                         env.svm.get_sysvar::<solana_clock::Clock>().slot;
 
                     // Post-hoc: finalize only succeeds after the refund window
+                    // and before the finalization deadline
                     if let Some(&submitted_at) = env.submitted_at_slots.get(&auth_id) {
                         assert!(
                             current_slot >= submitted_at + env.config.refund_timeout,
                             "SECURITY: finalize succeeded before refund window expired"
+                        );
+                        assert!(
+                            current_slot <= submitted_at
+                                + env.config.refund_timeout
+                                + env.config.deadman_timeout,
+                            "SECURITY: finalize succeeded after finalization deadline"
                         );
                     }
 
@@ -850,19 +857,26 @@ mod harness {
                     &[],
                     vec![
                         AccountMeta::new(env.escrow_pda, false),
-                        AccountMeta::new(env.owner.pubkey(), true),
+                        AccountMeta::new_readonly(env.owner.pubkey(), true),
                         AccountMeta::new(env.facilitator.pubkey(), false),
                         AccountMeta::new(pending_pda, false),
                     ],
                 );
 
                 if send(&mut env.svm, &env.owner, &[ix]) {
-                    // Post-hoc: void only succeeds after deadman timeout
                     let current_slot =
                         env.svm.get_sysvar::<solana_clock::Clock>().slot;
+                    let deadman_expired =
+                        current_slot > env.last_activity_slot + env.config.deadman_timeout;
+                    let deadline_passed = env.submitted_at_slots.get(&auth_id)
+                        .is_some_and(|&submitted_at| {
+                            current_slot > submitted_at
+                                + env.config.refund_timeout
+                                + env.config.deadman_timeout
+                        });
                     assert!(
-                        current_slot > env.last_activity_slot + env.config.deadman_timeout,
-                        "SECURITY: void_pending succeeded before deadman timeout"
+                        deadman_expired || deadline_passed,
+                        "SECURITY: void_pending succeeded without deadman or deadline"
                     );
 
                     env.pending_amounts.remove(&auth_id);
@@ -1668,7 +1682,7 @@ mod harness {
                 WRONG_SIGNER_REJECTED.fetch_add(1, Ordering::Relaxed);
             }
 
-            FuzzOp::VoidWithFacilitatorAsSigner { auth_id } => {
+            FuzzOp::VoidWithFacilitatorAsAuthority { auth_id } => {
                 let auth_id = *auth_id % 16;
 
                 let (pending_pda, _) = find_pda(&[
@@ -1677,24 +1691,40 @@ mod harness {
                     &(auth_id as u64).to_le_bytes(),
                 ]);
 
-                // Facilitator as signer instead of owner
+                // Facilitator is now a valid authority for void_pending.
+                // Use facilitator as authority with correct account layout.
                 let ix = build_ix(
                     "void_pending",
                     &[],
                     vec![
                         AccountMeta::new(env.escrow_pda, false),
-                        AccountMeta::new(env.facilitator.pubkey(), true),
+                        AccountMeta::new_readonly(env.facilitator.pubkey(), true),
                         AccountMeta::new(env.facilitator.pubkey(), false),
                         AccountMeta::new(pending_pda, false),
                     ],
                 );
 
-                let succeeded = send(&mut env.svm, &env.facilitator, &[ix]);
-                assert!(
-                    !succeeded,
-                    "SECURITY: void_pending succeeded with facilitator as signer instead of owner"
-                );
-                WRONG_SIGNER_REJECTED.fetch_add(1, Ordering::Relaxed);
+                if send(&mut env.svm, &env.facilitator, &[ix]) {
+                    let current_slot =
+                        env.svm.get_sysvar::<solana_clock::Clock>().slot;
+                    let deadman_expired =
+                        current_slot > env.last_activity_slot + env.config.deadman_timeout;
+                    let deadline_passed = env.submitted_at_slots.get(&auth_id)
+                        .is_some_and(|&submitted_at| {
+                            current_slot > submitted_at
+                                + env.config.refund_timeout
+                                + env.config.deadman_timeout
+                        });
+                    assert!(
+                        deadman_expired || deadline_passed,
+                        "SECURITY: void_pending succeeded without deadman or deadline"
+                    );
+
+                    env.pending_amounts.remove(&auth_id);
+                    env.pending_splits.remove(&auth_id);
+                    env.pending_mints.remove(&auth_id);
+                    env.submitted_at_slots.remove(&auth_id);
+                }
             }
 
             FuzzOp::EmergencyCloseWithFacilitator => {
