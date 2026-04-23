@@ -50,6 +50,18 @@ pub fn register_session_key(
         .ok_or(error!(FlexError::SessionKeyLimitReached))?;
 
     let clock = Clock::get()?;
+
+    if let Some(expires_at) = expires_at_slot {
+        require!(expires_at > clock.slot, FlexError::SessionKeyAlreadyExpired);
+    }
+
+    // Grace period must be shorter than refund timeout so the facilitator
+    // cannot keep a revoked key warm longer than the refund window.
+    require!(
+        revocation_grace_period_slots < escrow.refund_timeout_slots,
+        FlexError::GracePeriodExceedsRefundTimeout
+    );
+
     let ska = &mut ctx.accounts.session_key_account;
     ska.version = 1;
     ska.escrow = escrow_key;

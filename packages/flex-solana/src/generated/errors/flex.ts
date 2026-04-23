@@ -98,6 +98,10 @@ export const FLEX_ERROR__FINALIZATION_DEADLINE_PASSED = 0x1797; // 6039
 export const FLEX_ERROR__VOID_CONDITION_NOT_MET = 0x1798; // 6040
 /** InvalidVoidAuthority: Authority must be escrow owner or facilitator */
 export const FLEX_ERROR__INVALID_VOID_AUTHORITY = 0x1799; // 6041
+/** SessionKeyAlreadyExpired: Session key expires_at_slot is already in the past */
+export const FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED = 0x179a; // 6042
+/** GracePeriodExceedsRefundTimeout: Grace period must be shorter than the escrow refund timeout */
+export const FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT = 0x179b; // 6043
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -109,6 +113,7 @@ export type FlexError =
   | typeof FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__EXPIRY_TOO_FAR
   | typeof FLEX_ERROR__FINALIZATION_DEADLINE_PASSED
+  | typeof FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT
   | typeof FLEX_ERROR__INSUFFICIENT_BALANCE
   | typeof FLEX_ERROR__INVALID_ED25519_INSTRUCTION
   | typeof FLEX_ERROR__INVALID_SIGNATURE
@@ -128,6 +133,7 @@ export type FlexError =
   | typeof FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT
   | typeof FLEX_ERROR__REFUND_WINDOW_EXPIRED
   | typeof FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED
+  | typeof FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED
   | typeof FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW
   | typeof FLEX_ERROR__SESSION_KEY_EXPIRED
   | typeof FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE
@@ -155,6 +161,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT]: `Duplicate recipient in splits`,
     [FLEX_ERROR__EXPIRY_TOO_FAR]: `Authorization expiry exceeds refund timeout`,
     [FLEX_ERROR__FINALIZATION_DEADLINE_PASSED]: `Finalization deadline has passed`,
+    [FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT]: `Grace period must be shorter than the escrow refund timeout`,
     [FLEX_ERROR__INSUFFICIENT_BALANCE]: `Token account balance insufficient`,
     [FLEX_ERROR__INVALID_ED25519_INSTRUCTION]: `Ed25519 instruction malformed or missing`,
     [FLEX_ERROR__INVALID_SIGNATURE]: `Ed25519 signature verification failed`,
@@ -174,6 +181,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT]: `Refund timeout below minimum of 150 slots`,
     [FLEX_ERROR__REFUND_WINDOW_EXPIRED]: `Cannot refund after refund timeout`,
     [FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED]: `Cannot finalize before refund timeout`,
+    [FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED]: `Session key expires_at_slot is already in the past`,
     [FLEX_ERROR__SESSION_KEY_COUNT_UNDERFLOW]: `Session key count underflow`,
     [FLEX_ERROR__SESSION_KEY_EXPIRED]: `Session key has expired`,
     [FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE]: `Cannot close session key during grace period`,

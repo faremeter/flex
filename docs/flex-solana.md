@@ -465,6 +465,8 @@ pub fn register_session_key(
 **Constraints**:
 
 - `escrow.max_session_keys == 0 || escrow.session_key_count < escrow.max_session_keys` (session key limit not reached)
+- `expires_at_slot > clock.slot` when `expires_at_slot` is `Some` (must be in the future)
+- `revocation_grace_period_slots < escrow.refund_timeout_slots` (grace period must be shorter than the refund window, so a revoked key cannot remain warm longer than the escrow's refund commitment)
 
 **Effects**:
 
@@ -1335,50 +1337,52 @@ Estimated compute units per instruction (excluding transaction overhead):
 
 ## Error Codes
 
-| Code | Name                        | Description                                                                         |
-| ---- | --------------------------- | ----------------------------------------------------------------------------------- |
-| 6000 | SessionKeyExpired           | Session key has expired                                                             |
-| 6001 | SessionKeyRevoked           | Session key revoked and grace period elapsed                                        |
-| 6002 | AuthorizationExpired        | Authorization has expired                                                           |
-| 6003 | InvalidSignature            | Ed25519 signature verification failed                                               |
-| 6004 | InsufficientBalance         | Token account balance insufficient                                                  |
-| 6005 | DeadmanNotExpired           | Cannot emergency close before timeout                                               |
-| 6006 | UnauthorizedFacilitator     | Signer is not the registered facilitator                                            |
-| 6007 | SessionKeyGracePeriodActive | Cannot close session key during grace period                                        |
-| 6008 | PendingSettlementsExist     | Cannot close escrow with pending settlements                                        |
-| 6009 | RefundWindowNotExpired      | Cannot finalize before refund timeout                                               |
-| 6010 | RefundWindowExpired         | Cannot refund after refund timeout                                                  |
-| 6011 | RefundExceedsAmount         | Cannot refund more than pending amount                                              |
-| 6012 | PendingCountMismatch        | Remaining accounts count does not match pending_count                               |
-| 6013 | PendingLimitReached         | Maximum pending settlements (16) reached                                            |
-| 6014 | MintLimitReached            | Maximum mints (8) per escrow reached                                                |
-| 6015 | InvalidTokenAccountPair     | Token account pair validation failed                                                |
-| 6016 | UnsupportedAccountVersion   | Account version not supported by this program                                       |
-| 6017 | DuplicateAccounts           | Same account passed multiple times                                                  |
-| 6018 | SessionKeyLimitReached      | Maximum session keys per escrow reached                                             |
-| 6019 | InvalidEd25519Instruction   | Ed25519 instruction malformed or missing required data                              |
-| 6020 | InvalidSplitRecipient       | Recipient is not a valid token account for the specified mint (checked at finalize) |
-| 6021 | InvalidSplitCount           | splits.len() < 1 or > MAX_SPLITS                                                    |
-| 6022 | InvalidSplitBps             | Split bps do not sum to 10000                                                       |
-| 6023 | SplitBpsZero                | A split entry has bps == 0                                                          |
-| 6024 | DuplicateSplitRecipient     | Same recipient appears more than once in splits                                     |
-| 6025 | SessionKeyStillActive       | Session key must be revoked before closing                                          |
-| 6026 | SessionKeyCountUnderflow    | Session key count underflow                                                         |
-| 6027 | SettleExceedsMax            | Settle amount exceeds max authorized amount                                         |
-| 6028 | SettleAmountZero            | Settle amount must be greater than zero                                             |
-| 6029 | ExpiryTooFar                | Authorization expiry exceeds refund timeout                                         |
-| 6030 | RefundAmountZero            | Refund amount must be greater than zero                                             |
-| 6031 | RefundTimeoutTooShort       | Refund timeout below minimum of 150 slots                                           |
-| 6032 | DeadmanTimeoutTooShort      | Deadman timeout below minimum of 1000 slots                                         |
-| 6033 | RefundTimeoutTooLong        | Refund timeout exceeds maximum of 1296000 slots                                     |
-| 6034 | DeadmanTimeoutTooLong       | Deadman timeout exceeds maximum of 2592000 slots                                    |
-| 6035 | DeadmanTooCloseToRefund     | Deadman timeout must be at least 2x refund timeout                                  |
-| 6036 | OwnerOnly                   | Only the escrow owner can create new vault accounts                                 |
-| 6037 | SplitCalculationOverflow    | Split calculation arithmetic overflow                                               |
-| 6038 | SessionKeysExist            | Cannot close escrow with active session keys                                        |
-| 6039 | FinalizationDeadlinePassed  | Finalization deadline has passed                                                    |
-| 6040 | VoidConditionNotMet         | Neither deadman timeout nor finalization deadline has passed                        |
-| 6041 | InvalidVoidAuthority        | Authority must be escrow owner or facilitator                                       |
+| Code | Name                            | Description                                                                         |
+| ---- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| 6000 | SessionKeyExpired               | Session key has expired                                                             |
+| 6001 | SessionKeyRevoked               | Session key revoked and grace period elapsed                                        |
+| 6002 | AuthorizationExpired            | Authorization has expired                                                           |
+| 6003 | InvalidSignature                | Ed25519 signature verification failed                                               |
+| 6004 | InsufficientBalance             | Token account balance insufficient                                                  |
+| 6005 | DeadmanNotExpired               | Cannot emergency close before timeout                                               |
+| 6006 | UnauthorizedFacilitator         | Signer is not the registered facilitator                                            |
+| 6007 | SessionKeyGracePeriodActive     | Cannot close session key during grace period                                        |
+| 6008 | PendingSettlementsExist         | Cannot close escrow with pending settlements                                        |
+| 6009 | RefundWindowNotExpired          | Cannot finalize before refund timeout                                               |
+| 6010 | RefundWindowExpired             | Cannot refund after refund timeout                                                  |
+| 6011 | RefundExceedsAmount             | Cannot refund more than pending amount                                              |
+| 6012 | PendingCountMismatch            | Remaining accounts count does not match pending_count                               |
+| 6013 | PendingLimitReached             | Maximum pending settlements (16) reached                                            |
+| 6014 | MintLimitReached                | Maximum mints (8) per escrow reached                                                |
+| 6015 | InvalidTokenAccountPair         | Token account pair validation failed                                                |
+| 6016 | UnsupportedAccountVersion       | Account version not supported by this program                                       |
+| 6017 | DuplicateAccounts               | Same account passed multiple times                                                  |
+| 6018 | SessionKeyLimitReached          | Maximum session keys per escrow reached                                             |
+| 6019 | InvalidEd25519Instruction       | Ed25519 instruction malformed or missing required data                              |
+| 6020 | InvalidSplitRecipient           | Recipient is not a valid token account for the specified mint (checked at finalize) |
+| 6021 | InvalidSplitCount               | splits.len() < 1 or > MAX_SPLITS                                                    |
+| 6022 | InvalidSplitBps                 | Split bps do not sum to 10000                                                       |
+| 6023 | SplitBpsZero                    | A split entry has bps == 0                                                          |
+| 6024 | DuplicateSplitRecipient         | Same recipient appears more than once in splits                                     |
+| 6025 | SessionKeyStillActive           | Session key must be revoked before closing                                          |
+| 6026 | SessionKeyCountUnderflow        | Session key count underflow                                                         |
+| 6027 | SettleExceedsMax                | Settle amount exceeds max authorized amount                                         |
+| 6028 | SettleAmountZero                | Settle amount must be greater than zero                                             |
+| 6029 | ExpiryTooFar                    | Authorization expiry exceeds refund timeout                                         |
+| 6030 | RefundAmountZero                | Refund amount must be greater than zero                                             |
+| 6031 | RefundTimeoutTooShort           | Refund timeout below minimum of 150 slots                                           |
+| 6032 | DeadmanTimeoutTooShort          | Deadman timeout below minimum of 1000 slots                                         |
+| 6033 | RefundTimeoutTooLong            | Refund timeout exceeds maximum of 1296000 slots                                     |
+| 6034 | DeadmanTimeoutTooLong           | Deadman timeout exceeds maximum of 2592000 slots                                    |
+| 6035 | DeadmanTooCloseToRefund         | Deadman timeout must be at least 2x refund timeout                                  |
+| 6036 | OwnerOnly                       | Only the escrow owner can create new vault accounts                                 |
+| 6037 | SplitCalculationOverflow        | Split calculation arithmetic overflow                                               |
+| 6038 | SessionKeysExist                | Cannot close escrow with active session keys                                        |
+| 6039 | FinalizationDeadlinePassed      | Finalization deadline has passed                                                    |
+| 6040 | VoidConditionNotMet             | Neither deadman timeout nor finalization deadline has passed                        |
+| 6041 | InvalidVoidAuthority            | Authority must be escrow owner or facilitator                                       |
+| 6042 | SessionKeyAlreadyExpired        | Session key expires_at_slot is already in the past                                  |
+| 6043 | GracePeriodExceedsRefundTimeout | Grace period must be shorter than the escrow refund timeout                         |
 
 ## Event Emission
 

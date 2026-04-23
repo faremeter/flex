@@ -127,4 +127,10 @@ pub enum FlexError {
 
     #[msg("Authority must be escrow owner or facilitator")]
     InvalidVoidAuthority,
+
+    #[msg("Session key expires_at_slot is already in the past")]
+    SessionKeyAlreadyExpired,
+
+    #[msg("Grace period must be shorter than the escrow refund timeout")]
+    GracePeriodExceedsRefundTimeout,
 }
