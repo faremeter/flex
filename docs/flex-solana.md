@@ -245,6 +245,8 @@ pub struct PendingSettlement {
 
 **Note:** Rent for pending settlement PDAs is returned to the escrow's facilitator on finalize or refund. Since only the registered facilitator can submit authorizations, tracking a separate submitter per settlement is unnecessary.
 
+**Important:** A `PendingSettlement` existing on-chain does not guarantee the payee will receive funds. The program does not enforce committed-balance tracking, so the vault may be over-committed if the facilitator does not correctly track available balances. Payees should consider payment confirmed only after `finalize` succeeds and the SPL transfer completes.
+
 ## Instructions
 
 ### Account Management
@@ -808,6 +810,8 @@ pub fn emergency_close(
 
 **Notes**: This allows clients to recover funds if a facilitator becomes unresponsive. The multi-step approach (void pendings, close session keys, then close escrow) ensures each transaction stays within size limits.
 
+**Deployment requirement**: The emergency recovery path (`void_pending` + `close_session_key` + `emergency_close`) is the only way to recover funds from an escrow with an unresponsive facilitator. The program must be deployed as upgradeable so that bugs in these instructions can be fixed without permanently bricking escrows. Do not burn the upgrade authority until the recovery path has been battle-tested in production.
+
 ### Emergency Recovery Workflow
 
 When a facilitator becomes unresponsive and the deadman timeout expires:
@@ -868,13 +872,13 @@ The on-chain program does not track holds explicitly. Instead, holds are managed
 
 ### Hold Accounting
 
-The facilitator must track active holds to prevent over-authorization:
+The facilitator must track active holds to prevent over-authorization. This is not optional — the program does not enforce committed-balance accounting on-chain (see Known Limitations), so the facilitator SDK is the sole enforcement point:
 
 ```
 available_balance = on_chain_balance - sum(active_holds) - sum(pending_settlements)
 ```
 
-When validating a new hold, the facilitator checks that the escrow has sufficient `available_balance` for the requested hold amount.
+When validating a new hold, the facilitator must verify that the escrow has sufficient `available_balance` for the requested hold amount. Submitting an authorization that would over-commit the vault will cause `finalize` to fail with an SPL token transfer error.
 
 ### Hold Expiration
 
@@ -1563,6 +1567,8 @@ All account structures include a `version: u8` field (currently set to `1`) to f
 
 For breaking changes with pending settlements, drain all pending settlements (finalize or void) before migration to avoid time-sensitive constraint issues.
 
+This migration path requires the program to be deployed as upgradeable. An immutable deployment has no recovery path if bugs are discovered in the recovery instructions (`void_pending`, `close_session_key`, `emergency_close`). See the deployment requirement note under `emergency_close`.
+
 ### On-Chain Settlement Record
 
 The SPL token transfer history provides a complete on-chain record of all finalized settlements. Clients and facilitators can reconstruct per-recipient totals by querying the token account's transaction history.
@@ -1579,7 +1585,7 @@ The `submit_authorization` instruction checks `token_account.amount >= settle_am
 
 **Why this is accepted:** The facilitator is already deeply trusted -- it can unilaterally refund any pending settlement to zero. Over-commitment is a strictly less powerful attack than what the facilitator can already do with refunds. Adding on-chain committed tracking would require three instructions (`submit_authorization`, `finalize`, `refund`) to maintain a shared per-mint counter. This coupling is a classic source of accounting bugs in Solana programs: if the counter drifts, escrows become permanently stuck or silently leaky.
 
-**Mitigation:** The facilitator SDK tracks available balance off-chain (`vault_balance - sum(pending_settlements) - sum(active_holds)`). Facilitators should monitor for drift between their accounting and on-chain state.
+**Mitigation:** The facilitator SDK must track available balance off-chain (`vault_balance - sum(pending_settlements) - sum(active_holds)`). This is not optional — it is the sole enforcement point for committed-balance accounting. Facilitators must monitor for drift between their accounting and on-chain state and halt submissions if drift is detected.
 
 **Revisit when:** The trust model changes to support multiple facilitators per escrow or untrusted facilitators. At that point, on-chain committed-amount tracking (per-mint field on the escrow account, ~320 bytes additional state) becomes necessary.
 
@@ -1605,7 +1611,7 @@ All accounts set `version = 1` but no instruction checks the version field. The 
 
 `programs/flex/src/error.rs`
 
-The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6036) that happen to match the current ordering but are not enforced in code. The range will expand as new error variants are added.
+The `FlexError` enum relies on Anchor's auto-assignment starting from 6000. Inserting or reordering variants changes the numeric codes, breaking SDK error matching across program upgrades. The error code table in this document lists explicit values (6000-6043) that happen to match the current ordering but are not enforced in code. The range will expand as new error variants are added.
 
 **Revisit when:** Next program upgrade. Assign explicit discriminant values to each variant to match the documented table.
 
