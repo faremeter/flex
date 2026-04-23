@@ -926,7 +926,8 @@ mod harness {
                 let (session_key_pda, _) =
                     find_pda(&[b"session", env.escrow_pda.as_ref(), sk_pk.as_ref()]);
 
-                let grace_period = *grace_period_slots as u64;
+                let grace_period =
+                    (*grace_period_slots as u64).min(env.config.refund_timeout.saturating_sub(1));
                 let mut data = Vec::new();
                 if pk_bytes(&sk_pk).serialize(&mut data).is_err() {
                     return;

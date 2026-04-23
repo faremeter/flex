@@ -682,7 +682,9 @@ describe("submit_authorization", () => {
   it("succeeds with revoked key within grace period", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 154, {
-        revocationGracePeriodSlots: 100_000_000,
+        revocationGracePeriodSlots: 500_000,
+        refundTimeoutSlots: 1_000_000,
+        deadmanTimeoutSlots: 2_000_000,
       });
 
     const revokeIx = getRevokeSessionKeyInstruction({

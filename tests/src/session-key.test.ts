@@ -40,6 +40,8 @@ describe("register_session_key", () => {
   it("creates PDA and increments session key count", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 100, {
       maxSessionKeys: 10,
+      refundTimeoutSlots: 2000,
+      deadmanTimeoutSlots: 4000,
     });
 
     const sessionKey = await generateKeyPairSigner();
@@ -103,6 +105,8 @@ describe("register_session_key", () => {
   it("stores a non-null expires_at_slot", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 102, {
       maxSessionKeys: 10,
+      refundTimeoutSlots: 1000,
+      deadmanTimeoutSlots: 2000,
     });
 
     const sessionKey = await generateKeyPairSigner();
@@ -121,6 +125,70 @@ describe("register_session_key", () => {
     const ska = defined(await fetchSessionKey(rpc, skPDA));
     expect(Number(ska.expiresAtSlot)).toBe(999_999);
     expect(Number(ska.revocationGracePeriodSlots)).toBe(500);
+  }, 15_000);
+
+  it("rejects already-expired expires_at_slot", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 105, {
+      maxSessionKeys: 10,
+    });
+
+    const sessionKey = await generateKeyPairSigner();
+
+    // Use slot 0, which is unambiguously in the past
+    await expectToFailWithAnchorError(async () => {
+      const registerIx = await getRegisterSessionKeyInstructionAsync({
+        owner,
+        escrow: escrowPDA,
+        sessionKey: sessionKey.address,
+        expiresAtSlot: 0,
+        revocationGracePeriodSlots: 100,
+      });
+      await sendTx(rpc, owner, [registerIx]);
+    }, 6042);
+  }, 15_000);
+
+  it("rejects grace period >= refund timeout", async () => {
+    const refundTimeout = 150;
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 106, {
+      maxSessionKeys: 10,
+      refundTimeoutSlots: refundTimeout,
+    });
+
+    const sessionKey = await generateKeyPairSigner();
+
+    // Grace period equal to refund timeout should fail
+    await expectToFailWithAnchorError(async () => {
+      const registerIx = await getRegisterSessionKeyInstructionAsync({
+        owner,
+        escrow: escrowPDA,
+        sessionKey: sessionKey.address,
+        expiresAtSlot: null,
+        revocationGracePeriodSlots: refundTimeout,
+      });
+      await sendTx(rpc, owner, [registerIx]);
+    }, 6043);
+
+    // Grace period greater than refund timeout should also fail
+    await expectToFailWithAnchorError(async () => {
+      const registerIx = await getRegisterSessionKeyInstructionAsync({
+        owner,
+        escrow: escrowPDA,
+        sessionKey: sessionKey.address,
+        expiresAtSlot: null,
+        revocationGracePeriodSlots: refundTimeout + 1,
+      });
+      await sendTx(rpc, owner, [registerIx]);
+    }, 6043);
+
+    // Grace period less than refund timeout should succeed
+    const registerIx = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: refundTimeout - 1,
+    });
+    await sendTx(rpc, owner, [registerIx]);
   }, 15_000);
 
   it("allows unlimited keys when maxSessionKeys is 0", async () => {
@@ -170,6 +238,8 @@ describe("revoke_session_key", () => {
   it("sets revoked fields correctly", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 200, {
       maxSessionKeys: 10,
+      refundTimeoutSlots: 2000,
+      deadmanTimeoutSlots: 4000,
     });
 
     const sessionKey = await generateKeyPairSigner();
@@ -333,6 +403,8 @@ describe("close_session_key", () => {
   it("fails during grace period", async () => {
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 302, {
       maxSessionKeys: 10,
+      refundTimeoutSlots: 1_000_000,
+      deadmanTimeoutSlots: 2_000_000,
     });
 
     const sessionKey = await generateKeyPairSigner();
@@ -341,7 +413,7 @@ describe("close_session_key", () => {
       escrow: escrowPDA,
       sessionKey: sessionKey.address,
       expiresAtSlot: null,
-      revocationGracePeriodSlots: 100_000_000,
+      revocationGracePeriodSlots: 500_000,
     });
     const sessionKeyAccountMeta = registerIx.accounts[2];
     if (!sessionKeyAccountMeta) throw new Error("session key meta missing");
@@ -424,7 +496,7 @@ describe("close_session_key", () => {
       escrow: escrowPDA,
       sessionKey: sessionKey.address,
       expiresAtSlot: null,
-      revocationGracePeriodSlots: 100_000_000,
+      revocationGracePeriodSlots: 100,
     });
     const skMeta = registerIx.accounts[2];
     if (!skMeta) throw new Error("session key meta missing");
@@ -471,14 +543,13 @@ describe("close_session_key", () => {
       escrow: escrowPDA,
       sessionKey: sessionKey.address,
       expiresAtSlot: null,
-      revocationGracePeriodSlots: 100_000_000,
+      revocationGracePeriodSlots: 100,
     });
     const skMeta = registerIx.accounts[2];
     if (!skMeta) throw new Error("session key meta missing");
     const skPDA = skMeta.address;
     await sendTx(rpc, owner, [registerIx]);
 
-    // Revoke the key (grace period is 100M slots — won't expire)
     const revokeIx = getRevokeSessionKeyInstruction({
       owner,
       escrow: escrowPDA,
