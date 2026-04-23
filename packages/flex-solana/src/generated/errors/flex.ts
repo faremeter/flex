@@ -92,6 +92,12 @@ export const FLEX_ERROR__OWNER_ONLY = 0x1794; // 6036
 export const FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW = 0x1795; // 6037
 /** SessionKeysExist: Cannot close escrow with active session keys */
 export const FLEX_ERROR__SESSION_KEYS_EXIST = 0x1796; // 6038
+/** FinalizationDeadlinePassed: Finalization deadline has passed */
+export const FLEX_ERROR__FINALIZATION_DEADLINE_PASSED = 0x1797; // 6039
+/** VoidConditionNotMet: Neither deadman timeout nor finalization deadline has passed */
+export const FLEX_ERROR__VOID_CONDITION_NOT_MET = 0x1798; // 6040
+/** InvalidVoidAuthority: Authority must be escrow owner or facilitator */
+export const FLEX_ERROR__INVALID_VOID_AUTHORITY = 0x1799; // 6041
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -102,6 +108,7 @@ export type FlexError =
   | typeof FLEX_ERROR__DUPLICATE_ACCOUNTS
   | typeof FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__EXPIRY_TOO_FAR
+  | typeof FLEX_ERROR__FINALIZATION_DEADLINE_PASSED
   | typeof FLEX_ERROR__INSUFFICIENT_BALANCE
   | typeof FLEX_ERROR__INVALID_ED25519_INSTRUCTION
   | typeof FLEX_ERROR__INVALID_SIGNATURE
@@ -109,6 +116,7 @@ export type FlexError =
   | typeof FLEX_ERROR__INVALID_SPLIT_COUNT
   | typeof FLEX_ERROR__INVALID_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR
+  | typeof FLEX_ERROR__INVALID_VOID_AUTHORITY
   | typeof FLEX_ERROR__MINT_LIMIT_REACHED
   | typeof FLEX_ERROR__OWNER_ONLY
   | typeof FLEX_ERROR__PENDING_COUNT_MISMATCH
@@ -132,7 +140,8 @@ export type FlexError =
   | typeof FLEX_ERROR__SPLIT_BPS_ZERO
   | typeof FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW
   | typeof FLEX_ERROR__UNAUTHORIZED_FACILITATOR
-  | typeof FLEX_ERROR__UNSUPPORTED_ACCOUNT_VERSION;
+  | typeof FLEX_ERROR__UNSUPPORTED_ACCOUNT_VERSION
+  | typeof FLEX_ERROR__VOID_CONDITION_NOT_MET;
 
 let flexErrorMessages: Record<FlexError, string> | undefined;
 if (process.env.NODE_ENV !== "production") {
@@ -145,6 +154,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__DUPLICATE_ACCOUNTS]: `Same account passed multiple times`,
     [FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT]: `Duplicate recipient in splits`,
     [FLEX_ERROR__EXPIRY_TOO_FAR]: `Authorization expiry exceeds refund timeout`,
+    [FLEX_ERROR__FINALIZATION_DEADLINE_PASSED]: `Finalization deadline has passed`,
     [FLEX_ERROR__INSUFFICIENT_BALANCE]: `Token account balance insufficient`,
     [FLEX_ERROR__INVALID_ED25519_INSTRUCTION]: `Ed25519 instruction malformed or missing`,
     [FLEX_ERROR__INVALID_SIGNATURE]: `Ed25519 signature verification failed`,
@@ -152,6 +162,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__INVALID_SPLIT_COUNT]: `Split count must be between 1 and 5`,
     [FLEX_ERROR__INVALID_SPLIT_RECIPIENT]: `Recipient is not a valid token account for the specified mint`,
     [FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR]: `Token account pair validation failed`,
+    [FLEX_ERROR__INVALID_VOID_AUTHORITY]: `Authority must be escrow owner or facilitator`,
     [FLEX_ERROR__MINT_LIMIT_REACHED]: `Maximum mints per escrow reached`,
     [FLEX_ERROR__OWNER_ONLY]: `Only the escrow owner can create new vault accounts`,
     [FLEX_ERROR__PENDING_COUNT_MISMATCH]: `Remaining accounts count does not match pending_count`,
@@ -176,6 +187,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW]: `Split calculation arithmetic overflow`,
     [FLEX_ERROR__UNAUTHORIZED_FACILITATOR]: `Signer is not the registered facilitator`,
     [FLEX_ERROR__UNSUPPORTED_ACCOUNT_VERSION]: `Account version not supported by this program`,
+    [FLEX_ERROR__VOID_CONDITION_NOT_MET]: `Neither deadman timeout nor finalization deadline has passed`,
   };
 }
 

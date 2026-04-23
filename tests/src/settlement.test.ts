@@ -21,6 +21,7 @@ import {
   FLEX_ERROR__SESSION_KEY_EXPIRED,
   FLEX_ERROR__SESSION_KEY_REVOKED,
   FLEX_ERROR__INVALID_SIGNATURE,
+  FLEX_ERROR__FINALIZATION_DEADLINE_PASSED,
   fetchSessionKey,
   getRevokeSessionKeyInstruction,
   getDepositInstructionAsync,
@@ -1378,6 +1379,61 @@ describe("finalize", () => {
         ),
       FLEX_ERROR__INVALID_SPLIT_RECIPIENT,
     );
+  });
+
+  it("rejects finalize after finalization deadline", async () => {
+    const { escrowPDA, vaultPDA, pendingPDA, splits } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 140, {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
+        settleAmount: 50_000,
+      });
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    // Deadline = submitted_at + refund_timeout + deadman_timeout = submitted_at + 1150
+    await waitForSlot(rpc, pending.submittedAtSlot + 1151n);
+
+    await expectToFail(
+      () =>
+        finalizeHelper(
+          rpc,
+          facilitator,
+          escrowPDA,
+          facilitator.address,
+          pendingPDA,
+          vaultPDA,
+          [defined(splits[0]).recipient],
+        ),
+      FLEX_ERROR__FINALIZATION_DEADLINE_PASSED,
+    );
+  });
+
+  it("allows finalize at the finalization deadline", async () => {
+    const { escrowPDA, vaultPDA, pendingPDA, splits } =
+      await setupEscrowWithPending(rpc, owner, facilitator, payer, 141, {
+        refundTimeoutSlots: 150,
+        deadmanTimeoutSlots: 1000,
+        settleAmount: 50_000,
+      });
+
+    const pending = defined(await fetchPendingSettlement(rpc, pendingPDA));
+    // Wait to exactly the deadline slot (finalize uses <=)
+    await waitForSlot(rpc, pending.submittedAtSlot + 1150n);
+
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
+      vaultPDA,
+      [defined(splits[0]).recipient],
+    );
+
+    const pendingInfo = await rpc
+      .getAccountInfo(pendingPDA, { encoding: "base64" })
+      .send();
+    expect(pendingInfo.value).toBeNull();
   });
 });
 
