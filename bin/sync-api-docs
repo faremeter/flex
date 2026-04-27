@@ -1,0 +1,72 @@
+#!/usr/bin/env node
+
+/**
+ * Syncs typedoc-generated markdown from docs/api/ into the Faremeter
+ * docs site under <DEST>/api/, renaming files to match the
+ * <package>.src[.Namespace.X].md convention used by the docs site.
+ *
+ * This repo currently has a single package (flex-solana), so typedoc
+ * emits index.md / Namespace.X.md. The docs site expects names that
+ * disambiguate by package, so we prefix every file with "flex-solana.src"
+ * and rewrite internal links to match.
+ *
+ * Internal .md extensions are also stripped, mirroring the Faremeter
+ * monorepo's bin/strip-link-extensions step (Mintlify expects
+ * extensionless paths for cross-page references).
+ *
+ * Usage: bin/sync-api-docs <DEST>
+ *   <DEST> is the root of the faremeter/docs checkout (the directory
+ *   containing api/, docs.json, etc).
+ */
+
+import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const dest = process.argv[2];
+if (!dest) {
+  console.error("Usage: bin/sync-api-docs <DEST>");
+  process.exit(1);
+}
+
+const PACKAGE_PREFIX = "flex-solana.src";
+const SRC_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "docs",
+  "api",
+);
+const DEST_DIR = resolve(dest, "api");
+
+mkdirSync(DEST_DIR, { recursive: true });
+
+const sourceFiles = readdirSync(SRC_DIR).filter((f) => f.endsWith(".md"));
+
+function renameFile(filename) {
+  if (filename === "index.md") return `${PACKAGE_PREFIX}.md`;
+  if (filename.startsWith("Namespace.")) return `${PACKAGE_PREFIX}.${filename}`;
+  return `${PACKAGE_PREFIX}.${filename}`;
+}
+
+const renameMap = new Map();
+for (const f of sourceFiles) {
+  renameMap.set(f.replace(/\.md$/, ""), renameFile(f).replace(/\.md$/, ""));
+}
+
+const linkRe = /\]\(([^)]+?)(\.md)?(#[^)]*)?\)/g;
+
+for (const file of sourceFiles) {
+  const target = renameFile(file);
+  const original = readFileSync(join(SRC_DIR, file), "utf-8");
+
+  const rewritten = original.replace(linkRe, (match, base, ext, anchor) => {
+    if (!renameMap.has(base)) return match;
+    return `](${renameMap.get(base)}${anchor ?? ""})`;
+  });
+
+  writeFileSync(join(DEST_DIR, target), rewritten, "utf-8");
+}
+
+console.log(
+  `Synced ${sourceFiles.length} file(s) to ${DEST_DIR} (prefix: ${PACKAGE_PREFIX}).`,
+);

@@ -33,6 +33,12 @@ doc: FORCE
 	bun typedoc
 	bun prettier --write docs/api/
 
+sync-docs: doc
+	@test -n "$(DEST)" || (echo "Usage: make sync-docs DEST=<faremeter-docs-dir>" && exit 1)
+	bin/sync-api-docs "$(DEST)"
+	bun prettier --write "$(DEST)/api/flex-solana.src"*.md
+	@echo "Remember to commit in the destination repo."
+
 packages/%: FORCE
 	cd $@ && rm -rf dist && bun run tsc && bun run tsc-esm-fix
 
