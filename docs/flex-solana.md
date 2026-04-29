@@ -78,7 +78,7 @@ pub struct EscrowAccount {
     pub index: u64,
 
     /// Number of open pending settlements
-    pub pending_count: u64,
+    pub pending_count: u16,
 
     /// Number of active token account PDAs
     pub mint_count: u64,

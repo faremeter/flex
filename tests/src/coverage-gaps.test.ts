@@ -1124,7 +1124,7 @@ describe("finalize succeeds after deadman timeout", () => {
     expect(await fetchTokenBalance(rpc, vaultPDA)).toBe(950_000n);
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowAfter.pendingCount)).toBe(0);
+    expect(escrowAfter.pendingCount).toBe(0);
   });
 });
 
@@ -1227,7 +1227,7 @@ describe("pending quota recovery after full refund", () => {
     );
 
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrow.pendingCount)).toBe(16);
+    expect(escrow.pendingCount).toBe(16);
   }, 120_000);
 });
 

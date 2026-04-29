@@ -28,7 +28,7 @@ export type EscrowAccounting = {
   vaultBalances: Map<Address, bigint>;
   holds: HoldEntry[];
   totalPendingByMint: Map<Address, bigint>;
-  pendingCount: bigint;
+  pendingCount: number;
   maxPending: number;
   availableByMint: Map<Address, bigint>;
   canSubmit: boolean;
@@ -133,6 +133,6 @@ export async function fetchEscrowAccounting(
     pendingCount,
     maxPending: MAX_PENDING_SETTLEMENTS,
     availableByMint,
-    canSubmit: pendingCount < BigInt(MAX_PENDING_SETTLEMENTS),
+    canSubmit: pendingCount < MAX_PENDING_SETTLEMENTS,
   };
 }

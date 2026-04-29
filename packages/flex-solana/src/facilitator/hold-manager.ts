@@ -78,7 +78,7 @@ export function createHoldManager() {
     params: TryHoldParams,
     vaultBalance: bigint,
     onChainCommitted: bigint,
-    onChainPendingCount: bigint,
+    onChainPendingCount: number,
   ): HoldResult {
     const k = key(params.escrow, params.authorizationId);
     if (holds.has(k)) {
@@ -86,7 +86,7 @@ export function createHoldManager() {
     }
 
     const totalPending =
-      Number(onChainPendingCount) + getUnsubmittedCount(params.escrow);
+      onChainPendingCount + getUnsubmittedCount(params.escrow);
     if (totalPending >= MAX_PENDING_SETTLEMENTS) {
       return { ok: false, reason: "Pending settlement limit reached" };
     }

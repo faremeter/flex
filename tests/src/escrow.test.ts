@@ -69,7 +69,7 @@ describe("create_escrow", () => {
     expect(escrow.owner).toBe(ownerSigner.address);
     expect(escrow.facilitator).toBe(facilitatorSigner.address);
     expect(Number(escrow.index)).toBe(0);
-    expect(Number(escrow.pendingCount)).toBe(0);
+    expect(escrow.pendingCount).toBe(0);
     expect(Number(escrow.mintCount)).toBe(0);
     expect(Number(escrow.refundTimeoutSlots)).toBe(200);
     expect(Number(escrow.deadmanTimeoutSlots)).toBe(1000);

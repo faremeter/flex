@@ -61,7 +61,7 @@ describe("void_pending", () => {
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
     await waitForSlot(rpc, escrowBefore.lastActivitySlot + 1001n);
-    expect(escrowBefore.pendingCount).toBe(1n);
+    expect(escrowBefore.pendingCount).toBe(1);
 
     const { value: facilitatorBalanceBefore } = await rpc
       .getBalance(facilitator.address)
@@ -81,7 +81,7 @@ describe("void_pending", () => {
     expect(pendingInfo.value).toBeNull();
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrowAfter.pendingCount).toBe(0n);
+    expect(escrowAfter.pendingCount).toBe(0);
 
     const { value: facilitatorBalanceAfter } = await rpc
       .getBalance(facilitator.address)
@@ -406,7 +406,7 @@ describe("emergency_close", () => {
     );
 
     const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrowMid.pendingCount).toBe(2n);
+    expect(escrowMid.pendingCount).toBe(2);
 
     await waitForSlot(rpc, escrowMid.lastActivitySlot + 1001n);
 
@@ -427,7 +427,7 @@ describe("emergency_close", () => {
     await sendTx(rpc, owner, [void2Ix]);
 
     const escrowPreClose = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrowPreClose.pendingCount).toBe(0n);
+    expect(escrowPreClose.pendingCount).toBe(0);
 
     // Close session key via deadman mode before emergency_close
     const closeKeyIx = getCloseSessionKeyInstruction({
@@ -736,7 +736,7 @@ describe("force_close is removed", () => {
       });
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrowBefore.pendingCount).toBe(1n);
+    expect(escrowBefore.pendingCount).toBe(1);
 
     await waitForSlot(rpc, escrowBefore.lastActivitySlot + 1001n);
 
@@ -749,7 +749,7 @@ describe("force_close is removed", () => {
     await sendTx(rpc, owner, [voidIx]);
 
     const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrowMid.pendingCount).toBe(0n);
+    expect(escrowMid.pendingCount).toBe(0);
 
     // Close session key via deadman mode
     const closeKeyIx = getCloseSessionKeyInstruction({

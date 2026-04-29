@@ -954,7 +954,7 @@ describe("refund", () => {
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowBefore.pendingCount)).toBe(1);
+    expect(escrowBefore.pendingCount).toBe(1);
 
     await refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 50_000);
 
@@ -962,7 +962,7 @@ describe("refund", () => {
     expect(Number(pendingAfter.amount)).toBe(0);
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowAfter.pendingCount)).toBe(1);
+    expect(escrowAfter.pendingCount).toBe(1);
   });
 
   it("blocks replay of same authorization_id after full refund", async () => {
@@ -1057,7 +1057,7 @@ describe("refund", () => {
     expect(pendingInfo.value).toBeNull();
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowAfter.pendingCount)).toBe(0);
+    expect(escrowAfter.pendingCount).toBe(0);
   });
 
   it("fails after refund window expires", async () => {
@@ -1166,7 +1166,7 @@ describe("finalize", () => {
       });
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowBefore.pendingCount)).toBe(1);
+    expect(escrowBefore.pendingCount).toBe(1);
 
     const recipientAddr = defined(splits[0]).recipient;
     const recipientBefore = await fetchTokenBalance(rpc, recipientAddr);
@@ -1192,7 +1192,7 @@ describe("finalize", () => {
     expect(pendingAfter).toBeNull();
 
     const escrowAfter = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowAfter.pendingCount)).toBe(0);
+    expect(escrowAfter.pendingCount).toBe(0);
   });
 
   it("distributes to multiple recipients proportionally", async () => {
@@ -1659,7 +1659,7 @@ describe("multi-mint settlement", () => {
     );
 
     const escrowMid = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowMid.pendingCount)).toBe(2);
+    expect(escrowMid.pendingCount).toBe(2);
 
     const pendingDataA = defined(await fetchPendingSettlement(rpc, pendingA));
     await waitForSlot(rpc, pendingDataA.submittedAtSlot + 150n);
@@ -1690,6 +1690,6 @@ describe("multi-mint settlement", () => {
     expect(await fetchTokenBalance(rpc, vaultB)).toBe(1_200_000n);
 
     const escrowFinal = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrowFinal.pendingCount)).toBe(0);
+    expect(escrowFinal.pendingCount).toBe(0);
   });
 });
