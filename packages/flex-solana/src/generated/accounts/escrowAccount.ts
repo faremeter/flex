@@ -21,6 +21,8 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU16Decoder,
+  getU16Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -55,7 +57,7 @@ export type EscrowAccount = {
   owner: Address;
   facilitator: Address;
   index: bigint;
-  pendingCount: bigint;
+  pendingCount: number;
   mintCount: bigint;
   refundTimeoutSlots: bigint;
   deadmanTimeoutSlots: bigint;
@@ -70,7 +72,7 @@ export type EscrowAccountArgs = {
   owner: Address;
   facilitator: Address;
   index: number | bigint;
-  pendingCount: number | bigint;
+  pendingCount: number;
   mintCount: number | bigint;
   refundTimeoutSlots: number | bigint;
   deadmanTimeoutSlots: number | bigint;
@@ -89,7 +91,7 @@ export function getEscrowAccountEncoder(): FixedSizeEncoder<EscrowAccountArgs> {
       ["owner", getAddressEncoder()],
       ["facilitator", getAddressEncoder()],
       ["index", getU64Encoder()],
-      ["pendingCount", getU64Encoder()],
+      ["pendingCount", getU16Encoder()],
       ["mintCount", getU64Encoder()],
       ["refundTimeoutSlots", getU64Encoder()],
       ["deadmanTimeoutSlots", getU64Encoder()],
@@ -110,7 +112,7 @@ export function getEscrowAccountDecoder(): FixedSizeDecoder<EscrowAccount> {
     ["owner", getAddressDecoder()],
     ["facilitator", getAddressDecoder()],
     ["index", getU64Decoder()],
-    ["pendingCount", getU64Decoder()],
+    ["pendingCount", getU16Decoder()],
     ["mintCount", getU64Decoder()],
     ["refundTimeoutSlots", getU64Decoder()],
     ["deadmanTimeoutSlots", getU64Decoder()],
@@ -187,5 +189,5 @@ export async function fetchAllMaybeEscrowAccount(
 }
 
 export function getEscrowAccountSize(): number {
-  return 124;
+  return 118;
 }

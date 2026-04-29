@@ -220,7 +220,7 @@ Enforces vault balance limits and pending settlement capacity per escrow.
 
 | Function            | Type                                                                                                                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `createHoldManager` | `() => { tryHold: (params: TryHoldParams, vaultBalance: bigint, onChainCommitted: bigint, onChainPendingCount: bigint) => HoldResult; releaseHold: (escrow: Address, authorizationId: bigint) => void; ... 11 more ...; pendingCount: () => number; }` |
+| `createHoldManager` | `() => { tryHold: (params: TryHoldParams, vaultBalance: bigint, onChainCommitted: bigint, onChainPendingCount: number) => HoldResult; releaseHold: (escrow: Address, authorizationId: bigint) => void; ... 11 more ...; pendingCount: () => number; }` |
 
 Returns:
 
@@ -334,7 +334,7 @@ Decoded on-chain state of a Flex escrow account.
 
 | Type                | Type                                                                                                                                                                                                                                                                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EscrowAccountData` | `{ version: number; owner: Address; facilitator: Address; index: bigint; pendingCount: bigint; mintCount: bigint; refundTimeoutSlots: bigint; deadmanTimeoutSlots: bigint; lastActivitySlot: bigint; maxSessionKeys: number; sessionKeyCount: number; bump: number; }` |
+| `EscrowAccountData` | `{ version: number; owner: Address; facilitator: Address; index: bigint; pendingCount: number; mintCount: bigint; refundTimeoutSlots: bigint; deadmanTimeoutSlots: bigint; lastActivitySlot: bigint; maxSessionKeys: number; sessionKeyCount: number; bump: number; }` |
 
 ### SessionKeyData
 
@@ -366,7 +366,7 @@ Snapshot of an escrow's vault balances, pending settlements, and available capac
 
 | Type               | Type                                                                                                                                                                                                                           |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `EscrowAccounting` | `{ escrow: Address; vaultBalances: Map<Address, bigint>; holds: HoldEntry[]; totalPendingByMint: Map<Address, bigint>; pendingCount: bigint; maxPending: number; availableByMint: Map<Address, bigint>; canSubmit: boolean; }` |
+| `EscrowAccounting` | `{ escrow: Address; vaultBalances: Map<Address, bigint>; holds: HoldEntry[]; totalPendingByMint: Map<Address, bigint>; pendingCount: number; maxPending: number; availableByMint: Map<Address, bigint>; canSubmit: boolean; }` |
 
 ### Hold
 
