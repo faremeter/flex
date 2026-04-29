@@ -1053,8 +1053,6 @@ Replay protection uses two complementary mechanisms:
 
 2. **Expiry (after finalization):** Each authorization includes an `expires_at_slot` which is bounded by `clock.slot + escrow.refund_timeout_slots`. Once a pending settlement is finalized and its PDA is closed, the authorization cannot be replayed because `clock.slot >= expires_at_slot` by the time finalization occurs (the refund timeout must elapse before finalization). Any replay attempt fails with `AuthorizationExpired`.
 
-**Gap after full refund:** A full refund closes the PDA via the refund path, which can occur before `expires_at_slot` passes. If the facilitator re-submits the same `authorization_id` before the authorization expires, `init` succeeds on the closed PDA because the account has been zeroed and reassigned to the system program. This replay requires facilitator cooperation (the facilitator is a required signer) and is within the existing trust model. See [Replay after full refund](#replay-after-full-refund) in known limitations.
-
 This design enables parallel submission of authorizations since `authorization_id` values are random and independent rather than sequential.
 
 **Anomaly Detection:** Clients should monitor on-chain pending settlements for unexpected activity:
@@ -1312,9 +1310,9 @@ Estimated compute units per instruction (excluding transaction overhead):
 | `revoke_session_key`   | ~8,000 CU         | Account update only                           |
 | `close_session_key`    | ~10,000 CU        | Account close                                 |
 | `submit_authorization` | ~35,000 CU        | Ed25519 introspection + PDA init              |
-| `refund`               | ~12,000 CU        | +5,000 if full refund (close)                 |
+| `refund`               | ~12,000 CU        | Account update only                           |
 | `finalize`             | ~25,000-45,000 CU | ~20,000 base + ~5,000 per split recipient     |
-| `emergency_close`      | ~30,000 CU base   | +15,000 per pending settlement closed         |
+| `emergency_close`      | ~20,000 CU base   | +10,000 per token account closed              |
 
 ## Rent Considerations
 
