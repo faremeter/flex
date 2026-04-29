@@ -20,6 +20,7 @@ import {
   FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG,
   FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG,
   FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND,
+  FLEX_ERROR__MAX_PENDING_ZERO,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
@@ -61,6 +62,7 @@ describe("create_escrow", () => {
         refundTimeoutSlots: 200,
         deadmanTimeoutSlots: 1000,
         maxSessionKeys: 5,
+        maxPending: 8,
       },
     );
 
@@ -70,6 +72,7 @@ describe("create_escrow", () => {
     expect(escrow.facilitator).toBe(facilitatorSigner.address);
     expect(Number(escrow.index)).toBe(0);
     expect(escrow.pendingCount).toBe(0);
+    expect(escrow.maxPending).toBe(8);
     expect(Number(escrow.mintCount)).toBe(0);
     expect(Number(escrow.refundTimeoutSlots)).toBe(200);
     expect(Number(escrow.deadmanTimeoutSlots)).toBe(1000);
@@ -186,6 +189,16 @@ describe("create_escrow", () => {
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
     expect(Number(escrow.refundTimeoutSlots)).toBe(1_296_000);
     expect(Number(escrow.deadmanTimeoutSlots)).toBe(2_592_000);
+  });
+
+  it("fails when maxPending is zero", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 27, {
+          maxPending: 0,
+        }),
+      FLEX_ERROR__MAX_PENDING_ZERO,
+    );
   });
 });
 

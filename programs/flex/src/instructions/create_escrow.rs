@@ -3,8 +3,8 @@ use anchor_lang::prelude::*;
 use crate::error::FlexError;
 use crate::events::EscrowCreated;
 use crate::state::{
-    EscrowAccount, MAX_DEADMAN_TIMEOUT_SLOTS, MAX_REFUND_TIMEOUT_SLOTS, MIN_DEADMAN_TIMEOUT_SLOTS,
-    MIN_REFUND_TIMEOUT_SLOTS,
+    EscrowAccount, MAX_DEADMAN_TIMEOUT_SLOTS, MAX_PENDING_LIMIT, MAX_REFUND_TIMEOUT_SLOTS,
+    MIN_DEADMAN_TIMEOUT_SLOTS, MIN_REFUND_TIMEOUT_SLOTS,
 };
 
 #[derive(Accounts)]
@@ -32,6 +32,7 @@ pub fn create_escrow(
     refund_timeout_slots: u64,
     deadman_timeout_slots: u64,
     max_session_keys: u8,
+    max_pending: u16,
 ) -> Result<()> {
     require!(
         refund_timeout_slots >= MIN_REFUND_TIMEOUT_SLOTS,
@@ -53,6 +54,16 @@ pub fn create_escrow(
         deadman_timeout_slots >= 2 * refund_timeout_slots,
         FlexError::DeadmanTooCloseToRefund
     );
+    require!(max_pending >= 1, FlexError::MaxPendingZero);
+    // Currently tautological (MAX_PENDING_LIMIT == u16::MAX and max_pending is u16),
+    // but enforced explicitly so the constraint survives if the limit is tightened.
+    #[allow(clippy::absurd_extreme_comparisons)]
+    {
+        require!(
+            max_pending <= MAX_PENDING_LIMIT,
+            FlexError::MaxPendingTooLarge
+        );
+    }
 
     let escrow = &mut ctx.accounts.escrow;
     escrow.version = 1;
@@ -60,6 +71,7 @@ pub fn create_escrow(
     escrow.facilitator = facilitator;
     escrow.index = index;
     escrow.pending_count = 0;
+    escrow.max_pending = max_pending;
     escrow.mint_count = 0;
     escrow.refund_timeout_slots = refund_timeout_slots;
     escrow.deadman_timeout_slots = deadman_timeout_slots;
@@ -75,6 +87,7 @@ pub fn create_escrow(
         index,
         refund_timeout_slots,
         deadman_timeout_slots,
+        max_pending,
     });
 
     Ok(())

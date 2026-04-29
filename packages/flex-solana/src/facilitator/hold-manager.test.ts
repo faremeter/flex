@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import type { Address } from "@solana/kit";
 import { createHoldManager, type TryHoldParams } from "./hold-manager";
-import { MAX_PENDING_SETTLEMENTS } from "./accounting";
 
 type HoldManager = ReturnType<typeof createHoldManager>;
 
@@ -40,7 +39,7 @@ beforeEach(() => {
 
 describe("tryHold", () => {
   test("creates a hold in held state", () => {
-    const result = mgr.tryHold(makeParams(), 1000n, 0n, 0);
+    const result = mgr.tryHold(makeParams(), 1000n, 0n, 0, 16);
     expect(result.ok).toBe(true);
     const holds = mgr.getHolds();
     expect(holds).toHaveLength(1);
@@ -51,8 +50,8 @@ describe("tryHold", () => {
 
   test("rejects duplicate authorization ID", () => {
     const params = makeParams({ authorizationId: 42n });
-    mgr.tryHold(params, 1000n, 0n, 0);
-    const result = mgr.tryHold(params, 1000n, 0n, 0);
+    mgr.tryHold(params, 1000n, 0n, 0, 16);
+    const result = mgr.tryHold(params, 1000n, 0n, 0, 16);
     expect(result).toEqual({ ok: false, reason: "Duplicate authorization ID" });
   });
 
@@ -62,12 +61,14 @@ describe("tryHold", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const r2 = mgr.tryHold(
       makeParams({ escrow: ESCROW_B, authorizationId: 1n }),
       1000n,
       0n,
       0,
+      16,
     );
     expect(r1.ok).toBe(true);
     expect(r2.ok).toBe(true);
@@ -76,12 +77,7 @@ describe("tryHold", () => {
 
 describe("tryHold pending count", () => {
   test("rejects when on-chain pending count alone hits limit", () => {
-    const result = mgr.tryHold(
-      makeParams(),
-      1000n,
-      0n,
-      MAX_PENDING_SETTLEMENTS,
-    );
+    const result = mgr.tryHold(makeParams(), 1000n, 0n, 16, 16);
     expect(result).toEqual({
       ok: false,
       reason: "Pending settlement limit reached",
@@ -89,14 +85,22 @@ describe("tryHold pending count", () => {
   });
 
   test("rejects when in-memory plus on-chain count hits limit", () => {
-    for (let i = 0; i < MAX_PENDING_SETTLEMENTS - 1; i++) {
-      mgr.tryHold(makeParams({ authorizationId: BigInt(i) }), 100000n, 0n, 0);
+    const maxPending = 16;
+    for (let i = 0; i < maxPending - 1; i++) {
+      mgr.tryHold(
+        makeParams({ authorizationId: BigInt(i) }),
+        100000n,
+        0n,
+        0,
+        maxPending,
+      );
     }
     const result = mgr.tryHold(
       makeParams({ authorizationId: 99n }),
       100000n,
       0n,
       1,
+      maxPending,
     );
     expect(result).toEqual({
       ok: false,
@@ -106,7 +110,7 @@ describe("tryHold pending count", () => {
 
   test("does not count submitted holds toward pending limit", () => {
     const params = makeParams({ authorizationId: 1n });
-    mgr.tryHold(params, 1000n, 0n, 0);
+    mgr.tryHold(params, 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -116,16 +120,17 @@ describe("tryHold pending count", () => {
       makeParams({ authorizationId: 2n }),
       1000n,
       0n,
-      MAX_PENDING_SETTLEMENTS - 1,
+      15,
+      16,
     );
     expect(result.ok).toBe(true);
   });
 
   test("counts held, settled, and submitting toward limit", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
-    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 2n, 100n);
-    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 3n, 100n);
     mgr.drainSubmittable(0n);
 
@@ -135,7 +140,13 @@ describe("tryHold pending count", () => {
 
 describe("tryHold balance", () => {
   test("rejects when on-chain committed exceeds vault balance", () => {
-    const result = mgr.tryHold(makeParams({ settleAmount: 1n }), 100n, 101n, 0);
+    const result = mgr.tryHold(
+      makeParams({ settleAmount: 1n }),
+      100n,
+      101n,
+      0,
+      16,
+    );
     expect(result).toEqual({
       ok: false,
       reason: "Insufficient available balance for hold",
@@ -148,12 +159,14 @@ describe("tryHold balance", () => {
       100n,
       0n,
       0,
+      16,
     );
     const result = mgr.tryHold(
       makeParams({ authorizationId: 2n, settleAmount: 50n }),
       100n,
       0n,
       0,
+      16,
     );
     expect(result).toEqual({
       ok: false,
@@ -167,19 +180,21 @@ describe("tryHold balance", () => {
       50n,
       0n,
       0,
+      16,
     );
     const result = mgr.tryHold(
       makeParams({ authorizationId: 2n, settleAmount: 35n }),
       50n,
       0n,
       0,
+      16,
     );
     expect(result.ok).toBe(true);
   });
 
   test("does not double-count submitted or finalizing holds", () => {
     const params = makeParams({ authorizationId: 1n, settleAmount: 80n });
-    mgr.tryHold(params, 100n, 0n, 0);
+    mgr.tryHold(params, 100n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 80n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -193,6 +208,7 @@ describe("tryHold balance", () => {
       1000n,
       80n,
       1,
+      16,
     );
     expect(result.ok).toBe(true);
   });
@@ -203,23 +219,37 @@ describe("tryHold balance", () => {
       100n,
       0n,
       0,
+      16,
     );
     const result = mgr.tryHold(
       makeParams({ authorizationId: 2n, mint: MINT_B, settleAmount: 90n }),
       100n,
       0n,
       0,
+      16,
     );
     expect(result.ok).toBe(true);
   });
 
   test("accepts zero settleAmount without error", () => {
-    const result = mgr.tryHold(makeParams({ settleAmount: 0n }), 100n, 0n, 0);
+    const result = mgr.tryHold(
+      makeParams({ settleAmount: 0n }),
+      100n,
+      0n,
+      0,
+      16,
+    );
     expect(result.ok).toBe(true);
   });
 
   test("accepts hold when settleAmount equals available balance", () => {
-    const result = mgr.tryHold(makeParams({ settleAmount: 50n }), 100n, 50n, 0);
+    const result = mgr.tryHold(
+      makeParams({ settleAmount: 50n }),
+      100n,
+      50n,
+      0,
+      16,
+    );
     expect(result.ok).toBe(true);
   });
 });
@@ -227,14 +257,14 @@ describe("tryHold balance", () => {
 describe("releaseHold", () => {
   test("removes the hold entirely", () => {
     const params = makeParams({ authorizationId: 1n });
-    mgr.tryHold(params, 1000n, 0n, 0);
+    mgr.tryHold(params, 1000n, 0n, 0, 16);
     mgr.releaseHold(ESCROW, 1n);
     expect(mgr.getHolds()).toHaveLength(0);
     expect(mgr.pendingCount()).toBe(0);
   });
 
   test("is a no-op for nonexistent hold", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.releaseHold(ESCROW, 999n);
     expect(mgr.getHolds()).toHaveLength(1);
   });
@@ -247,6 +277,7 @@ describe("updateSettleAmount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const result = mgr.updateSettleAmount(ESCROW, 1n, 150n);
     expect(result.ok).toBe(true);
@@ -255,7 +286,7 @@ describe("updateSettleAmount", () => {
   });
 
   test("rejects if hold is not in held state", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     const result = mgr.updateSettleAmount(ESCROW, 1n, 50n);
     expect(result).toEqual({ ok: false, reason: "Hold is not in held state" });
@@ -267,6 +298,7 @@ describe("updateSettleAmount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const result = mgr.updateSettleAmount(ESCROW, 1n, 51n);
     expect(result).toEqual({
@@ -286,6 +318,7 @@ describe("updateSettleAmount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const result = mgr.updateSettleAmount(ESCROW, 1n, 180n);
     expect(result.ok).toBe(true);
@@ -298,6 +331,7 @@ describe("updateSettleAmount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const result = mgr.updateSettleAmount(ESCROW, 1n, 100n);
     expect(result.ok).toBe(true);
@@ -311,6 +345,7 @@ describe("sweepExpired", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const expired = mgr.sweepExpired(100n);
     expect(expired).toHaveLength(1);
@@ -323,6 +358,7 @@ describe("sweepExpired", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     const expired = mgr.sweepExpired(100n);
@@ -336,6 +372,7 @@ describe("sweepExpired", () => {
       1000n,
       0n,
       0,
+      16,
     );
     const expired = mgr.sweepExpired(99n);
     expect(expired).toHaveLength(0);
@@ -347,18 +384,21 @@ describe("sweepExpired", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ authorizationId: 2n, validUntilSlot: 100n }),
       1000n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ authorizationId: 3n, validUntilSlot: 100n }),
       1000n,
       0n,
       0,
+      16,
     );
     const expired = mgr.sweepExpired(100n);
     expect(expired).toHaveLength(3);
@@ -368,8 +408,8 @@ describe("sweepExpired", () => {
 
 describe("drainSubmittable", () => {
   test("transitions settled holds to submitting", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
-    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.updateSettleAmount(ESCROW, 2n, 100n);
     const ready = mgr.drainSubmittable(0n);
@@ -381,10 +421,10 @@ describe("drainSubmittable", () => {
   });
 
   test("does not touch held or submitted holds", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
-    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 2n, 100n);
-    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 3n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 3n, 50n);
@@ -399,8 +439,9 @@ describe("drainSubmittable", () => {
       1000n,
       0n,
       0,
+      16,
     );
-    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 2n, 100n);
     const ready = mgr.drainSubmittable(10n);
     expect(ready).toHaveLength(1);
@@ -414,6 +455,7 @@ describe("drainSubmittable", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.tryHold(
@@ -421,6 +463,7 @@ describe("drainSubmittable", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW_B, 2n, 100n);
     mgr.tryHold(
@@ -428,6 +471,7 @@ describe("drainSubmittable", () => {
       1000n,
       0n,
       0,
+      16,
     );
 
     const ready = mgr.drainSubmittable(0n);
@@ -449,7 +493,7 @@ describe("drainSubmittable", () => {
 
 describe("markSubmitted", () => {
   test("transitions submitting to submitted and records slot", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     expect(mgr.markSubmitted(ESCROW, 1n, 500n)).toBe(true);
@@ -465,7 +509,7 @@ describe("markSubmitted", () => {
 
 describe("markFailed", () => {
   test("transitions submitting to settled and increments retry count", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     const result = mgr.markFailed(ESCROW, 1n);
@@ -476,7 +520,7 @@ describe("markFailed", () => {
   });
 
   test("increments retry count on each failure", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
 
     mgr.drainSubmittable(0n);
@@ -488,7 +532,7 @@ describe("markFailed", () => {
   });
 
   test("returns -1 if hold is not in submitting state", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     expect(mgr.markFailed(ESCROW, 1n)).toBe(-1);
     expect(mgr.getHolds()[0]?.status).toBe("held");
   });
@@ -498,7 +542,7 @@ describe("markFailed", () => {
   });
 
   test("returns -1 for submitted hold", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -509,7 +553,7 @@ describe("markFailed", () => {
 
 describe("drainFinalizable", () => {
   test("transitions submitted holds past refund timeout to finalizing", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -519,7 +563,7 @@ describe("drainFinalizable", () => {
   });
 
   test("does not transition holds before timeout", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -528,7 +572,7 @@ describe("drainFinalizable", () => {
   });
 
   test("skips holds where getRefundTimeout returns null", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -542,6 +586,7 @@ describe("drainFinalizable", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
@@ -552,6 +597,7 @@ describe("drainFinalizable", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW_B, 2n, 100n);
     mgr.drainSubmittable(0n);
@@ -567,7 +613,7 @@ describe("drainFinalizable", () => {
 
 describe("resetToSubmitted", () => {
   test("transitions finalizing back to submitted", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -579,7 +625,7 @@ describe("resetToSubmitted", () => {
   });
 
   test("is a no-op if hold is not finalizing", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -595,7 +641,7 @@ describe("resetToSubmitted", () => {
 
 describe("markFinalized", () => {
   test("removes the hold entirely", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -607,13 +653,13 @@ describe("markFinalized", () => {
 
 describe("state guards", () => {
   test("markSubmitted returns false for non-submitting hold", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     expect(mgr.markSubmitted(ESCROW, 1n, 100n)).toBe(false);
     expect(mgr.getHolds()[0]?.status).toBe("held");
   });
 
   test("markSubmitted returns true for submitting hold", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     expect(mgr.markSubmitted(ESCROW, 1n, 100n)).toBe(true);
@@ -621,13 +667,13 @@ describe("state guards", () => {
   });
 
   test("markFinalized returns false for non-finalizing hold", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     expect(mgr.markFinalized(ESCROW, 1n)).toBe(false);
     expect(mgr.getHolds()).toHaveLength(1);
   });
 
   test("markFinalized returns true for finalizing hold", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -637,7 +683,7 @@ describe("state guards", () => {
   });
 
   test("releaseHold deletes hold in any status", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 1n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 1n, 100n);
@@ -653,12 +699,14 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ authorizationId: 2n, settleAmount: 20n }),
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 2n, 20n);
     mgr.tryHold(
@@ -666,6 +714,7 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 3n, 30n);
     mgr.drainSubmittable(0n);
@@ -675,6 +724,7 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 4n, 40n);
     mgr.drainSubmittable(0n);
@@ -685,6 +735,7 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.updateSettleAmount(ESCROW, 5n, 50n);
     mgr.drainSubmittable(0n);
@@ -705,22 +756,24 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ authorizationId: 2n, mint: MINT_B, settleAmount: 20n }),
       1000n,
       0n,
       0,
+      16,
     );
     expect(mgr.getHeldAmount(ESCROW, MINT)).toBe(10n);
     expect(mgr.getHeldAmount(ESCROW, MINT_B)).toBe(20n);
   });
 
   test("getUnsubmittedCount counts held, settled, and submitting", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
-    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 2n, 100n);
-    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 3n, 100n);
     mgr.drainSubmittable(0n);
 
@@ -733,35 +786,38 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       1000n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ escrow: ESCROW_B, authorizationId: 2n }),
       1000n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ escrow: ESCROW_B, authorizationId: 3n }),
       1000n,
       0n,
       0,
+      16,
     );
     expect(mgr.getUnsubmittedCount(ESCROW)).toBe(1);
     expect(mgr.getUnsubmittedCount(ESCROW_B)).toBe(2);
   });
 
   test("pendingCount includes all statuses while getUnsubmittedCount excludes submitted and finalizing", () => {
-    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0);
-    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 1n }), 1000n, 0n, 0, 16);
+    mgr.tryHold(makeParams({ authorizationId: 2n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 2n, 100n);
-    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 3n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 3n, 100n);
     mgr.drainSubmittable(0n);
-    mgr.tryHold(makeParams({ authorizationId: 4n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 4n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 4n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 4n, 100n);
-    mgr.tryHold(makeParams({ authorizationId: 5n }), 1000n, 0n, 0);
+    mgr.tryHold(makeParams({ authorizationId: 5n }), 1000n, 0n, 0, 16);
     mgr.updateSettleAmount(ESCROW, 5n, 100n);
     mgr.drainSubmittable(0n);
     mgr.markSubmitted(ESCROW, 5n, 100n);
@@ -777,12 +833,14 @@ describe("getHeldAmount and getUnsubmittedCount", () => {
       100n,
       0n,
       0,
+      16,
     );
     mgr.tryHold(
       makeParams({ authorizationId: 2n, mint: MINT_B, settleAmount: 90n }),
       100n,
       0n,
       0,
+      16,
     );
     expect(mgr.getUnsubmittedCount(ESCROW)).toBe(2);
     expect(mgr.getHeldAmount(ESCROW, MINT)).toBe(80n);

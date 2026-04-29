@@ -218,9 +218,9 @@ through their lifecycle: held -> settled -> submitting -> submitted -> finalizin
 
 Enforces vault balance limits and pending settlement capacity per escrow.
 
-| Function            | Type                                                                                                                                                                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `createHoldManager` | `() => { tryHold: (params: TryHoldParams, vaultBalance: bigint, onChainCommitted: bigint, onChainPendingCount: number) => HoldResult; releaseHold: (escrow: Address, authorizationId: bigint) => void; ... 11 more ...; pendingCount: () => number; }` |
+| Function            | Type                                                                                                                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createHoldManager` | `() => { tryHold: (params: TryHoldParams, vaultBalance: bigint, onChainCommitted: bigint, onChainPendingCount: number, maxPending: number) => HoldResult; ... 12 more ...; pendingCount: () => number; }` |
 
 Returns:
 
@@ -237,7 +237,6 @@ A `HoldManager` instance
 - [FlexSplitEntry](#flexsplitentry)
 - [FlexPaymentPayload](#flexpaymentpayload)
 - [FlexPaymentRequirementsExtra](#flexpaymentrequirementsextra)
-- [MAX_PENDING_SETTLEMENTS](#max_pending_settlements)
 
 ### FlexSplitEntry
 
@@ -262,14 +261,6 @@ Runtime validator for the `extra` field in Flex payment requirements.
 | Constant                       | Type                                                                                                                                                                                   |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FlexPaymentRequirementsExtra` | `Type<{ facilitator: string; supportedMints: string[]; splits: { recipient: string; bps: number; }[]; escrow?: string or undefined; minGracePeriodSlots?: string or undefined; }, {}>` |
-
-### MAX_PENDING_SETTLEMENTS
-
-Maximum number of concurrent pending settlements an escrow supports.
-
-| Constant                  | Type |
-| ------------------------- | ---- |
-| `MAX_PENDING_SETTLEMENTS` | `16` |
 
 ## Types
 
@@ -332,9 +323,9 @@ Runtime validator for the `extra` field in Flex payment requirements.
 
 Decoded on-chain state of a Flex escrow account.
 
-| Type                | Type                                                                                                                                                                                                                                                                   |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EscrowAccountData` | `{ version: number; owner: Address; facilitator: Address; index: bigint; pendingCount: number; mintCount: bigint; refundTimeoutSlots: bigint; deadmanTimeoutSlots: bigint; lastActivitySlot: bigint; maxSessionKeys: number; sessionKeyCount: number; bump: number; }` |
+| Type                | Type                                                                                                                                                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EscrowAccountData` | `{ version: number; owner: Address; facilitator: Address; index: bigint; pendingCount: number; maxPending: number; mintCount: bigint; refundTimeoutSlots: bigint; deadmanTimeoutSlots: bigint; lastActivitySlot: bigint; maxSessionKeys: number; sessionKeyCount: number; bump: number; }` |
 
 ### SessionKeyData
 

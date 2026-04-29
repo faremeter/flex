@@ -681,6 +681,8 @@ describe("force_close is removed", () => {
     );
 
     const escrowBefore = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(escrowBefore.pendingCount).toBe(1);
+
     await waitForSlot(rpc, escrowBefore.lastActivitySlot + 2001n);
 
     const dest = await createFundedTokenAccount(

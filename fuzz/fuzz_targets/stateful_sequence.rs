@@ -127,6 +127,7 @@ mod harness {
         facilitator: Pubkey,
         refund_timeout: u64,
         deadman_timeout: u64,
+        max_pending: u16,
     }
 
     struct TestEnv {
@@ -309,12 +310,15 @@ mod harness {
         let (escrow_pda, _) =
             find_pda(&[b"escrow", owner_pk.as_ref(), &index.to_le_bytes()]);
 
+        let max_pending: u16 = 16;
+
         let mut data = Vec::new();
         index.serialize(&mut data).ok()?;
         pk_bytes(&fac_pk).serialize(&mut data).ok()?;
         refund_timeout.serialize(&mut data).ok()?;
         deadman_timeout.serialize(&mut data).ok()?;
         10u8.serialize(&mut data).ok()?;
+        max_pending.serialize(&mut data).ok()?;
 
         let ix = build_ix(
             "create_escrow",
@@ -413,6 +417,7 @@ mod harness {
             facilitator: fac_pk,
             refund_timeout,
             deadman_timeout,
+            max_pending,
         };
 
         Some(TestEnv {
@@ -522,7 +527,7 @@ mod harness {
             }
 
             FuzzOp::SubmitAuthorization { auth_id, max_amount, settle_amount, use_multi_split } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let max_amount = 1u64.max(*max_amount as u64);
                 let settle_amount = 1u64.max(*settle_amount as u64).min(max_amount);
 
@@ -618,7 +623,7 @@ mod harness {
             }
 
             FuzzOp::SubmitAuthorizationMintB { auth_id, max_amount, settle_amount } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let max_amount = 1u64.max(*max_amount as u64);
                 let settle_amount = 1u64.max(*settle_amount as u64).min(max_amount);
 
@@ -700,7 +705,7 @@ mod harness {
             }
 
             FuzzOp::Refund { auth_id, amount } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let amount = *amount as u64;
 
                 let (pending_pda, _) = find_pda(&[
@@ -772,7 +777,7 @@ mod harness {
             }
 
             FuzzOp::Finalize { auth_id } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
 
                 let (pending_pda, _) = find_pda(&[
                     b"pending",
@@ -844,7 +849,7 @@ mod harness {
             }
 
             FuzzOp::VoidPending { auth_id } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
 
                 let (pending_pda, _) = find_pda(&[
                     b"pending",
@@ -1146,7 +1151,7 @@ mod harness {
                 // registered session key. The precompile verifies the
                 // signature successfully, but the program's introspection
                 // compares the pubkey against the session key and rejects.
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let amount = 1u64.max(*amount as u64);
 
                 let wrong_key = Keypair::new();
@@ -1230,7 +1235,7 @@ mod harness {
                 // Correct session key pubkey in the Ed25519 instruction,
                 // but the signature bytes are corrupted. The Ed25519
                 // precompile should reject the transaction entirely.
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let amount = 1u64.max(*amount as u64);
 
                 let sk_idx = env.session_keys.iter()
@@ -1368,7 +1373,8 @@ mod harness {
 
             FuzzOp::FillPendingSlots { base_amount } => {
                 let amount = 1u32.max(*base_amount);
-                for i in 0u8..16 {
+                let max_pending = env.config.max_pending;
+                for i in 0u8..max_pending.min(u8::MAX as u16) as u8 {
                     let submit = FuzzOp::SubmitAuthorization {
                         auth_id: i,
                         max_amount: amount,
@@ -1379,8 +1385,8 @@ mod harness {
                     if !env.escrow_alive { return; }
                 }
 
-                // 17th should fail -- build manually with auth_id 16
-                // to avoid % 16 mapping back to 0
+                // One beyond max_pending should fail -- build manually with
+                // auth_id = max_pending to avoid modular mapping back to an existing slot
                 let sk_idx = env.session_keys.iter()
                     .position(|(_, _, revoked)| !revoked)
                     .or_else(|| env.session_keys.iter().position(|_| true));
@@ -1390,7 +1396,7 @@ mod harness {
 
                 let current_slot = env.svm.get_sysvar::<solana_clock::Clock>().slot;
                 let expires_at_slot = current_slot + 50;
-                let auth_id_17: u64 = 16;
+                let auth_id_over: u64 = max_pending as u64;
                 let settle = 1u64.max(amount as u64);
 
                 let splits = vec![SplitEntry {
@@ -1403,7 +1409,7 @@ mod harness {
                     escrow: pk_bytes(&env.escrow_pda),
                     mint: pk_bytes(&env.mint),
                     max_amount: settle,
-                    authorization_id: auth_id_17,
+                    authorization_id: auth_id_over,
                     expires_at_slot,
                     splits: splits.clone(),
                 };
@@ -1416,14 +1422,14 @@ mod harness {
                 let (pending_pda, _) = find_pda(&[
                     b"pending",
                     env.escrow_pda.as_ref(),
-                    &auth_id_17.to_le_bytes(),
+                    &auth_id_over.to_le_bytes(),
                 ]);
 
                 let mut data = Vec::new();
                 let _ = pk_bytes(&env.mint).serialize(&mut data);
                 let _ = settle.serialize(&mut data);
                 let _ = settle.serialize(&mut data);
-                let _ = auth_id_17.serialize(&mut data);
+                let _ = auth_id_over.serialize(&mut data);
                 let _ = expires_at_slot.serialize(&mut data);
                 let _ = splits.serialize(&mut data);
 
@@ -1446,11 +1452,12 @@ mod harness {
                     &[&env.facilitator],
                     &[ed25519_ix, submit_ix],
                 );
-                // 17th should be rejected if all 16 slots are occupied
-                if env.pending_amounts.len() >= 16 {
+                // One beyond max_pending should be rejected if all slots are occupied
+                if env.pending_amounts.len() >= max_pending as usize {
                     assert!(
                         !succeeded,
-                        "SECURITY: 17th submit succeeded with 16 pending settlements"
+                        "SECURITY: submit beyond max_pending succeeded with {} pending settlements",
+                        env.pending_amounts.len()
                     );
                 }
             }
@@ -1486,7 +1493,7 @@ mod harness {
             }
 
             FuzzOp::FullEmergencyRecovery { num_pending, amount } => {
-                let n = 1u8.max(*num_pending).min(16);
+                let n = 1u8.max(*num_pending).min(env.config.max_pending.min(u8::MAX as u16) as u8);
                 let amount = 1u32.max(*amount);
 
                 for i in 0..n {
@@ -1577,7 +1584,7 @@ mod harness {
             }
 
             FuzzOp::SubmitWithOwnerAsSigner { auth_id, amount } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let amount = 1u64.max(*amount as u64);
 
                 let sk_idx = env.session_keys.iter()
@@ -1652,7 +1659,7 @@ mod harness {
             }
 
             FuzzOp::RefundWithOwnerAsSigner { auth_id, amount } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
                 let amount = *amount as u64;
 
                 let (pending_pda, _) = find_pda(&[
@@ -1684,7 +1691,7 @@ mod harness {
             }
 
             FuzzOp::VoidWithFacilitatorAsAuthority { auth_id } => {
-                let auth_id = *auth_id % 16;
+                let auth_id = *auth_id % env.config.max_pending.min(u8::MAX as u16) as u8;
 
                 let (pending_pda, _) = find_pda(&[
                     b"pending",
@@ -1759,9 +1766,9 @@ mod harness {
 
         const PENDING_COUNT_OFFSET: usize = 81;
         const PENDING_COUNT_END: usize = PENDING_COUNT_OFFSET + 2;
-        const SESSION_KEY_COUNT_OFFSET: usize = 116;
+        const SESSION_KEY_COUNT_OFFSET: usize = 118;
         const SESSION_KEY_COUNT_END: usize = SESSION_KEY_COUNT_OFFSET + 1;
-        const LAST_ACTIVITY_OFFSET: usize = 107;
+        const LAST_ACTIVITY_OFFSET: usize = 109;
         const LAST_ACTIVITY_END: usize = LAST_ACTIVITY_OFFSET + 8;
 
         let mints = vec![env.mint, env.mint_b];
@@ -1855,8 +1862,8 @@ mod harness {
         // timeout parameters must never change after creation.
         if let Some(escrow_data) = env.svm.get_account(&env.escrow_pda) {
             // owner at offset 9 (32 bytes), facilitator at offset 41 (32 bytes)
-            // refund_timeout at offset 91 (8 bytes), deadman_timeout at offset 99 (8 bytes)
-            if escrow_data.data.len() >= 107 {
+            // refund_timeout at offset 93 (8 bytes), deadman_timeout at offset 101 (8 bytes)
+            if escrow_data.data.len() >= 109 {
                 let owner_bytes = &escrow_data.data[9..41];
                 assert_eq!(
                     owner_bytes, env.config.owner.as_ref(),
@@ -1870,7 +1877,7 @@ mod harness {
                 );
 
                 let refund_timeout = u64::from_le_bytes(
-                    escrow_data.data[91..99].try_into().unwrap(),
+                    escrow_data.data[93..101].try_into().unwrap(),
                 );
                 assert_eq!(
                     refund_timeout, env.config.refund_timeout,
@@ -1878,7 +1885,7 @@ mod harness {
                 );
 
                 let deadman_timeout = u64::from_le_bytes(
-                    escrow_data.data[99..107].try_into().unwrap(),
+                    escrow_data.data[101..109].try_into().unwrap(),
                 );
                 assert_eq!(
                     deadman_timeout, env.config.deadman_timeout,

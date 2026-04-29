@@ -47,6 +47,7 @@ function convertEscrowAccount(raw: EscrowAccount): EscrowAccountData {
     facilitator: raw.facilitator,
     index: raw.index,
     pendingCount: raw.pendingCount,
+    maxPending: raw.maxPending,
     mintCount: raw.mintCount,
     refundTimeoutSlots: raw.refundTimeoutSlots,
     deadmanTimeoutSlots: raw.deadmanTimeoutSlots,

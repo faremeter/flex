@@ -133,4 +133,10 @@ pub enum FlexError {
 
     #[msg("Grace period must be shorter than the escrow refund timeout")]
     GracePeriodExceedsRefundTimeout,
+
+    #[msg("Max pending must be at least 1")]
+    MaxPendingZero,
+
+    #[msg("Max pending exceeds protocol limit")]
+    MaxPendingTooLarge,
 }

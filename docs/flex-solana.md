@@ -80,6 +80,9 @@ pub struct EscrowAccount {
     /// Number of open pending settlements
     pub pending_count: u16,
 
+    /// Maximum concurrent pending settlements
+    pub max_pending: u16,
+
     /// Number of active token account PDAs
     pub mint_count: u64,
 
@@ -263,6 +266,7 @@ pub fn create_escrow(
     refund_timeout_slots: u64,
     deadman_timeout_slots: u64,
     max_session_keys: u8,
+    max_pending: u16,
 ) -> Result<()>
 ```
 
@@ -280,6 +284,7 @@ pub fn create_escrow(
 - `deadman_timeout_slots >= 1,000` (MIN_DEADMAN_TIMEOUT_SLOTS, ~6.7 min)
 - `deadman_timeout_slots <= 2,592,000` (MAX_DEADMAN_TIMEOUT_SLOTS, ~12 days)
 - `deadman_timeout_slots >= 2 * refund_timeout_slots`
+- `max_pending >= 1`
 
 **Notes**: The escrow account can hold multiple token types. Token accounts are created lazily on first deposit for each mint.
 
@@ -606,7 +611,7 @@ pub fn submit_authorization(
 
 **Validation**:
 
-1. Verify `escrow.pending_count < 16` (pending limit not reached)
+1. Verify `escrow.pending_count < escrow.max_pending` (pending limit not reached)
 2. Verify `clock.slot < expires_at_slot` (authorization not expired)
 3. Verify `expires_at_slot <= clock.slot + escrow.refund_timeout_slots` (expiry not too far in the future)
 4. Verify Ed25519 signature over `(program_id, escrow, mint, max_amount, authorization_id, expires_at_slot, splits)`
@@ -829,14 +834,14 @@ This multi-step approach:
 
 **Protocol Limits**: To keep recovery manageable, the protocol enforces:
 
-- **Maximum pending settlements**: 16 per escrow (enforced at `submit_authorization`)
+- **Maximum pending settlements**: Configurable per escrow via `max_pending` (enforced at `submit_authorization`)
 - **Maximum mints**: 8 per escrow (enforced at `deposit`)
 - **Maximum session keys**: Configurable per escrow (enforced at `register_session_key`)
 - **Maximum splits**: 5 per authorization (enforced at `submit_authorization`)
 
 | Resource            | Limit                      | Rationale                                                                               |
 | ------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
-| `pending_count`     | 16                         | Keeps void phase to ~4 transactions max                                                 |
+| `pending_count`     | Configurable (1-65,535)    | Per-escrow `max_pending` field; higher values enable higher throughput                  |
 | `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction                             |
 | `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                                                 |
 | `MAX_SPLITS`        | 5                          | Covers practical use cases (platform + merchant + referral + royalties); batch-friendly |
@@ -846,7 +851,7 @@ This multi-step approach:
 | Refund timeout max  | 1,296,000 slots (~6 days)  | Half of deadman max so the 2x constraint is always satisfiable                          |
 | Deadman timeout max | 2,592,000 slots (~12 days) | Prevents arithmetic overflow and unreasonable lock durations                            |
 
-**Implication**: When `pending_count` reaches 16, `submit_authorization` returns `PendingLimitReached` error. Facilitators must finalize existing settlements before submitting new ones. This creates back-pressure that prevents unbounded accumulation.
+**Implication**: When `pending_count` reaches `max_pending`, `submit_authorization` returns `PendingLimitReached` error. Facilitators must finalize existing settlements before submitting new ones. This creates back-pressure that prevents unbounded accumulation.
 
 ## Off-Chain Hold Workflow
 
@@ -1096,7 +1101,7 @@ If `current_slot - last_activity_slot > deadman_timeout_slots`, the client can i
 
 Each pending settlement has a finalization deadline of `submitted_at_slot + refund_timeout_slots + deadman_timeout_slots`. After this deadline, `finalize` rejects the settlement and `void_pending` accepts it. The finalization window is `deadman_timeout_slots` long (minimum 1,000 slots), reusing the escrow's existing facilitator-responsiveness parameter.
 
-This prevents stuck settlements from occupying slots indefinitely on an active escrow. Without the deadline, a facilitator could submit an authorization and never finalize it, permanently consuming one of 16 pending slots. The deadline provides a bounded escape hatch: either party (owner or facilitator) can void the settlement after the deadline passes, freeing the slot.
+This prevents stuck settlements from occupying slots indefinitely on an active escrow. Without the deadline, a facilitator could submit an authorization and never finalize it, permanently consuming one of the escrow's pending slots. The deadline provides a bounded escape hatch: either party (owner or facilitator) can void the settlement after the deadline passes, freeing the slot.
 
 ### Session Key Revocation
 
@@ -1354,7 +1359,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6010 | RefundWindowExpired             | Cannot refund after refund timeout                                                  |
 | 6011 | RefundExceedsAmount             | Cannot refund more than pending amount                                              |
 | 6012 | PendingCountMismatch            | Remaining accounts count does not match pending_count                               |
-| 6013 | PendingLimitReached             | Maximum pending settlements (16) reached                                            |
+| 6013 | PendingLimitReached             | Maximum pending settlements reached                                                 |
 | 6014 | MintLimitReached                | Maximum mints (8) per escrow reached                                                |
 | 6015 | InvalidTokenAccountPair         | Token account pair validation failed                                                |
 | 6016 | UnsupportedAccountVersion       | Account version not supported by this program                                       |
@@ -1385,6 +1390,8 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6041 | InvalidVoidAuthority            | Authority must be escrow owner or facilitator                                       |
 | 6042 | SessionKeyAlreadyExpired        | Session key expires_at_slot is already in the past                                  |
 | 6043 | GracePeriodExceedsRefundTimeout | Grace period must be shorter than the escrow refund timeout                         |
+| 6044 | MaxPendingZero                  | Max pending must be at least 1                                                      |
+| 6045 | MaxPendingTooLarge              | Max pending exceeds protocol limit                                                  |
 
 ## Event Emission
 
@@ -1401,6 +1408,7 @@ pub struct EscrowCreated {
     pub index: u64,
     pub refund_timeout_slots: u64,
     pub deadman_timeout_slots: u64,
+    pub max_pending: u16,
 }
 
 #[event]
@@ -1522,12 +1530,12 @@ Facilitators submitting multiple authorizations for the same escrow must handle 
 **Recommended Patterns:**
 
 1. **Parallel submission**: Since `authorization_id` values are random, multiple authorizations for the same escrow can be submitted concurrently in separate transactions
-2. **Batch size awareness**: Check `16 - pending_count` before building batch; submit only that many
+2. **Batch size awareness**: Check `max_pending - pending_count` before building batch; submit only that many
 3. **Individual failure handling**: On failure, release only the failed hold (not all holds for the escrow)
 
 **Transaction Ordering:**
 
-Since `authorization_id` values are random rather than sequential, there is no ordering constraint between transactions targeting the same escrow. Multiple transactions can be submitted concurrently without risk of ordering-related failures. The only constraint is the global `pending_count` limit of 16.
+Since `authorization_id` values are random rather than sequential, there is no ordering constraint between transactions targeting the same escrow. Multiple transactions can be submitted concurrently without risk of ordering-related failures. The only constraint is the per-escrow `max_pending` limit.
 
 ### Token-2022 Considerations
 
