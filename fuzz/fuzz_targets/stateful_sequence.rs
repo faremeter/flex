@@ -1758,10 +1758,10 @@ mod harness {
         }
 
         const PENDING_COUNT_OFFSET: usize = 81;
-        const PENDING_COUNT_END: usize = PENDING_COUNT_OFFSET + 8;
-        const SESSION_KEY_COUNT_OFFSET: usize = 122;
+        const PENDING_COUNT_END: usize = PENDING_COUNT_OFFSET + 2;
+        const SESSION_KEY_COUNT_OFFSET: usize = 116;
         const SESSION_KEY_COUNT_END: usize = SESSION_KEY_COUNT_OFFSET + 1;
-        const LAST_ACTIVITY_OFFSET: usize = 113;
+        const LAST_ACTIVITY_OFFSET: usize = 107;
         const LAST_ACTIVITY_END: usize = LAST_ACTIVITY_OFFSET + 8;
 
         let mints = vec![env.mint, env.mint_b];
@@ -1786,14 +1786,14 @@ mod harness {
 
         if let Some(escrow_data) = env.svm.get_account(&env.escrow_pda) {
             if escrow_data.data.len() >= PENDING_COUNT_END {
-                let pending_count = u64::from_le_bytes(
+                let pending_count = u16::from_le_bytes(
                     escrow_data.data[PENDING_COUNT_OFFSET..PENDING_COUNT_END]
                         .try_into()
                         .unwrap(),
                 );
                 assert_eq!(
                     pending_count,
-                    env.pending_amounts.len() as u64,
+                    env.pending_amounts.len() as u16,
                     "INVARIANT VIOLATION: on_chain pending_count={pending_count} != shadow={}",
                     env.pending_amounts.len()
                 );
@@ -1855,8 +1855,8 @@ mod harness {
         // timeout parameters must never change after creation.
         if let Some(escrow_data) = env.svm.get_account(&env.escrow_pda) {
             // owner at offset 9 (32 bytes), facilitator at offset 41 (32 bytes)
-            // refund_timeout at offset 97 (8 bytes), deadman_timeout at offset 105 (8 bytes)
-            if escrow_data.data.len() >= 113 {
+            // refund_timeout at offset 91 (8 bytes), deadman_timeout at offset 99 (8 bytes)
+            if escrow_data.data.len() >= 107 {
                 let owner_bytes = &escrow_data.data[9..41];
                 assert_eq!(
                     owner_bytes, env.config.owner.as_ref(),
@@ -1870,7 +1870,7 @@ mod harness {
                 );
 
                 let refund_timeout = u64::from_le_bytes(
-                    escrow_data.data[97..105].try_into().unwrap(),
+                    escrow_data.data[91..99].try_into().unwrap(),
                 );
                 assert_eq!(
                     refund_timeout, env.config.refund_timeout,
@@ -1878,7 +1878,7 @@ mod harness {
                 );
 
                 let deadman_timeout = u64::from_le_bytes(
-                    escrow_data.data[105..113].try_into().unwrap(),
+                    escrow_data.data[99..107].try_into().unwrap(),
                 );
                 assert_eq!(
                     deadman_timeout, env.config.deadman_timeout,

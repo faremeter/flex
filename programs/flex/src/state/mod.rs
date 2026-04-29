@@ -22,7 +22,7 @@ pub struct EscrowAccount {
     pub facilitator: Pubkey,
     pub index: u64,
 
-    pub pending_count: u64,
+    pub pending_count: u16,
     pub mint_count: u64,
     pub refund_timeout_slots: u64,
     pub deadman_timeout_slots: u64,

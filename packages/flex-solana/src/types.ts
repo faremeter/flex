@@ -41,7 +41,7 @@ export type EscrowAccountData = {
   owner: Address;
   facilitator: Address;
   index: bigint;
-  pendingCount: bigint;
+  pendingCount: number;
   mintCount: bigint;
   refundTimeoutSlots: bigint;
   deadmanTimeoutSlots: bigint;
