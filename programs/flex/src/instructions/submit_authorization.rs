@@ -169,10 +169,12 @@ pub fn submit_authorization(
         clock.slot < expires_at_slot,
         FlexError::AuthorizationExpired
     );
-    require!(
-        expires_at_slot <= clock.slot + escrow.refund_timeout_slots,
-        FlexError::ExpiryTooFar
-    );
+    if escrow.refund_timeout_slots > 0 {
+        require!(
+            expires_at_slot <= clock.slot + escrow.refund_timeout_slots,
+            FlexError::ExpiryTooFar
+        );
+    }
 
     require!(settle_amount > 0, FlexError::SettleAmountZero);
     require!(settle_amount <= max_amount, FlexError::SettleExceedsMax);

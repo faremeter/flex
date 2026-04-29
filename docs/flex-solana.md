@@ -275,7 +275,6 @@ pub fn create_escrow(
 
 **Constraints**:
 
-- `refund_timeout_slots >= 150` (MIN_REFUND_TIMEOUT_SLOTS)
 - `refund_timeout_slots <= 1,296,000` (MAX_REFUND_TIMEOUT_SLOTS, ~6 days)
 - `deadman_timeout_slots >= 1,000` (MIN_DEADMAN_TIMEOUT_SLOTS, ~6.7 min)
 - `deadman_timeout_slots <= 2,592,000` (MAX_DEADMAN_TIMEOUT_SLOTS, ~12 days)
@@ -468,7 +467,7 @@ pub fn register_session_key(
 
 - `escrow.max_session_keys == 0 || escrow.session_key_count < escrow.max_session_keys` (session key limit not reached)
 - `expires_at_slot > clock.slot` when `expires_at_slot` is `Some` (must be in the future)
-- `revocation_grace_period_slots < escrow.refund_timeout_slots` (grace period must be shorter than the refund window, so a revoked key cannot remain warm longer than the escrow's refund commitment)
+- `revocation_grace_period_slots <= escrow.refund_timeout_slots` (grace period must not exceed the refund window, so a revoked key cannot remain warm longer than the escrow's refund commitment)
 
 **Effects**:
 
@@ -608,7 +607,7 @@ pub fn submit_authorization(
 
 1. Verify `escrow.pending_count < 16` (pending limit not reached)
 2. Verify `clock.slot < expires_at_slot` (authorization not expired)
-3. Verify `expires_at_slot <= clock.slot + escrow.refund_timeout_slots` (expiry not too far in the future)
+3. Verify `expires_at_slot <= clock.slot + escrow.refund_timeout_slots` (expiry not too far in the future; skipped when `refund_timeout_slots == 0`)
 4. Verify Ed25519 signature over `(program_id, escrow, mint, max_amount, authorization_id, expires_at_slot, splits)`
 5. Verify `settle_amount > 0` (returns `SettleAmountZero` if not)
 6. Verify `settle_amount <= max_amount`
@@ -840,7 +839,7 @@ This multi-step approach:
 | `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction                             |
 | `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                                                 |
 | `MAX_SPLITS`        | 5                          | Covers practical use cases (platform + merchant + referral + royalties); batch-friendly |
-| Refund timeout min  | 150 slots (~60s)           | Prevents degenerate zero-timeout escrows that undermine safety guarantees               |
+| Refund timeout min  | 0 slots                    | Zero means no refund window; finalization is available immediately after submission     |
 | Deadman timeout min | 1,000 slots (~6.7 min)     | Prevents race between refund window and deadman switch                                  |
 | Deadman/refund      | deadman >= 2x refund       | Ensures facilitator has time to finalize before deadman switch activates                |
 | Refund timeout max  | 1,296,000 slots (~6 days)  | Half of deadman max so the 2x constraint is always satisfiable                          |
@@ -1372,19 +1371,18 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6028 | SettleAmountZero                | Settle amount must be greater than zero                                             |
 | 6029 | ExpiryTooFar                    | Authorization expiry exceeds refund timeout                                         |
 | 6030 | RefundAmountZero                | Refund amount must be greater than zero                                             |
-| 6031 | RefundTimeoutTooShort           | Refund timeout below minimum of 150 slots                                           |
-| 6032 | DeadmanTimeoutTooShort          | Deadman timeout below minimum of 1000 slots                                         |
-| 6033 | RefundTimeoutTooLong            | Refund timeout exceeds maximum of 1296000 slots                                     |
-| 6034 | DeadmanTimeoutTooLong           | Deadman timeout exceeds maximum of 2592000 slots                                    |
-| 6035 | DeadmanTooCloseToRefund         | Deadman timeout must be at least 2x refund timeout                                  |
-| 6036 | OwnerOnly                       | Only the escrow owner can create new vault accounts                                 |
-| 6037 | SplitCalculationOverflow        | Split calculation arithmetic overflow                                               |
-| 6038 | SessionKeysExist                | Cannot close escrow with active session keys                                        |
-| 6039 | FinalizationDeadlinePassed      | Finalization deadline has passed                                                    |
-| 6040 | VoidConditionNotMet             | Neither deadman timeout nor finalization deadline has passed                        |
-| 6041 | InvalidVoidAuthority            | Authority must be escrow owner or facilitator                                       |
-| 6042 | SessionKeyAlreadyExpired        | Session key expires_at_slot is already in the past                                  |
-| 6043 | GracePeriodExceedsRefundTimeout | Grace period must be shorter than the escrow refund timeout                         |
+| 6031 | DeadmanTimeoutTooShort          | Deadman timeout below minimum of 1000 slots                                         |
+| 6032 | RefundTimeoutTooLong            | Refund timeout exceeds maximum of 1296000 slots                                     |
+| 6033 | DeadmanTimeoutTooLong           | Deadman timeout exceeds maximum of 2592000 slots                                    |
+| 6034 | DeadmanTooCloseToRefund         | Deadman timeout must be at least 2x refund timeout                                  |
+| 6035 | OwnerOnly                       | Only the escrow owner can create new vault accounts                                 |
+| 6036 | SplitCalculationOverflow        | Split calculation arithmetic overflow                                               |
+| 6037 | SessionKeysExist                | Cannot close escrow with active session keys                                        |
+| 6038 | FinalizationDeadlinePassed      | Finalization deadline has passed                                                    |
+| 6039 | VoidConditionNotMet             | Neither deadman timeout nor finalization deadline has passed                        |
+| 6040 | InvalidVoidAuthority            | Authority must be escrow owner or facilitator                                       |
+| 6041 | SessionKeyAlreadyExpired        | Session key expires_at_slot is already in the past                                  |
+| 6042 | GracePeriodExceedsRefundTimeout | Grace period must not exceed the escrow refund timeout                              |
 
 ## Event Emission
 

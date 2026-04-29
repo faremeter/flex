@@ -4,7 +4,6 @@ pub const MAX_SPLITS: usize = 5;
 pub const MAX_PENDING: usize = 16;
 pub const MAX_MINTS: usize = 8;
 
-pub const MIN_REFUND_TIMEOUT_SLOTS: u64 = 150;
 pub const MIN_DEADMAN_TIMEOUT_SLOTS: u64 = 1_000;
 pub const MAX_REFUND_TIMEOUT_SLOTS: u64 = 1_296_000;
 pub const MAX_DEADMAN_TIMEOUT_SLOTS: u64 = 2_592_000;

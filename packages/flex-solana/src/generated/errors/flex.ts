@@ -76,32 +76,30 @@ export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178c; // 6028
 export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178d; // 6029
 /** RefundAmountZero: Refund amount must be greater than zero */
 export const FLEX_ERROR__REFUND_AMOUNT_ZERO = 0x178e; // 6030
-/** RefundTimeoutTooShort: Refund timeout below minimum of 150 slots */
-export const FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT = 0x178f; // 6031
 /** DeadmanTimeoutTooShort: Deadman timeout below minimum of 1000 slots */
-export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT = 0x1790; // 6032
+export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT = 0x178f; // 6031
 /** RefundTimeoutTooLong: Refund timeout exceeds maximum of 1296000 slots */
-export const FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG = 0x1791; // 6033
+export const FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG = 0x1790; // 6032
 /** DeadmanTimeoutTooLong: Deadman timeout exceeds maximum of 2592000 slots */
-export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1792; // 6034
+export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG = 0x1791; // 6033
 /** DeadmanTooCloseToRefund: Deadman timeout must be at least 2x refund timeout */
-export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1793; // 6035
+export const FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND = 0x1792; // 6034
 /** OwnerOnly: Only the escrow owner can create new vault accounts */
-export const FLEX_ERROR__OWNER_ONLY = 0x1794; // 6036
+export const FLEX_ERROR__OWNER_ONLY = 0x1793; // 6035
 /** SplitCalculationOverflow: Split calculation arithmetic overflow */
-export const FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW = 0x1795; // 6037
+export const FLEX_ERROR__SPLIT_CALCULATION_OVERFLOW = 0x1794; // 6036
 /** SessionKeysExist: Cannot close escrow with active session keys */
-export const FLEX_ERROR__SESSION_KEYS_EXIST = 0x1796; // 6038
+export const FLEX_ERROR__SESSION_KEYS_EXIST = 0x1795; // 6037
 /** FinalizationDeadlinePassed: Finalization deadline has passed */
-export const FLEX_ERROR__FINALIZATION_DEADLINE_PASSED = 0x1797; // 6039
+export const FLEX_ERROR__FINALIZATION_DEADLINE_PASSED = 0x1796; // 6038
 /** VoidConditionNotMet: Neither deadman timeout nor finalization deadline has passed */
-export const FLEX_ERROR__VOID_CONDITION_NOT_MET = 0x1798; // 6040
+export const FLEX_ERROR__VOID_CONDITION_NOT_MET = 0x1797; // 6039
 /** InvalidVoidAuthority: Authority must be escrow owner or facilitator */
-export const FLEX_ERROR__INVALID_VOID_AUTHORITY = 0x1799; // 6041
+export const FLEX_ERROR__INVALID_VOID_AUTHORITY = 0x1798; // 6040
 /** SessionKeyAlreadyExpired: Session key expires_at_slot is already in the past */
-export const FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED = 0x179a; // 6042
-/** GracePeriodExceedsRefundTimeout: Grace period must be shorter than the escrow refund timeout */
-export const FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT = 0x179b; // 6043
+export const FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED = 0x1799; // 6041
+/** GracePeriodExceedsRefundTimeout: Grace period must not exceed the escrow refund timeout */
+export const FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT = 0x179a; // 6042
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -130,7 +128,6 @@ export type FlexError =
   | typeof FLEX_ERROR__REFUND_AMOUNT_ZERO
   | typeof FLEX_ERROR__REFUND_EXCEEDS_AMOUNT
   | typeof FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG
-  | typeof FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT
   | typeof FLEX_ERROR__REFUND_WINDOW_EXPIRED
   | typeof FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED
   | typeof FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED
@@ -161,7 +158,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__DUPLICATE_SPLIT_RECIPIENT]: `Duplicate recipient in splits`,
     [FLEX_ERROR__EXPIRY_TOO_FAR]: `Authorization expiry exceeds refund timeout`,
     [FLEX_ERROR__FINALIZATION_DEADLINE_PASSED]: `Finalization deadline has passed`,
-    [FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT]: `Grace period must be shorter than the escrow refund timeout`,
+    [FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT]: `Grace period must not exceed the escrow refund timeout`,
     [FLEX_ERROR__INSUFFICIENT_BALANCE]: `Token account balance insufficient`,
     [FLEX_ERROR__INVALID_ED25519_INSTRUCTION]: `Ed25519 instruction malformed or missing`,
     [FLEX_ERROR__INVALID_SIGNATURE]: `Ed25519 signature verification failed`,
@@ -178,7 +175,6 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__REFUND_AMOUNT_ZERO]: `Refund amount must be greater than zero`,
     [FLEX_ERROR__REFUND_EXCEEDS_AMOUNT]: `Cannot refund more than pending amount`,
     [FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG]: `Refund timeout exceeds maximum of 1296000 slots`,
-    [FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT]: `Refund timeout below minimum of 150 slots`,
     [FLEX_ERROR__REFUND_WINDOW_EXPIRED]: `Cannot refund after refund timeout`,
     [FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED]: `Cannot finalize before refund timeout`,
     [FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED]: `Session key expires_at_slot is already in the past`,

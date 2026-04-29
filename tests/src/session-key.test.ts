@@ -11,6 +11,8 @@ import {
   FLEX_ERROR__SESSION_KEY_STILL_ACTIVE,
   FLEX_ERROR__SESSION_KEY_GRACE_PERIOD_ACTIVE,
   FLEX_ERROR__SESSION_KEYS_EXIST,
+  FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED,
+  FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT,
   getCloseEscrowInstruction,
 } from "@faremeter/flex-solana";
 import {
@@ -144,10 +146,10 @@ describe("register_session_key", () => {
         revocationGracePeriodSlots: 100,
       });
       await sendTx(rpc, owner, [registerIx]);
-    }, 6042);
+    }, FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED);
   }, 15_000);
 
-  it("rejects grace period >= refund timeout", async () => {
+  it("rejects grace period > refund timeout", async () => {
     const refundTimeout = 150;
     const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 106, {
       maxSessionKeys: 10,
@@ -156,19 +158,7 @@ describe("register_session_key", () => {
 
     const sessionKey = await generateKeyPairSigner();
 
-    // Grace period equal to refund timeout should fail
-    await expectToFailWithAnchorError(async () => {
-      const registerIx = await getRegisterSessionKeyInstructionAsync({
-        owner,
-        escrow: escrowPDA,
-        sessionKey: sessionKey.address,
-        expiresAtSlot: null,
-        revocationGracePeriodSlots: refundTimeout,
-      });
-      await sendTx(rpc, owner, [registerIx]);
-    }, 6043);
-
-    // Grace period greater than refund timeout should also fail
+    // Grace period greater than refund timeout should fail
     await expectToFailWithAnchorError(async () => {
       const registerIx = await getRegisterSessionKeyInstructionAsync({
         owner,
@@ -178,17 +168,28 @@ describe("register_session_key", () => {
         revocationGracePeriodSlots: refundTimeout + 1,
       });
       await sendTx(rpc, owner, [registerIx]);
-    }, 6043);
+    }, FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT);
 
-    // Grace period less than refund timeout should succeed
+    // Grace period equal to refund timeout should succeed
     const registerIx = await getRegisterSessionKeyInstructionAsync({
       owner,
       escrow: escrowPDA,
       sessionKey: sessionKey.address,
       expiresAtSlot: null,
-      revocationGracePeriodSlots: refundTimeout - 1,
+      revocationGracePeriodSlots: refundTimeout,
     });
     await sendTx(rpc, owner, [registerIx]);
+
+    // Grace period less than refund timeout should also succeed
+    const sessionKey2 = await generateKeyPairSigner();
+    const registerIx2 = await getRegisterSessionKeyInstructionAsync({
+      owner,
+      escrow: escrowPDA,
+      sessionKey: sessionKey2.address,
+      expiresAtSlot: null,
+      revocationGracePeriodSlots: refundTimeout - 1,
+    });
+    await sendTx(rpc, owner, [registerIx2]);
   }, 15_000);
 
   it("allows unlimited keys when maxSessionKeys is 0", async () => {

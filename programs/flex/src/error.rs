@@ -95,9 +95,6 @@ pub enum FlexError {
     #[msg("Refund amount must be greater than zero")]
     RefundAmountZero,
 
-    #[msg("Refund timeout below minimum of 150 slots")]
-    RefundTimeoutTooShort,
-
     #[msg("Deadman timeout below minimum of 1000 slots")]
     DeadmanTimeoutTooShort,
 
@@ -131,6 +128,6 @@ pub enum FlexError {
     #[msg("Session key expires_at_slot is already in the past")]
     SessionKeyAlreadyExpired,
 
-    #[msg("Grace period must be shorter than the escrow refund timeout")]
+    #[msg("Grace period must not exceed the escrow refund timeout")]
     GracePeriodExceedsRefundTimeout,
 }

@@ -55,10 +55,11 @@ pub fn register_session_key(
         require!(expires_at > clock.slot, FlexError::SessionKeyAlreadyExpired);
     }
 
-    // Grace period must be shorter than refund timeout so the facilitator
+    // Grace period must not exceed refund timeout so the facilitator
     // cannot keep a revoked key warm longer than the refund window.
+    // When refund timeout is zero (immediate finalize), grace period must also be zero.
     require!(
-        revocation_grace_period_slots < escrow.refund_timeout_slots,
+        revocation_grace_period_slots <= escrow.refund_timeout_slots,
         FlexError::GracePeriodExceedsRefundTimeout
     );
 

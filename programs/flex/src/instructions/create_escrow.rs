@@ -4,7 +4,6 @@ use crate::error::FlexError;
 use crate::events::EscrowCreated;
 use crate::state::{
     EscrowAccount, MAX_DEADMAN_TIMEOUT_SLOTS, MAX_REFUND_TIMEOUT_SLOTS, MIN_DEADMAN_TIMEOUT_SLOTS,
-    MIN_REFUND_TIMEOUT_SLOTS,
 };
 
 #[derive(Accounts)]
@@ -33,10 +32,6 @@ pub fn create_escrow(
     deadman_timeout_slots: u64,
     max_session_keys: u8,
 ) -> Result<()> {
-    require!(
-        refund_timeout_slots >= MIN_REFUND_TIMEOUT_SLOTS,
-        FlexError::RefundTimeoutTooShort
-    );
     require!(
         refund_timeout_slots <= MAX_REFUND_TIMEOUT_SLOTS,
         FlexError::RefundTimeoutTooLong

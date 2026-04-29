@@ -15,11 +15,11 @@ import {
   FLEX_ERROR__PENDING_SETTLEMENTS_EXIST,
   FLEX_ERROR__DUPLICATE_ACCOUNTS,
   FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
-  FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
   FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT,
   FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG,
   FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG,
   FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND,
+  FLEX_ERROR__REFUND_WINDOW_EXPIRED,
 } from "@faremeter/flex-solana";
 import {
   createRpc,
@@ -35,6 +35,9 @@ import {
   ANCHOR_ERROR__ACCOUNT_NOT_SIGNER,
   withRemainingAccounts,
   defined,
+  setupEscrowForAuth,
+  finalizeHelper,
+  refundHelper,
 } from "./helpers";
 
 describe("create_escrow", () => {
@@ -99,15 +102,19 @@ describe("create_escrow", () => {
     expect(Number(e2.index)).toBe(11);
   });
 
-  it("fails with refund timeout below minimum", async () => {
-    await expectToFail(
-      () =>
-        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 20, {
-          refundTimeoutSlots: 100,
-          deadmanTimeoutSlots: 1000,
-        }),
-      FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
+  it("succeeds with refund timeout below the former 150-slot minimum", async () => {
+    const escrowPDA = await createEscrowHelper(
+      rpc,
+      ownerSigner,
+      facilitatorSigner,
+      20,
+      {
+        refundTimeoutSlots: 100,
+        deadmanTimeoutSlots: 1000,
+      },
     );
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.refundTimeoutSlots)).toBe(100);
   });
 
   it("fails with deadman timeout below minimum", async () => {
@@ -661,5 +668,112 @@ describe("close_escrow", () => {
       });
       await sendTx(rpc, owner, [baseIx]);
     }, FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR);
+  });
+});
+
+describe("zero-timeout escrow", () => {
+  const rpc = createRpc();
+
+  let owner: KeyPairSigner;
+  let facilitator: KeyPairSigner;
+  let payer: KeyPairSigner;
+
+  beforeAll(async () => {
+    owner = await generateKeyPairSigner();
+    facilitator = await generateKeyPairSigner();
+    payer = await generateKeyPairSigner();
+    await fundKeypair(rpc, owner);
+    await fundKeypair(rpc, facilitator);
+    await fundKeypair(rpc, payer);
+  });
+
+  it("creates a zero-timeout escrow", async () => {
+    const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, 40, {
+      refundTimeoutSlots: 0,
+      deadmanTimeoutSlots: 1000,
+    });
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.refundTimeoutSlots)).toBe(0);
+    expect(Number(escrow.deadmanTimeoutSlots)).toBe(1000);
+  });
+
+  it("allows immediate finalize with zero refund timeout", async () => {
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 41, {
+        refundTimeoutSlots: 0,
+        deadmanTimeoutSlots: 1000,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      splits,
+      { refundTimeoutSlots: 0 },
+    );
+
+    await finalizeHelper(
+      rpc,
+      facilitator,
+      escrowPDA,
+      facilitator.address,
+      pendingPDA,
+      vaultPDA,
+      [recipient.address],
+    );
+
+    const balance = await fetchTokenBalance(rpc, recipient.address);
+    expect(balance).toBe(100_000n);
+  });
+
+  it("rejects refund attempts on zero-timeout escrow", async () => {
+    const { escrowPDA, vaultPDA, sessionKey, sessionKeyPDA, mint } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 42, {
+        refundTimeoutSlots: 0,
+        deadmanTimeoutSlots: 1000,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    const pendingPDA = await submitAuthorizationHelper(
+      rpc,
+      escrowPDA,
+      facilitator,
+      sessionKey,
+      sessionKeyPDA,
+      mint,
+      vaultPDA,
+      1,
+      100_000,
+      splits,
+      { refundTimeoutSlots: 0 },
+    );
+
+    await expectToFail(
+      () => refundHelper(rpc, escrowPDA, facilitator, pendingPDA, 100_000),
+      FLEX_ERROR__REFUND_WINDOW_EXPIRED,
+    );
   });
 });
