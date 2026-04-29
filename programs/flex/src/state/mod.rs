@@ -1,11 +1,17 @@
 use anchor_lang::prelude::*;
 
+#[constant]
 pub const MAX_SPLITS: u8 = 5;
+#[constant]
 pub const MAX_PENDING_LIMIT: u16 = u16::MAX;
+#[constant]
 pub const MAX_MINTS: u8 = 8;
 
+#[constant]
 pub const MIN_DEADMAN_TIMEOUT_SLOTS: u64 = 1_000;
+#[constant]
 pub const MAX_REFUND_TIMEOUT_SLOTS: u64 = 1_296_000;
+#[constant]
 pub const MAX_DEADMAN_TIMEOUT_SLOTS: u64 = 2_592_000;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
