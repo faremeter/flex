@@ -96,6 +96,7 @@ const createIx = await getCreateEscrowInstructionAsync({
   refundTimeoutSlots: REFUND_TIMEOUT_SLOTS,
   deadmanTimeoutSlots: DEADMAN_TIMEOUT_SLOTS,
   maxSessionKeys: MAX_SESSION_KEYS,
+  maxPending: 16,
 });
 await sendTx(rpc, owner, [createIx]);
 

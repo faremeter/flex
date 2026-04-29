@@ -16,6 +16,8 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU16Decoder,
+  getU16Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -89,6 +91,7 @@ export type CreateEscrowInstructionData = {
   refundTimeoutSlots: bigint;
   deadmanTimeoutSlots: bigint;
   maxSessionKeys: number;
+  maxPending: number;
 };
 
 export type CreateEscrowInstructionDataArgs = {
@@ -97,6 +100,7 @@ export type CreateEscrowInstructionDataArgs = {
   refundTimeoutSlots: number | bigint;
   deadmanTimeoutSlots: number | bigint;
   maxSessionKeys: number;
+  maxPending: number;
 };
 
 export function getCreateEscrowInstructionDataEncoder(): FixedSizeEncoder<CreateEscrowInstructionDataArgs> {
@@ -108,6 +112,7 @@ export function getCreateEscrowInstructionDataEncoder(): FixedSizeEncoder<Create
       ["refundTimeoutSlots", getU64Encoder()],
       ["deadmanTimeoutSlots", getU64Encoder()],
       ["maxSessionKeys", getU8Encoder()],
+      ["maxPending", getU16Encoder()],
     ]),
     (value) => ({ ...value, discriminator: CREATE_ESCROW_DISCRIMINATOR }),
   );
@@ -121,6 +126,7 @@ export function getCreateEscrowInstructionDataDecoder(): FixedSizeDecoder<Create
     ["refundTimeoutSlots", getU64Decoder()],
     ["deadmanTimeoutSlots", getU64Decoder()],
     ["maxSessionKeys", getU8Decoder()],
+    ["maxPending", getU16Decoder()],
   ]);
 }
 
@@ -147,6 +153,7 @@ export type CreateEscrowAsyncInput<
   refundTimeoutSlots: CreateEscrowInstructionDataArgs["refundTimeoutSlots"];
   deadmanTimeoutSlots: CreateEscrowInstructionDataArgs["deadmanTimeoutSlots"];
   maxSessionKeys: CreateEscrowInstructionDataArgs["maxSessionKeys"];
+  maxPending: CreateEscrowInstructionDataArgs["maxPending"];
 };
 
 export async function getCreateEscrowInstructionAsync<
@@ -233,6 +240,7 @@ export type CreateEscrowInput<
   refundTimeoutSlots: CreateEscrowInstructionDataArgs["refundTimeoutSlots"];
   deadmanTimeoutSlots: CreateEscrowInstructionDataArgs["deadmanTimeoutSlots"];
   maxSessionKeys: CreateEscrowInstructionDataArgs["maxSessionKeys"];
+  maxPending: CreateEscrowInstructionDataArgs["maxPending"];
 };
 
 export function getCreateEscrowInstruction<

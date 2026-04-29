@@ -28,6 +28,7 @@ pub mod flex {
         refund_timeout_slots: u64,
         deadman_timeout_slots: u64,
         max_session_keys: u8,
+        max_pending: u16,
     ) -> Result<()> {
         instructions::create_escrow(
             ctx,
@@ -36,6 +37,7 @@ pub mod flex {
             refund_timeout_slots,
             deadman_timeout_slots,
             max_session_keys,
+            max_pending,
         )
     }
 

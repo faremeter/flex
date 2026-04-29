@@ -1,6 +1,5 @@
 import type { Address } from "@solana/kit";
 import type { SplitInput } from "../authorization";
-import { MAX_PENDING_SETTLEMENTS } from "./accounting";
 
 /** An in-memory hold representing a payment authorization awaiting on-chain submission. */
 export type Hold = {
@@ -79,6 +78,7 @@ export function createHoldManager() {
     vaultBalance: bigint,
     onChainCommitted: bigint,
     onChainPendingCount: number,
+    maxPending: number,
   ): HoldResult {
     const k = key(params.escrow, params.authorizationId);
     if (holds.has(k)) {
@@ -87,7 +87,7 @@ export function createHoldManager() {
 
     const totalPending =
       onChainPendingCount + getUnsubmittedCount(params.escrow);
-    if (totalPending >= MAX_PENDING_SETTLEMENTS) {
+    if (totalPending >= maxPending) {
       return { ok: false, reason: "Pending settlement limit reached" };
     }
 

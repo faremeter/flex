@@ -12,6 +12,8 @@ import {
   getAddressEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU16Decoder,
+  getU16Encoder,
   getU64Decoder,
   getU64Encoder,
   type Address,
@@ -27,6 +29,7 @@ export type EscrowCreated = {
   index: bigint;
   refundTimeoutSlots: bigint;
   deadmanTimeoutSlots: bigint;
+  maxPending: number;
 };
 
 export type EscrowCreatedArgs = {
@@ -36,6 +39,7 @@ export type EscrowCreatedArgs = {
   index: number | bigint;
   refundTimeoutSlots: number | bigint;
   deadmanTimeoutSlots: number | bigint;
+  maxPending: number;
 };
 
 export function getEscrowCreatedEncoder(): FixedSizeEncoder<EscrowCreatedArgs> {
@@ -46,6 +50,7 @@ export function getEscrowCreatedEncoder(): FixedSizeEncoder<EscrowCreatedArgs> {
     ["index", getU64Encoder()],
     ["refundTimeoutSlots", getU64Encoder()],
     ["deadmanTimeoutSlots", getU64Encoder()],
+    ["maxPending", getU16Encoder()],
   ]);
 }
 
@@ -57,6 +62,7 @@ export function getEscrowCreatedDecoder(): FixedSizeDecoder<EscrowCreated> {
     ["index", getU64Decoder()],
     ["refundTimeoutSlots", getU64Decoder()],
     ["deadmanTimeoutSlots", getU64Decoder()],
+    ["maxPending", getU16Decoder()],
   ]);
 }
 

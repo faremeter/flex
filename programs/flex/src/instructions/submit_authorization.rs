@@ -8,9 +8,7 @@ const ED25519_PROGRAM_ID: Pubkey = pubkey!("Ed25519SigVerify11111111111111111111
 
 use crate::error::FlexError;
 use crate::events::AuthorizationSubmitted;
-use crate::state::{
-    EscrowAccount, PendingSettlement, SessionKey, SplitEntry, MAX_PENDING, MAX_SPLITS,
-};
+use crate::state::{EscrowAccount, PendingSettlement, SessionKey, SplitEntry, MAX_SPLITS};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct PaymentAuthorization {
@@ -161,7 +159,7 @@ pub fn submit_authorization(
     let clock = Clock::get()?;
 
     require!(
-        (escrow.pending_count as usize) < MAX_PENDING,
+        escrow.pending_count < escrow.max_pending,
         FlexError::PendingLimitReached
     );
 

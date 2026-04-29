@@ -34,9 +34,6 @@ export type EscrowAccounting = {
   canSubmit: boolean;
 };
 
-/** Maximum number of concurrent pending settlements an escrow supports. */
-export const MAX_PENDING_SETTLEMENTS = 16;
-
 async function deriveVaultAddress(
   escrow: Address,
   mint: Address,
@@ -124,6 +121,7 @@ export async function fetchEscrowAccounting(
   }
 
   const pendingCount = escrowAccount.pendingCount;
+  const maxPending = escrowAccount.maxPending;
 
   return {
     escrow: escrowAddress,
@@ -131,8 +129,8 @@ export async function fetchEscrowAccounting(
     holds,
     totalPendingByMint,
     pendingCount,
-    maxPending: MAX_PENDING_SETTLEMENTS,
+    maxPending,
     availableByMint,
-    canSubmit: pendingCount < MAX_PENDING_SETTLEMENTS,
+    canSubmit: pendingCount < maxPending,
   };
 }

@@ -58,6 +58,7 @@ export type EscrowAccount = {
   facilitator: Address;
   index: bigint;
   pendingCount: number;
+  maxPending: number;
   mintCount: bigint;
   refundTimeoutSlots: bigint;
   deadmanTimeoutSlots: bigint;
@@ -73,6 +74,7 @@ export type EscrowAccountArgs = {
   facilitator: Address;
   index: number | bigint;
   pendingCount: number;
+  maxPending: number;
   mintCount: number | bigint;
   refundTimeoutSlots: number | bigint;
   deadmanTimeoutSlots: number | bigint;
@@ -92,6 +94,7 @@ export function getEscrowAccountEncoder(): FixedSizeEncoder<EscrowAccountArgs> {
       ["facilitator", getAddressEncoder()],
       ["index", getU64Encoder()],
       ["pendingCount", getU16Encoder()],
+      ["maxPending", getU16Encoder()],
       ["mintCount", getU64Encoder()],
       ["refundTimeoutSlots", getU64Encoder()],
       ["deadmanTimeoutSlots", getU64Encoder()],
@@ -113,6 +116,7 @@ export function getEscrowAccountDecoder(): FixedSizeDecoder<EscrowAccount> {
     ["facilitator", getAddressDecoder()],
     ["index", getU64Decoder()],
     ["pendingCount", getU16Decoder()],
+    ["maxPending", getU16Decoder()],
     ["mintCount", getU64Decoder()],
     ["refundTimeoutSlots", getU64Decoder()],
     ["deadmanTimeoutSlots", getU64Decoder()],
@@ -189,5 +193,5 @@ export async function fetchAllMaybeEscrowAccount(
 }
 
 export function getEscrowAccountSize(): number {
-  return 118;
+  return 120;
 }

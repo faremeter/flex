@@ -1144,11 +1144,13 @@ describe("pending quota recovery after full refund", () => {
   });
 
   it("allows new submission after finalize frees a slot", async () => {
+    const maxPending = 8;
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 750, {
         refundTimeoutSlots: 150,
         deadmanTimeoutSlots: 1000,
         depositAmount: 10_000_000,
+        maxPending,
       });
 
     const recipient = await createFundedTokenAccount(
@@ -1161,7 +1163,7 @@ describe("pending quota recovery after full refund", () => {
     const splits = [{ recipient: recipient.address, bps: 10_000 }];
 
     const pendingPDAs: Record<number, Address> = {};
-    for (let i = 1; i <= 16; i++) {
+    for (let i = 1; i <= maxPending; i++) {
       pendingPDAs[i] = await submitAuthorizationHelper(
         rpc,
         escrowPDA,
@@ -1186,33 +1188,35 @@ describe("pending quota recovery after full refund", () => {
           sessionKeyPDA,
           mint,
           vaultPDA,
-          17,
+          maxPending + 1,
           1_000,
           splits,
         ),
       FLEX_ERROR__PENDING_LIMIT_REACHED,
     );
 
-    // Finalize pending #8 to free a slot.
-    const pending8 = defined(pendingPDAs[8]);
-    const pending8Data = defined(await fetchPendingSettlement(rpc, pending8));
-    await waitForSlot(rpc, pending8Data.submittedAtSlot + 150n);
+    // Finalize one pending to free a slot.
+    const lastPending = defined(pendingPDAs[maxPending]);
+    const lastPendingData = defined(
+      await fetchPendingSettlement(rpc, lastPending),
+    );
+    await waitForSlot(rpc, lastPendingData.submittedAtSlot + 150n);
     await finalizeHelper(
       rpc,
       facilitator,
       escrowPDA,
       facilitator.address,
-      pending8,
+      lastPending,
       vaultPDA,
       [recipient.address],
     );
 
-    const pending8Info = await rpc
-      .getAccountInfo(pending8, { encoding: "base64" })
+    const lastPendingInfo = await rpc
+      .getAccountInfo(lastPending, { encoding: "base64" })
       .send();
-    expect(pending8Info.value).toBeNull();
+    expect(lastPendingInfo.value).toBeNull();
 
-    // Now auth #17 succeeds.
+    // Now the overflow auth succeeds.
     await submitAuthorizationHelper(
       rpc,
       escrowPDA,
@@ -1221,13 +1225,13 @@ describe("pending quota recovery after full refund", () => {
       sessionKeyPDA,
       mint,
       vaultPDA,
-      17,
+      maxPending + 1,
       1_000,
       splits,
     );
 
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(escrow.pendingCount).toBe(16);
+    expect(escrow.pendingCount).toBe(maxPending);
   }, 120_000);
 });
 
