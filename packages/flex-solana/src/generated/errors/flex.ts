@@ -102,6 +102,10 @@ export const FLEX_ERROR__INVALID_VOID_AUTHORITY = 0x1799; // 6041
 export const FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED = 0x179a; // 6042
 /** GracePeriodExceedsRefundTimeout: Grace period must be shorter than the escrow refund timeout */
 export const FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT = 0x179b; // 6043
+/** MaxPendingZero: Max pending must be at least 1 */
+export const FLEX_ERROR__MAX_PENDING_ZERO = 0x179c; // 6044
+/** MaxPendingTooLarge: Max pending exceeds protocol limit */
+export const FLEX_ERROR__MAX_PENDING_TOO_LARGE = 0x179d; // 6045
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
@@ -122,6 +126,8 @@ export type FlexError =
   | typeof FLEX_ERROR__INVALID_SPLIT_RECIPIENT
   | typeof FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR
   | typeof FLEX_ERROR__INVALID_VOID_AUTHORITY
+  | typeof FLEX_ERROR__MAX_PENDING_TOO_LARGE
+  | typeof FLEX_ERROR__MAX_PENDING_ZERO
   | typeof FLEX_ERROR__MINT_LIMIT_REACHED
   | typeof FLEX_ERROR__OWNER_ONLY
   | typeof FLEX_ERROR__PENDING_COUNT_MISMATCH
@@ -170,6 +176,8 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__INVALID_SPLIT_RECIPIENT]: `Recipient is not a valid token account for the specified mint`,
     [FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR]: `Token account pair validation failed`,
     [FLEX_ERROR__INVALID_VOID_AUTHORITY]: `Authority must be escrow owner or facilitator`,
+    [FLEX_ERROR__MAX_PENDING_TOO_LARGE]: `Max pending exceeds protocol limit`,
+    [FLEX_ERROR__MAX_PENDING_ZERO]: `Max pending must be at least 1`,
     [FLEX_ERROR__MINT_LIMIT_REACHED]: `Maximum mints per escrow reached`,
     [FLEX_ERROR__OWNER_ONLY]: `Only the escrow owner can create new vault accounts`,
     [FLEX_ERROR__PENDING_COUNT_MISMATCH]: `Remaining accounts count does not match pending_count`,

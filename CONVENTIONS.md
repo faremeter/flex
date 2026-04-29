@@ -255,11 +255,11 @@ Run `make format` to auto-format all files.
 
 #### Variables
 
-| Pattern                | Use Case                    | Example                                         |
-| ---------------------- | --------------------------- | ----------------------------------------------- |
-| `camelCase`            | Regular variables           | `paymentRequiredResponse`, `recentBlockhash`    |
-| `SCREAMING_SNAKE_CASE` | Constants, environment vars | `MAX_PENDING_SETTLEMENTS`, `PAYER_KEYPAIR_PATH` |
-| `_` prefix             | Unused parameters           | `_ctx`, `_unused`                               |
+| Pattern                | Use Case                    | Example                                      |
+| ---------------------- | --------------------------- | -------------------------------------------- |
+| `camelCase`            | Regular variables           | `paymentRequiredResponse`, `recentBlockhash` |
+| `SCREAMING_SNAKE_CASE` | Constants, environment vars | `MAX_PENDING_LIMIT`, `PAYER_KEYPAIR_PATH`    |
+| `_` prefix             | Unused parameters           | `_ctx`, `_unused`                            |
 
 #### Acronyms in Names
 

@@ -308,6 +308,7 @@ describe("submit_authorization", () => {
   });
 
   it("fails when pending limit reached", async () => {
+    const defaultMaxPending = 16;
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
       await setupEscrowForAuth(rpc, owner, facilitator, payer, 104, {
         depositAmount: 10_000_000,
@@ -322,7 +323,7 @@ describe("submit_authorization", () => {
     );
     const splits = [{ recipient: recipient.address, bps: 10_000 }];
 
-    for (let i = 1; i <= 16; i++) {
+    for (let i = 1; i <= defaultMaxPending; i++) {
       await submitAuthorizationHelper(
         rpc,
         escrowPDA,
@@ -347,13 +348,63 @@ describe("submit_authorization", () => {
           sessionKeyPDA,
           mint,
           vaultPDA,
-          17,
+          defaultMaxPending + 1,
           1_000,
           splits,
         ),
       FLEX_ERROR__PENDING_LIMIT_REACHED,
     );
   }, 60_000);
+
+  it("enforces per-escrow maxPending boundary", async () => {
+    const maxPending = 3;
+    const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =
+      await setupEscrowForAuth(rpc, owner, facilitator, payer, 160, {
+        depositAmount: 10_000_000,
+        maxPending,
+      });
+
+    const recipient = await createFundedTokenAccount(
+      rpc,
+      mint,
+      facilitator.address,
+      payer,
+      0n,
+    );
+    const splits = [{ recipient: recipient.address, bps: 10_000 }];
+
+    for (let i = 1; i <= maxPending; i++) {
+      await submitAuthorizationHelper(
+        rpc,
+        escrowPDA,
+        facilitator,
+        sessionKey,
+        sessionKeyPDA,
+        mint,
+        vaultPDA,
+        i,
+        1_000,
+        splits,
+      );
+    }
+
+    await expectToFail(
+      () =>
+        submitAuthorizationHelper(
+          rpc,
+          escrowPDA,
+          facilitator,
+          sessionKey,
+          sessionKeyPDA,
+          mint,
+          vaultPDA,
+          maxPending + 1,
+          1_000,
+          splits,
+        ),
+      FLEX_ERROR__PENDING_LIMIT_REACHED,
+    );
+  }, 30_000);
 
   it("fails with insufficient vault balance", async () => {
     const { escrowPDA, mint, vaultPDA, sessionKey, sessionKeyPDA } =

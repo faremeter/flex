@@ -229,6 +229,7 @@ export async function createEscrowHelper(
     refundTimeoutSlots?: number;
     deadmanTimeoutSlots?: number;
     maxSessionKeys?: number;
+    maxPending?: number;
   },
 ): Promise<Address> {
   const ix = await getCreateEscrowInstructionAsync({
@@ -238,6 +239,7 @@ export async function createEscrowHelper(
     refundTimeoutSlots: opts?.refundTimeoutSlots ?? 150,
     deadmanTimeoutSlots: opts?.deadmanTimeoutSlots ?? 1000,
     maxSessionKeys: opts?.maxSessionKeys ?? 10,
+    maxPending: opts?.maxPending ?? 16,
   });
   await sendTx(rpc, owner, [ix]);
 
@@ -453,6 +455,7 @@ export async function setupEscrowForAuth(
     depositAmount?: number;
     sessionKeyExpiresAtSlot?: bigint | null;
     revocationGracePeriodSlots?: number;
+    maxPending?: number;
   },
 ): Promise<EscrowForAuth> {
   const depositAmount = opts?.depositAmount ?? 1_000_000;
@@ -460,6 +463,7 @@ export async function setupEscrowForAuth(
   const escrowPDA = await createEscrowHelper(rpc, owner, facilitator, index, {
     refundTimeoutSlots: opts?.refundTimeoutSlots ?? 150,
     deadmanTimeoutSlots: opts?.deadmanTimeoutSlots ?? 1000,
+    ...(opts?.maxPending !== undefined && { maxPending: opts.maxPending }),
   });
 
   const mint = await createTestMint(rpc, payer);

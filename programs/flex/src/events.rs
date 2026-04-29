@@ -10,6 +10,7 @@ pub struct EscrowCreated {
     pub index: u64,
     pub refund_timeout_slots: u64,
     pub deadman_timeout_slots: u64,
+    pub max_pending: u16,
 }
 
 #[event]

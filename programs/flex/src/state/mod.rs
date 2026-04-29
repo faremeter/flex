@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 pub const MAX_SPLITS: usize = 5;
-pub const MAX_PENDING: usize = 16;
+pub const MAX_PENDING_LIMIT: u16 = u16::MAX;
 pub const MAX_MINTS: usize = 8;
 
 pub const MIN_REFUND_TIMEOUT_SLOTS: u64 = 150;
@@ -24,6 +24,7 @@ pub struct EscrowAccount {
     pub index: u64,
 
     pub pending_count: u16,
+    pub max_pending: u16,
     pub mint_count: u64,
     pub refund_timeout_slots: u64,
     pub deadman_timeout_slots: u64,
