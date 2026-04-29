@@ -216,7 +216,7 @@ pub fn submit_authorization(
     )?;
 
     require!(
-        !splits.is_empty() && splits.len() <= MAX_SPLITS,
+        !splits.is_empty() && splits.len() <= MAX_SPLITS as usize,
         FlexError::InvalidSplitCount
     );
 
@@ -251,7 +251,7 @@ pub fn submit_authorization(
     pending.session_key = session_key.key;
     pending.split_count = splits.len() as u8;
 
-    let mut fixed_splits = [SplitEntry::default(); MAX_SPLITS];
+    let mut fixed_splits = [SplitEntry::default(); MAX_SPLITS as usize];
     for (i, entry) in splits.iter().enumerate() {
         fixed_splits[i] = *entry;
     }

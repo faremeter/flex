@@ -64,7 +64,7 @@ pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
             FlexError::OwnerOnly
         );
         require!(
-            (escrow.mint_count as usize) < MAX_MINTS,
+            escrow.mint_count < MAX_MINTS as u64,
             FlexError::MintLimitReached
         );
 

@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 
-pub const MAX_SPLITS: usize = 5;
+pub const MAX_SPLITS: u8 = 5;
 pub const MAX_PENDING_LIMIT: u16 = u16::MAX;
-pub const MAX_MINTS: usize = 8;
+pub const MAX_MINTS: u8 = 8;
 
 pub const MIN_REFUND_TIMEOUT_SLOTS: u64 = 150;
 pub const MIN_DEADMAN_TIMEOUT_SLOTS: u64 = 1_000;
@@ -62,6 +62,6 @@ pub struct PendingSettlement {
     pub submitted_at_slot: u64,
     pub session_key: Pubkey,
     pub split_count: u8,
-    pub splits: [SplitEntry; MAX_SPLITS],
+    pub splits: [SplitEntry; MAX_SPLITS as usize],
     pub bump: u8,
 }
