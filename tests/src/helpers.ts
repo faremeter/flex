@@ -37,9 +37,12 @@ import {
   getCreateEscrowInstructionAsync,
   getDepositInstructionAsync,
   getRegisterSessionKeyInstructionAsync,
+  getInitializeReplayShardInstructionAsync,
   getRefundInstruction,
   getFinalizeInstruction,
   getSubmitAuthorizationInstructionAsync,
+  findReplayShardPda,
+  REPLAY_SHARD_COUNT,
   serializePaymentAuthorization,
   createEd25519VerifyInstruction,
 } from "@faremeter/flex-solana";
@@ -263,6 +266,8 @@ export async function submitAuthorizationHelper(
     expiresAtSlot?: bigint;
     refundTimeoutSlots?: number;
     maxAmount?: number;
+    siblingMask?: bigint;
+    siblings?: Uint8Array[];
   },
 ): Promise<Address> {
   const currentSlot = await rpc.getSlot().send();
@@ -285,6 +290,14 @@ export async function submitAuthorizationHelper(
     await crypto.subtle.sign("Ed25519", sessionKey.keyPair.privateKey, message),
   );
 
+  const shardIndex = Number(
+    BigInt(authorizationId) % BigInt(REPLAY_SHARD_COUNT),
+  );
+  const [replayShard] = await findReplayShardPda({
+    sessionKey: sessionKeyPDA,
+    shardIndex,
+  });
+
   const ed25519Ix = createEd25519VerifyInstruction({
     publicKey: sessionKey.address,
     message,
@@ -295,6 +308,7 @@ export async function submitAuthorizationHelper(
     escrow,
     facilitator,
     sessionKey: sessionKeyPDA,
+    replayShard,
     tokenAccount: vault,
     mint,
     maxAmount,
@@ -302,13 +316,39 @@ export async function submitAuthorizationHelper(
     authorizationId,
     expiresAtSlot,
     splits,
+    siblingMask: opts?.siblingMask ?? 0n,
+    siblings: opts?.siblings ?? [],
   });
 
   await sendTx(rpc, facilitator, [ed25519Ix, submitIx]);
 
-  const pendingMeta = submitIx.accounts[4];
+  const pendingMeta = submitIx.accounts[5];
   if (!pendingMeta) throw new Error("pending account meta missing");
   return pendingMeta.address;
+}
+
+export async function initializeReplayShardHelper(
+  rpc: Rpc<SolanaRpcApi>,
+  payer: KeyPairSigner,
+  escrow: Address,
+  sessionKeyPDA: Address,
+  authorizationId: number,
+): Promise<Address> {
+  const shardIndex = Number(
+    BigInt(authorizationId) % BigInt(REPLAY_SHARD_COUNT),
+  );
+  const ix = await getInitializeReplayShardInstructionAsync({
+    payer,
+    escrow,
+    sessionKey: sessionKeyPDA,
+    shardIndex,
+  });
+
+  await sendTx(rpc, payer, [ix]);
+
+  const replayShardMeta = ix.accounts[3];
+  if (!replayShardMeta) throw new Error("replay shard account meta missing");
+  return replayShardMeta.address;
 }
 
 export async function refundHelper(

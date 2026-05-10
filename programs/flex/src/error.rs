@@ -136,4 +136,13 @@ pub enum FlexError {
 
     #[msg("Max pending exceeds protocol limit")]
     MaxPendingTooLarge,
+
+    #[msg("Replay shard does not match authorization")]
+    InvalidReplayShard,
+
+    #[msg("Replay proof is invalid")]
+    InvalidReplayProof,
+
+    #[msg("Authorization has already been consumed")]
+    AuthorizationReplay,
 }

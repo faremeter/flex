@@ -104,9 +104,16 @@ export const FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT = 0x179a; // 6042
 export const FLEX_ERROR__MAX_PENDING_ZERO = 0x179b; // 6043
 /** MaxPendingTooLarge: Max pending exceeds protocol limit */
 export const FLEX_ERROR__MAX_PENDING_TOO_LARGE = 0x179c; // 6044
+/** InvalidReplayShard: Replay shard does not match authorization */
+export const FLEX_ERROR__INVALID_REPLAY_SHARD = 0x179d; // 6045
+/** InvalidReplayProof: Replay proof is invalid */
+export const FLEX_ERROR__INVALID_REPLAY_PROOF = 0x179e; // 6046
+/** AuthorizationReplay: Authorization has already been consumed */
+export const FLEX_ERROR__AUTHORIZATION_REPLAY = 0x179f; // 6047
 
 export type FlexError =
   | typeof FLEX_ERROR__AUTHORIZATION_EXPIRED
+  | typeof FLEX_ERROR__AUTHORIZATION_REPLAY
   | typeof FLEX_ERROR__DEADMAN_NOT_EXPIRED
   | typeof FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG
   | typeof FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT
@@ -118,6 +125,8 @@ export type FlexError =
   | typeof FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT
   | typeof FLEX_ERROR__INSUFFICIENT_BALANCE
   | typeof FLEX_ERROR__INVALID_ED25519_INSTRUCTION
+  | typeof FLEX_ERROR__INVALID_REPLAY_PROOF
+  | typeof FLEX_ERROR__INVALID_REPLAY_SHARD
   | typeof FLEX_ERROR__INVALID_SIGNATURE
   | typeof FLEX_ERROR__INVALID_SPLIT_BPS
   | typeof FLEX_ERROR__INVALID_SPLIT_COUNT
@@ -156,6 +165,7 @@ let flexErrorMessages: Record<FlexError, string> | undefined;
 if (process.env.NODE_ENV !== "production") {
   flexErrorMessages = {
     [FLEX_ERROR__AUTHORIZATION_EXPIRED]: `Authorization has expired`,
+    [FLEX_ERROR__AUTHORIZATION_REPLAY]: `Authorization has already been consumed`,
     [FLEX_ERROR__DEADMAN_NOT_EXPIRED]: `Cannot emergency close before timeout`,
     [FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG]: `Deadman timeout exceeds maximum of 2592000 slots`,
     [FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT]: `Deadman timeout below minimum of 1000 slots`,
@@ -167,6 +177,8 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT]: `Grace period must not exceed the escrow refund timeout`,
     [FLEX_ERROR__INSUFFICIENT_BALANCE]: `Token account balance insufficient`,
     [FLEX_ERROR__INVALID_ED25519_INSTRUCTION]: `Ed25519 instruction malformed or missing`,
+    [FLEX_ERROR__INVALID_REPLAY_PROOF]: `Replay proof is invalid`,
+    [FLEX_ERROR__INVALID_REPLAY_SHARD]: `Replay shard does not match authorization`,
     [FLEX_ERROR__INVALID_SIGNATURE]: `Ed25519 signature verification failed`,
     [FLEX_ERROR__INVALID_SPLIT_BPS]: `Split bps do not sum to 10000`,
     [FLEX_ERROR__INVALID_SPLIT_COUNT]: `Split count must be between 1 and 5`,

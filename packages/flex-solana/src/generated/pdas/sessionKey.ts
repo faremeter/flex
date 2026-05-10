@@ -14,13 +14,13 @@ import {
   type ProgramDerivedAddress,
 } from "@solana/kit";
 
-export type RegisterSessionKeySessionKeyAccountSeeds = {
+export type SessionKeySeeds = {
   escrow: Address;
   sessionKey: Address;
 };
 
-export async function findRegisterSessionKeySessionKeyAccountPda(
-  seeds: RegisterSessionKeySessionKeyAccountSeeds,
+export async function findSessionKeyPda(
+  seeds: SessionKeySeeds,
   config: { programAddress?: Address | undefined } = {},
 ): Promise<ProgramDerivedAddress> {
   const {

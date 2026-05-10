@@ -8,6 +8,7 @@
 
 export * from "./escrow";
 export * from "./pending";
-export * from "./registerSessionKeySessionKeyAccount";
+export * from "./replayShard";
+export * from "./sessionKey";
 export * from "./sessionKeyAccount";
 export * from "./vault";

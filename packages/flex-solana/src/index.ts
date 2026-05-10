@@ -25,12 +25,13 @@ export type {
 } from "./types";
 export * as facilitator from "./facilitator/index";
 
-export { findVaultPda } from "./generated";
+export { findReplayShardPda, findVaultPda } from "./generated";
 
 export {
   getCreateEscrowInstructionAsync,
   getDepositInstructionAsync,
   getRegisterSessionKeyInstructionAsync,
+  getInitializeReplayShardInstructionAsync,
   getRevokeSessionKeyInstruction,
   getCloseSessionKeyInstruction,
   getSubmitAuthorizationInstructionAsync,
@@ -89,9 +90,13 @@ export {
   FLEX_ERROR__GRACE_PERIOD_EXCEEDS_REFUND_TIMEOUT,
   FLEX_ERROR__MAX_PENDING_ZERO,
   FLEX_ERROR__MAX_PENDING_TOO_LARGE,
+  FLEX_ERROR__INVALID_REPLAY_SHARD,
+  FLEX_ERROR__INVALID_REPLAY_PROOF,
+  FLEX_ERROR__AUTHORIZATION_REPLAY,
   MAX_SPLITS,
   MAX_PENDING_LIMIT,
   MAX_MINTS,
+  REPLAY_SHARD_COUNT,
   MIN_DEADMAN_TIMEOUT_SLOTS,
   MAX_REFUND_TIMEOUT_SLOTS,
   MAX_DEADMAN_TIMEOUT_SLOTS,

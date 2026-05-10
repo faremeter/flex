@@ -21,6 +21,7 @@ init-if-needed = ["anchor-lang/init-if-needed"]
 [dependencies]
 anchor-lang = "0.32.0"
 anchor-spl = "0.32.0"
+solana-keccak-hasher = "2.2.1"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

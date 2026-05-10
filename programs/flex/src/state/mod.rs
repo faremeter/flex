@@ -6,6 +6,8 @@ pub const MAX_SPLITS: u8 = 5;
 pub const MAX_PENDING_LIMIT: u16 = u16::MAX;
 #[constant]
 pub const MAX_MINTS: u8 = 8;
+#[constant]
+pub const REPLAY_SHARD_COUNT: u16 = 16;
 
 #[constant]
 pub const MIN_DEADMAN_TIMEOUT_SLOTS: u64 = 1_000;
@@ -50,6 +52,16 @@ pub struct SessionKey {
     pub active: bool,
     pub revoked_at_slot: Option<u64>,
     pub revocation_grace_period_slots: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct ReplayShard {
+    pub version: u8,
+    pub session_key: Pubkey,
+    pub shard_index: u16,
+    pub root: [u8; 32],
     pub bump: u8,
 }
 

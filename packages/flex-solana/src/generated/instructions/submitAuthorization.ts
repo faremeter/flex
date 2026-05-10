@@ -68,6 +68,7 @@ export type SubmitAuthorizationInstruction<
   TAccountEscrow extends string | AccountMeta<string> = string,
   TAccountFacilitator extends string | AccountMeta<string> = string,
   TAccountSessionKey extends string | AccountMeta<string> = string,
+  TAccountReplayShard extends string | AccountMeta<string> = string,
   TAccountTokenAccount extends string | AccountMeta<string> = string,
   TAccountPending extends string | AccountMeta<string> = string,
   TAccountInstructionsSysvar extends string | AccountMeta<string> =
@@ -89,6 +90,9 @@ export type SubmitAuthorizationInstruction<
       TAccountSessionKey extends string
         ? ReadonlyAccount<TAccountSessionKey>
         : TAccountSessionKey,
+      TAccountReplayShard extends string
+        ? WritableAccount<TAccountReplayShard>
+        : TAccountReplayShard,
       TAccountTokenAccount extends string
         ? ReadonlyAccount<TAccountTokenAccount>
         : TAccountTokenAccount,
@@ -113,6 +117,8 @@ export type SubmitAuthorizationInstructionData = {
   authorizationId: bigint;
   expiresAtSlot: bigint;
   splits: Array<SplitEntry>;
+  siblingMask: bigint;
+  siblings: Array<ReadonlyUint8Array>;
 };
 
 export type SubmitAuthorizationInstructionDataArgs = {
@@ -122,6 +128,8 @@ export type SubmitAuthorizationInstructionDataArgs = {
   authorizationId: number | bigint;
   expiresAtSlot: number | bigint;
   splits: Array<SplitEntryArgs>;
+  siblingMask: number | bigint;
+  siblings: Array<ReadonlyUint8Array>;
 };
 
 export function getSubmitAuthorizationInstructionDataEncoder(): Encoder<SubmitAuthorizationInstructionDataArgs> {
@@ -134,6 +142,8 @@ export function getSubmitAuthorizationInstructionDataEncoder(): Encoder<SubmitAu
       ["authorizationId", getU64Encoder()],
       ["expiresAtSlot", getU64Encoder()],
       ["splits", getArrayEncoder(getSplitEntryEncoder())],
+      ["siblingMask", getU64Encoder()],
+      ["siblings", getArrayEncoder(fixEncoderSize(getBytesEncoder(), 32))],
     ]),
     (value) => ({
       ...value,
@@ -151,6 +161,8 @@ export function getSubmitAuthorizationInstructionDataDecoder(): Decoder<SubmitAu
     ["authorizationId", getU64Decoder()],
     ["expiresAtSlot", getU64Decoder()],
     ["splits", getArrayDecoder(getSplitEntryDecoder())],
+    ["siblingMask", getU64Decoder()],
+    ["siblings", getArrayDecoder(fixDecoderSize(getBytesDecoder(), 32))],
   ]);
 }
 
@@ -168,6 +180,7 @@ export type SubmitAuthorizationAsyncInput<
   TAccountEscrow extends string = string,
   TAccountFacilitator extends string = string,
   TAccountSessionKey extends string = string,
+  TAccountReplayShard extends string = string,
   TAccountTokenAccount extends string = string,
   TAccountPending extends string = string,
   TAccountInstructionsSysvar extends string = string,
@@ -176,6 +189,7 @@ export type SubmitAuthorizationAsyncInput<
   escrow: Address<TAccountEscrow>;
   facilitator: TransactionSigner<TAccountFacilitator>;
   sessionKey: Address<TAccountSessionKey>;
+  replayShard: Address<TAccountReplayShard>;
   tokenAccount?: Address<TAccountTokenAccount>;
   pending?: Address<TAccountPending>;
   instructionsSysvar?: Address<TAccountInstructionsSysvar>;
@@ -186,12 +200,15 @@ export type SubmitAuthorizationAsyncInput<
   authorizationId: SubmitAuthorizationInstructionDataArgs["authorizationId"];
   expiresAtSlot: SubmitAuthorizationInstructionDataArgs["expiresAtSlot"];
   splits: SubmitAuthorizationInstructionDataArgs["splits"];
+  siblingMask: SubmitAuthorizationInstructionDataArgs["siblingMask"];
+  siblings: SubmitAuthorizationInstructionDataArgs["siblings"];
 };
 
 export async function getSubmitAuthorizationInstructionAsync<
   TAccountEscrow extends string,
   TAccountFacilitator extends string,
   TAccountSessionKey extends string,
+  TAccountReplayShard extends string,
   TAccountTokenAccount extends string,
   TAccountPending extends string,
   TAccountInstructionsSysvar extends string,
@@ -202,6 +219,7 @@ export async function getSubmitAuthorizationInstructionAsync<
     TAccountEscrow,
     TAccountFacilitator,
     TAccountSessionKey,
+    TAccountReplayShard,
     TAccountTokenAccount,
     TAccountPending,
     TAccountInstructionsSysvar,
@@ -214,6 +232,7 @@ export async function getSubmitAuthorizationInstructionAsync<
     TAccountEscrow,
     TAccountFacilitator,
     TAccountSessionKey,
+    TAccountReplayShard,
     TAccountTokenAccount,
     TAccountPending,
     TAccountInstructionsSysvar,
@@ -228,6 +247,7 @@ export async function getSubmitAuthorizationInstructionAsync<
     escrow: { value: input.escrow ?? null, isWritable: true },
     facilitator: { value: input.facilitator ?? null, isWritable: true },
     sessionKey: { value: input.sessionKey ?? null, isWritable: false },
+    replayShard: { value: input.replayShard ?? null, isWritable: true },
     tokenAccount: { value: input.tokenAccount ?? null, isWritable: false },
     pending: { value: input.pending ?? null, isWritable: true },
     instructionsSysvar: {
@@ -281,6 +301,7 @@ export async function getSubmitAuthorizationInstructionAsync<
       getAccountMeta("escrow", accounts.escrow),
       getAccountMeta("facilitator", accounts.facilitator),
       getAccountMeta("sessionKey", accounts.sessionKey),
+      getAccountMeta("replayShard", accounts.replayShard),
       getAccountMeta("tokenAccount", accounts.tokenAccount),
       getAccountMeta("pending", accounts.pending),
       getAccountMeta("instructionsSysvar", accounts.instructionsSysvar),
@@ -295,6 +316,7 @@ export async function getSubmitAuthorizationInstructionAsync<
     TAccountEscrow,
     TAccountFacilitator,
     TAccountSessionKey,
+    TAccountReplayShard,
     TAccountTokenAccount,
     TAccountPending,
     TAccountInstructionsSysvar,
@@ -306,6 +328,7 @@ export type SubmitAuthorizationInput<
   TAccountEscrow extends string = string,
   TAccountFacilitator extends string = string,
   TAccountSessionKey extends string = string,
+  TAccountReplayShard extends string = string,
   TAccountTokenAccount extends string = string,
   TAccountPending extends string = string,
   TAccountInstructionsSysvar extends string = string,
@@ -314,6 +337,7 @@ export type SubmitAuthorizationInput<
   escrow: Address<TAccountEscrow>;
   facilitator: TransactionSigner<TAccountFacilitator>;
   sessionKey: Address<TAccountSessionKey>;
+  replayShard: Address<TAccountReplayShard>;
   tokenAccount: Address<TAccountTokenAccount>;
   pending: Address<TAccountPending>;
   instructionsSysvar?: Address<TAccountInstructionsSysvar>;
@@ -324,12 +348,15 @@ export type SubmitAuthorizationInput<
   authorizationId: SubmitAuthorizationInstructionDataArgs["authorizationId"];
   expiresAtSlot: SubmitAuthorizationInstructionDataArgs["expiresAtSlot"];
   splits: SubmitAuthorizationInstructionDataArgs["splits"];
+  siblingMask: SubmitAuthorizationInstructionDataArgs["siblingMask"];
+  siblings: SubmitAuthorizationInstructionDataArgs["siblings"];
 };
 
 export function getSubmitAuthorizationInstruction<
   TAccountEscrow extends string,
   TAccountFacilitator extends string,
   TAccountSessionKey extends string,
+  TAccountReplayShard extends string,
   TAccountTokenAccount extends string,
   TAccountPending extends string,
   TAccountInstructionsSysvar extends string,
@@ -340,6 +367,7 @@ export function getSubmitAuthorizationInstruction<
     TAccountEscrow,
     TAccountFacilitator,
     TAccountSessionKey,
+    TAccountReplayShard,
     TAccountTokenAccount,
     TAccountPending,
     TAccountInstructionsSysvar,
@@ -351,6 +379,7 @@ export function getSubmitAuthorizationInstruction<
   TAccountEscrow,
   TAccountFacilitator,
   TAccountSessionKey,
+  TAccountReplayShard,
   TAccountTokenAccount,
   TAccountPending,
   TAccountInstructionsSysvar,
@@ -364,6 +393,7 @@ export function getSubmitAuthorizationInstruction<
     escrow: { value: input.escrow ?? null, isWritable: true },
     facilitator: { value: input.facilitator ?? null, isWritable: true },
     sessionKey: { value: input.sessionKey ?? null, isWritable: false },
+    replayShard: { value: input.replayShard ?? null, isWritable: true },
     tokenAccount: { value: input.tokenAccount ?? null, isWritable: false },
     pending: { value: input.pending ?? null, isWritable: true },
     instructionsSysvar: {
@@ -396,6 +426,7 @@ export function getSubmitAuthorizationInstruction<
       getAccountMeta("escrow", accounts.escrow),
       getAccountMeta("facilitator", accounts.facilitator),
       getAccountMeta("sessionKey", accounts.sessionKey),
+      getAccountMeta("replayShard", accounts.replayShard),
       getAccountMeta("tokenAccount", accounts.tokenAccount),
       getAccountMeta("pending", accounts.pending),
       getAccountMeta("instructionsSysvar", accounts.instructionsSysvar),
@@ -410,6 +441,7 @@ export function getSubmitAuthorizationInstruction<
     TAccountEscrow,
     TAccountFacilitator,
     TAccountSessionKey,
+    TAccountReplayShard,
     TAccountTokenAccount,
     TAccountPending,
     TAccountInstructionsSysvar,
@@ -426,10 +458,11 @@ export type ParsedSubmitAuthorizationInstruction<
     escrow: TAccountMetas[0];
     facilitator: TAccountMetas[1];
     sessionKey: TAccountMetas[2];
-    tokenAccount: TAccountMetas[3];
-    pending: TAccountMetas[4];
-    instructionsSysvar: TAccountMetas[5];
-    systemProgram: TAccountMetas[6];
+    replayShard: TAccountMetas[3];
+    tokenAccount: TAccountMetas[4];
+    pending: TAccountMetas[5];
+    instructionsSysvar: TAccountMetas[6];
+    systemProgram: TAccountMetas[7];
   };
   data: SubmitAuthorizationInstructionData;
 };
@@ -442,12 +475,12 @@ export function parseSubmitAuthorizationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedSubmitAuthorizationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 7) {
+  if (instruction.accounts.length < 8) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 7,
+        expectedAccountMetas: 8,
       },
     );
   }
@@ -463,6 +496,7 @@ export function parseSubmitAuthorizationInstruction<
       escrow: getNextAccount(),
       facilitator: getNextAccount(),
       sessionKey: getNextAccount(),
+      replayShard: getNextAccount(),
       tokenAccount: getNextAccount(),
       pending: getNextAccount(),
       instructionsSysvar: getNextAccount(),

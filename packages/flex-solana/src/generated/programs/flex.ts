@@ -16,6 +16,7 @@ import {
   SOLANA_ERROR__PROGRAM_CLIENTS__UNRECOGNIZED_INSTRUCTION_TYPE,
   SolanaError,
   type Address,
+  type ClientWithPayer,
   type ClientWithRpc,
   type ClientWithTransactionPlanning,
   type ClientWithTransactionSending,
@@ -34,11 +35,14 @@ import {
 import {
   getEscrowAccountCodec,
   getPendingSettlementCodec,
+  getReplayShardCodec,
   getSessionKeyCodec,
   type EscrowAccount,
   type EscrowAccountArgs,
   type PendingSettlement,
   type PendingSettlementArgs,
+  type ReplayShard,
+  type ReplayShardArgs,
   type SessionKey,
   type SessionKeyArgs,
 } from "../accounts";
@@ -49,6 +53,7 @@ import {
   getDepositInstructionAsync,
   getEmergencyCloseInstruction,
   getFinalizeInstruction,
+  getInitializeReplayShardInstructionAsync,
   getRefundInstruction,
   getRegisterSessionKeyInstructionAsync,
   getRevokeSessionKeyInstruction,
@@ -60,6 +65,7 @@ import {
   parseDepositInstruction,
   parseEmergencyCloseInstruction,
   parseFinalizeInstruction,
+  parseInitializeReplayShardInstruction,
   parseRefundInstruction,
   parseRegisterSessionKeyInstruction,
   parseRevokeSessionKeyInstruction,
@@ -71,12 +77,14 @@ import {
   type DepositAsyncInput,
   type EmergencyCloseInput,
   type FinalizeInput,
+  type InitializeReplayShardAsyncInput,
   type ParsedCloseEscrowInstruction,
   type ParsedCloseSessionKeyInstruction,
   type ParsedCreateEscrowInstruction,
   type ParsedDepositInstruction,
   type ParsedEmergencyCloseInstruction,
   type ParsedFinalizeInstruction,
+  type ParsedInitializeReplayShardInstruction,
   type ParsedRefundInstruction,
   type ParsedRegisterSessionKeyInstruction,
   type ParsedRevokeSessionKeyInstruction,
@@ -91,8 +99,9 @@ import {
 import {
   findEscrowPda,
   findPendingPda,
-  findRegisterSessionKeySessionKeyAccountPda,
+  findReplayShardPda,
   findSessionKeyAccountPda,
+  findSessionKeyPda,
   findVaultPda,
 } from "../pdas";
 
@@ -102,6 +111,7 @@ export const FLEX_PROGRAM_ADDRESS =
 export enum FlexAccount {
   EscrowAccount,
   PendingSettlement,
+  ReplayShard,
   SessionKey,
 }
 
@@ -135,6 +145,17 @@ export function identifyFlexAccount(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([56, 232, 233, 195, 83, 14, 87, 232]),
+      ),
+      0,
+    )
+  ) {
+    return FlexAccount.ReplayShard;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([93, 186, 163, 139, 160, 255, 81, 112]),
       ),
       0,
@@ -155,6 +176,7 @@ export enum FlexInstruction {
   Deposit,
   EmergencyClose,
   Finalize,
+  InitializeReplayShard,
   Refund,
   RegisterSessionKey,
   RevokeSessionKey,
@@ -231,6 +253,17 @@ export function identifyFlexInstruction(
     )
   ) {
     return FlexInstruction.Finalize;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([145, 242, 194, 106, 74, 23, 37, 226]),
+      ),
+      0,
+    )
+  ) {
+    return FlexInstruction.InitializeReplayShard;
   }
   if (
     containsBytes(
@@ -315,6 +348,9 @@ export type ParsedFlexInstruction<
       instructionType: FlexInstruction.Finalize;
     } & ParsedFinalizeInstruction<TProgram>)
   | ({
+      instructionType: FlexInstruction.InitializeReplayShard;
+    } & ParsedInitializeReplayShardInstruction<TProgram>)
+  | ({
       instructionType: FlexInstruction.Refund;
     } & ParsedRefundInstruction<TProgram>)
   | ({
@@ -377,6 +413,13 @@ export function parseFlexInstruction<TProgram extends string>(
         ...parseFinalizeInstruction(instruction),
       };
     }
+    case FlexInstruction.InitializeReplayShard: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: FlexInstruction.InitializeReplayShard,
+        ...parseInitializeReplayShardInstruction(instruction),
+      };
+    }
     case FlexInstruction.Refund: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -431,6 +474,8 @@ export type FlexPluginAccounts = {
     SelfFetchFunctions<EscrowAccountArgs, EscrowAccount>;
   pendingSettlement: ReturnType<typeof getPendingSettlementCodec> &
     SelfFetchFunctions<PendingSettlementArgs, PendingSettlement>;
+  replayShard: ReturnType<typeof getReplayShardCodec> &
+    SelfFetchFunctions<ReplayShardArgs, ReplayShard>;
   sessionKey: ReturnType<typeof getSessionKeyCodec> &
     SelfFetchFunctions<SessionKeyArgs, SessionKey>;
 };
@@ -457,6 +502,10 @@ export type FlexPluginInstructions = {
   finalize: (
     input: FinalizeInput,
   ) => ReturnType<typeof getFinalizeInstruction> & SelfPlanAndSendFunctions;
+  initializeReplayShard: (
+    input: MakeOptional<InitializeReplayShardAsyncInput, "payer">,
+  ) => ReturnType<typeof getInitializeReplayShardInstructionAsync> &
+    SelfPlanAndSendFunctions;
   refund: (
     input: RefundInput,
   ) => ReturnType<typeof getRefundInstruction> & SelfPlanAndSendFunctions;
@@ -481,13 +530,15 @@ export type FlexPluginPdas = {
   sessionKeyAccount: typeof findSessionKeyAccountPda;
   escrow: typeof findEscrowPda;
   vault: typeof findVaultPda;
-  registerSessionKeySessionKeyAccount: typeof findRegisterSessionKeySessionKeyAccountPda;
+  sessionKey: typeof findSessionKeyPda;
+  replayShard: typeof findReplayShardPda;
   pending: typeof findPendingPda;
 };
 
 export type FlexPluginRequirements = ClientWithRpc<
   GetAccountInfoApi & GetMultipleAccountsApi
 > &
+  ClientWithPayer &
   ClientWithTransactionPlanning &
   ClientWithTransactionSending;
 
@@ -502,6 +553,7 @@ export function flexProgram() {
             client,
             getPendingSettlementCodec(),
           ),
+          replayShard: addSelfFetchFunctions(client, getReplayShardCodec()),
           sessionKey: addSelfFetchFunctions(client, getSessionKeyCodec()),
         },
         instructions: {
@@ -532,6 +584,14 @@ export function flexProgram() {
             ),
           finalize: (input) =>
             addSelfPlanAndSendFunctions(client, getFinalizeInstruction(input)),
+          initializeReplayShard: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getInitializeReplayShardInstructionAsync({
+                ...input,
+                payer: input.payer ?? client.payer,
+              }),
+            ),
           refund: (input) =>
             addSelfPlanAndSendFunctions(client, getRefundInstruction(input)),
           registerSessionKey: (input) =>
@@ -559,11 +619,13 @@ export function flexProgram() {
           sessionKeyAccount: findSessionKeyAccountPda,
           escrow: findEscrowPda,
           vault: findVaultPda,
-          registerSessionKeySessionKeyAccount:
-            findRegisterSessionKeySessionKeyAccountPda,
+          sessionKey: findSessionKeyPda,
+          replayShard: findReplayShardPda,
           pending: findPendingPda,
         },
       },
     };
   };
 }
+
+type MakeOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;

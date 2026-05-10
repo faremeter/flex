@@ -704,6 +704,7 @@ version = "0.2.1"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "solana-keccak-hasher",
 ]
 
 [[package]]

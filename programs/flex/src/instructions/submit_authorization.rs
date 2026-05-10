@@ -8,7 +8,10 @@ const ED25519_PROGRAM_ID: Pubkey = pubkey!("Ed25519SigVerify11111111111111111111
 
 use crate::error::FlexError;
 use crate::events::AuthorizationSubmitted;
-use crate::state::{EscrowAccount, PendingSettlement, SessionKey, SplitEntry, MAX_SPLITS};
+use crate::instructions::replay::{consume_replay_proof, replay_shard_index, ReplayProof};
+use crate::state::{
+    EscrowAccount, PendingSettlement, ReplayShard, SessionKey, SplitEntry, MAX_SPLITS,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct PaymentAuthorization {
@@ -41,6 +44,14 @@ pub struct SubmitAuthorization<'info> {
         bump = session_key.bump,
     )]
     pub session_key: Account<'info, SessionKey>,
+
+    #[account(
+        mut,
+        has_one = session_key,
+        seeds = [b"replay", session_key.key().as_ref(), &replay_shard.shard_index.to_le_bytes()],
+        bump = replay_shard.bump,
+    )]
+    pub replay_shard: Account<'info, ReplayShard>,
 
     #[account(
         token::mint = mint,
@@ -144,7 +155,7 @@ fn verify_ed25519_introspection(
     validate_ed25519_ix_data(&ed25519_ix.data, pubkey_bytes, expected_message)
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn submit_authorization(
     ctx: Context<SubmitAuthorization>,
     mint: Pubkey,
@@ -153,6 +164,7 @@ pub fn submit_authorization(
     authorization_id: u64,
     expires_at_slot: u64,
     splits: Vec<SplitEntry>,
+    replay_proof: ReplayProof,
 ) -> Result<()> {
     let escrow = &ctx.accounts.escrow;
     let session_key = &ctx.accounts.session_key;
@@ -218,6 +230,13 @@ pub fn submit_authorization(
     )?;
 
     require!(
+        ctx.accounts.replay_shard.shard_index == replay_shard_index(authorization_id),
+        FlexError::InvalidReplayShard
+    );
+    let replay_root = ctx.accounts.replay_shard.root;
+    let new_replay_root = consume_replay_proof(replay_root, authorization_id, &replay_proof)?;
+
+    require!(
         !splits.is_empty() && splits.len() <= MAX_SPLITS as usize,
         FlexError::InvalidSplitCount
     );
@@ -266,6 +285,8 @@ pub fn submit_authorization(
         .pending_count
         .checked_add(1)
         .ok_or(error!(FlexError::PendingLimitReached))?;
+
+    ctx.accounts.replay_shard.root = new_replay_root;
 
     emit!(AuthorizationSubmitted {
         escrow: escrow.key(),

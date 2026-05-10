@@ -10,30 +10,24 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
-  getAddressDecoder,
-  getAddressEncoder,
   getBytesDecoder,
   getBytesEncoder,
-  getOptionDecoder,
-  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU64Decoder,
-  getU64Encoder,
+  getU16Decoder,
+  getU16Encoder,
   SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
   SolanaError,
   transformEncoder,
   type AccountMeta,
   type AccountSignerMeta,
   type Address,
-  type Codec,
-  type Decoder,
-  type Encoder,
+  type FixedSizeCodec,
+  type FixedSizeDecoder,
+  type FixedSizeEncoder,
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
-  type Option,
-  type OptionOrNullable,
   type ReadonlyAccount,
   type ReadonlyUint8Array,
   type TransactionSigner,
@@ -46,24 +40,25 @@ import {
   getNonNullResolvedInstructionInput,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
-import { findSessionKeyPda } from "../pdas";
+import { findReplayShardPda } from "../pdas";
 import { FLEX_PROGRAM_ADDRESS } from "../programs";
 
-export const REGISTER_SESSION_KEY_DISCRIMINATOR = new Uint8Array([
-  69, 94, 60, 44, 49, 199, 183, 233,
+export const INITIALIZE_REPLAY_SHARD_DISCRIMINATOR = new Uint8Array([
+  145, 242, 194, 106, 74, 23, 37, 226,
 ]);
 
-export function getRegisterSessionKeyDiscriminatorBytes() {
+export function getInitializeReplayShardDiscriminatorBytes() {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    REGISTER_SESSION_KEY_DISCRIMINATOR,
+    INITIALIZE_REPLAY_SHARD_DISCRIMINATOR,
   );
 }
 
-export type RegisterSessionKeyInstruction<
+export type InitializeReplayShardInstruction<
   TProgram extends string = typeof FLEX_PROGRAM_ADDRESS,
-  TAccountOwner extends string | AccountMeta<string> = string,
+  TAccountPayer extends string | AccountMeta<string> = string,
   TAccountEscrow extends string | AccountMeta<string> = string,
-  TAccountSessionKeyAccount extends string | AccountMeta<string> = string,
+  TAccountSessionKey extends string | AccountMeta<string> = string,
+  TAccountReplayShard extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -71,16 +66,19 @@ export type RegisterSessionKeyInstruction<
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
-      TAccountOwner extends string
-        ? WritableSignerAccount<TAccountOwner> &
-            AccountSignerMeta<TAccountOwner>
-        : TAccountOwner,
+      TAccountPayer extends string
+        ? WritableSignerAccount<TAccountPayer> &
+            AccountSignerMeta<TAccountPayer>
+        : TAccountPayer,
       TAccountEscrow extends string
-        ? WritableAccount<TAccountEscrow>
+        ? ReadonlyAccount<TAccountEscrow>
         : TAccountEscrow,
-      TAccountSessionKeyAccount extends string
-        ? WritableAccount<TAccountSessionKeyAccount>
-        : TAccountSessionKeyAccount,
+      TAccountSessionKey extends string
+        ? ReadonlyAccount<TAccountSessionKey>
+        : TAccountSessionKey,
+      TAccountReplayShard extends string
+        ? WritableAccount<TAccountReplayShard>
+        : TAccountReplayShard,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -88,88 +86,81 @@ export type RegisterSessionKeyInstruction<
     ]
   >;
 
-export type RegisterSessionKeyInstructionData = {
+export type InitializeReplayShardInstructionData = {
   discriminator: ReadonlyUint8Array;
-  sessionKey: Address;
-  expiresAtSlot: Option<bigint>;
-  revocationGracePeriodSlots: bigint;
+  shardIndex: number;
 };
 
-export type RegisterSessionKeyInstructionDataArgs = {
-  sessionKey: Address;
-  expiresAtSlot: OptionOrNullable<number | bigint>;
-  revocationGracePeriodSlots: number | bigint;
-};
+export type InitializeReplayShardInstructionDataArgs = { shardIndex: number };
 
-export function getRegisterSessionKeyInstructionDataEncoder(): Encoder<RegisterSessionKeyInstructionDataArgs> {
+export function getInitializeReplayShardInstructionDataEncoder(): FixedSizeEncoder<InitializeReplayShardInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["sessionKey", getAddressEncoder()],
-      ["expiresAtSlot", getOptionEncoder(getU64Encoder())],
-      ["revocationGracePeriodSlots", getU64Encoder()],
+      ["shardIndex", getU16Encoder()],
     ]),
     (value) => ({
       ...value,
-      discriminator: REGISTER_SESSION_KEY_DISCRIMINATOR,
+      discriminator: INITIALIZE_REPLAY_SHARD_DISCRIMINATOR,
     }),
   );
 }
 
-export function getRegisterSessionKeyInstructionDataDecoder(): Decoder<RegisterSessionKeyInstructionData> {
+export function getInitializeReplayShardInstructionDataDecoder(): FixedSizeDecoder<InitializeReplayShardInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["sessionKey", getAddressDecoder()],
-    ["expiresAtSlot", getOptionDecoder(getU64Decoder())],
-    ["revocationGracePeriodSlots", getU64Decoder()],
+    ["shardIndex", getU16Decoder()],
   ]);
 }
 
-export function getRegisterSessionKeyInstructionDataCodec(): Codec<
-  RegisterSessionKeyInstructionDataArgs,
-  RegisterSessionKeyInstructionData
+export function getInitializeReplayShardInstructionDataCodec(): FixedSizeCodec<
+  InitializeReplayShardInstructionDataArgs,
+  InitializeReplayShardInstructionData
 > {
   return combineCodec(
-    getRegisterSessionKeyInstructionDataEncoder(),
-    getRegisterSessionKeyInstructionDataDecoder(),
+    getInitializeReplayShardInstructionDataEncoder(),
+    getInitializeReplayShardInstructionDataDecoder(),
   );
 }
 
-export type RegisterSessionKeyAsyncInput<
-  TAccountOwner extends string = string,
+export type InitializeReplayShardAsyncInput<
+  TAccountPayer extends string = string,
   TAccountEscrow extends string = string,
-  TAccountSessionKeyAccount extends string = string,
+  TAccountSessionKey extends string = string,
+  TAccountReplayShard extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
-  owner: TransactionSigner<TAccountOwner>;
+  payer: TransactionSigner<TAccountPayer>;
   escrow: Address<TAccountEscrow>;
-  sessionKeyAccount?: Address<TAccountSessionKeyAccount>;
+  sessionKey: Address<TAccountSessionKey>;
+  replayShard?: Address<TAccountReplayShard>;
   systemProgram?: Address<TAccountSystemProgram>;
-  sessionKey: RegisterSessionKeyInstructionDataArgs["sessionKey"];
-  expiresAtSlot: RegisterSessionKeyInstructionDataArgs["expiresAtSlot"];
-  revocationGracePeriodSlots: RegisterSessionKeyInstructionDataArgs["revocationGracePeriodSlots"];
+  shardIndex: InitializeReplayShardInstructionDataArgs["shardIndex"];
 };
 
-export async function getRegisterSessionKeyInstructionAsync<
-  TAccountOwner extends string,
+export async function getInitializeReplayShardInstructionAsync<
+  TAccountPayer extends string,
   TAccountEscrow extends string,
-  TAccountSessionKeyAccount extends string,
+  TAccountSessionKey extends string,
+  TAccountReplayShard extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof FLEX_PROGRAM_ADDRESS,
 >(
-  input: RegisterSessionKeyAsyncInput<
-    TAccountOwner,
+  input: InitializeReplayShardAsyncInput<
+    TAccountPayer,
     TAccountEscrow,
-    TAccountSessionKeyAccount,
+    TAccountSessionKey,
+    TAccountReplayShard,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  RegisterSessionKeyInstruction<
+  InitializeReplayShardInstruction<
     TProgramAddress,
-    TAccountOwner,
+    TAccountPayer,
     TAccountEscrow,
-    TAccountSessionKeyAccount,
+    TAccountSessionKey,
+    TAccountReplayShard,
     TAccountSystemProgram
   >
 > {
@@ -178,12 +169,10 @@ export async function getRegisterSessionKeyInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    owner: { value: input.owner ?? null, isWritable: true },
-    escrow: { value: input.escrow ?? null, isWritable: true },
-    sessionKeyAccount: {
-      value: input.sessionKeyAccount ?? null,
-      isWritable: true,
-    },
+    payer: { value: input.payer ?? null, isWritable: true },
+    escrow: { value: input.escrow ?? null, isWritable: false },
+    sessionKey: { value: input.sessionKey ?? null, isWritable: false },
+    replayShard: { value: input.replayShard ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
@@ -195,15 +184,15 @@ export async function getRegisterSessionKeyInstructionAsync<
   const args = { ...input };
 
   // Resolve default values.
-  if (!accounts.sessionKeyAccount.value) {
-    accounts.sessionKeyAccount.value = await findSessionKeyPda({
-      escrow: getAddressFromResolvedInstructionAccount(
-        "escrow",
-        accounts.escrow.value,
-      ),
-      sessionKey: getNonNullResolvedInstructionInput(
+  if (!accounts.replayShard.value) {
+    accounts.replayShard.value = await findReplayShardPda({
+      sessionKey: getAddressFromResolvedInstructionAccount(
         "sessionKey",
-        args.sessionKey,
+        accounts.sessionKey.value,
+      ),
+      shardIndex: getNonNullResolvedInstructionInput(
+        "shardIndex",
+        args.shardIndex,
       ),
     });
   }
@@ -215,58 +204,63 @@ export async function getRegisterSessionKeyInstructionAsync<
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
-      getAccountMeta("owner", accounts.owner),
+      getAccountMeta("payer", accounts.payer),
       getAccountMeta("escrow", accounts.escrow),
-      getAccountMeta("sessionKeyAccount", accounts.sessionKeyAccount),
+      getAccountMeta("sessionKey", accounts.sessionKey),
+      getAccountMeta("replayShard", accounts.replayShard),
       getAccountMeta("systemProgram", accounts.systemProgram),
     ],
-    data: getRegisterSessionKeyInstructionDataEncoder().encode(
-      args as RegisterSessionKeyInstructionDataArgs,
+    data: getInitializeReplayShardInstructionDataEncoder().encode(
+      args as InitializeReplayShardInstructionDataArgs,
     ),
     programAddress,
-  } as RegisterSessionKeyInstruction<
+  } as InitializeReplayShardInstruction<
     TProgramAddress,
-    TAccountOwner,
+    TAccountPayer,
     TAccountEscrow,
-    TAccountSessionKeyAccount,
+    TAccountSessionKey,
+    TAccountReplayShard,
     TAccountSystemProgram
   >);
 }
 
-export type RegisterSessionKeyInput<
-  TAccountOwner extends string = string,
+export type InitializeReplayShardInput<
+  TAccountPayer extends string = string,
   TAccountEscrow extends string = string,
-  TAccountSessionKeyAccount extends string = string,
+  TAccountSessionKey extends string = string,
+  TAccountReplayShard extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
-  owner: TransactionSigner<TAccountOwner>;
+  payer: TransactionSigner<TAccountPayer>;
   escrow: Address<TAccountEscrow>;
-  sessionKeyAccount: Address<TAccountSessionKeyAccount>;
+  sessionKey: Address<TAccountSessionKey>;
+  replayShard: Address<TAccountReplayShard>;
   systemProgram?: Address<TAccountSystemProgram>;
-  sessionKey: RegisterSessionKeyInstructionDataArgs["sessionKey"];
-  expiresAtSlot: RegisterSessionKeyInstructionDataArgs["expiresAtSlot"];
-  revocationGracePeriodSlots: RegisterSessionKeyInstructionDataArgs["revocationGracePeriodSlots"];
+  shardIndex: InitializeReplayShardInstructionDataArgs["shardIndex"];
 };
 
-export function getRegisterSessionKeyInstruction<
-  TAccountOwner extends string,
+export function getInitializeReplayShardInstruction<
+  TAccountPayer extends string,
   TAccountEscrow extends string,
-  TAccountSessionKeyAccount extends string,
+  TAccountSessionKey extends string,
+  TAccountReplayShard extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof FLEX_PROGRAM_ADDRESS,
 >(
-  input: RegisterSessionKeyInput<
-    TAccountOwner,
+  input: InitializeReplayShardInput<
+    TAccountPayer,
     TAccountEscrow,
-    TAccountSessionKeyAccount,
+    TAccountSessionKey,
+    TAccountReplayShard,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
-): RegisterSessionKeyInstruction<
+): InitializeReplayShardInstruction<
   TProgramAddress,
-  TAccountOwner,
+  TAccountPayer,
   TAccountEscrow,
-  TAccountSessionKeyAccount,
+  TAccountSessionKey,
+  TAccountReplayShard,
   TAccountSystemProgram
 > {
   // Program address.
@@ -274,12 +268,10 @@ export function getRegisterSessionKeyInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    owner: { value: input.owner ?? null, isWritable: true },
-    escrow: { value: input.escrow ?? null, isWritable: true },
-    sessionKeyAccount: {
-      value: input.sessionKeyAccount ?? null,
-      isWritable: true,
-    },
+    payer: { value: input.payer ?? null, isWritable: true },
+    escrow: { value: input.escrow ?? null, isWritable: false },
+    sessionKey: { value: input.sessionKey ?? null, isWritable: false },
+    replayShard: { value: input.replayShard ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
@@ -299,52 +291,55 @@ export function getRegisterSessionKeyInstruction<
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
-      getAccountMeta("owner", accounts.owner),
+      getAccountMeta("payer", accounts.payer),
       getAccountMeta("escrow", accounts.escrow),
-      getAccountMeta("sessionKeyAccount", accounts.sessionKeyAccount),
+      getAccountMeta("sessionKey", accounts.sessionKey),
+      getAccountMeta("replayShard", accounts.replayShard),
       getAccountMeta("systemProgram", accounts.systemProgram),
     ],
-    data: getRegisterSessionKeyInstructionDataEncoder().encode(
-      args as RegisterSessionKeyInstructionDataArgs,
+    data: getInitializeReplayShardInstructionDataEncoder().encode(
+      args as InitializeReplayShardInstructionDataArgs,
     ),
     programAddress,
-  } as RegisterSessionKeyInstruction<
+  } as InitializeReplayShardInstruction<
     TProgramAddress,
-    TAccountOwner,
+    TAccountPayer,
     TAccountEscrow,
-    TAccountSessionKeyAccount,
+    TAccountSessionKey,
+    TAccountReplayShard,
     TAccountSystemProgram
   >);
 }
 
-export type ParsedRegisterSessionKeyInstruction<
+export type ParsedInitializeReplayShardInstruction<
   TProgram extends string = typeof FLEX_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    owner: TAccountMetas[0];
+    payer: TAccountMetas[0];
     escrow: TAccountMetas[1];
-    sessionKeyAccount: TAccountMetas[2];
-    systemProgram: TAccountMetas[3];
+    sessionKey: TAccountMetas[2];
+    replayShard: TAccountMetas[3];
+    systemProgram: TAccountMetas[4];
   };
-  data: RegisterSessionKeyInstructionData;
+  data: InitializeReplayShardInstructionData;
 };
 
-export function parseRegisterSessionKeyInstruction<
+export function parseInitializeReplayShardInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
-): ParsedRegisterSessionKeyInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 4) {
+): ParsedInitializeReplayShardInstruction<TProgram, TAccountMetas> {
+  if (instruction.accounts.length < 5) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 4,
+        expectedAccountMetas: 5,
       },
     );
   }
@@ -357,12 +352,13 @@ export function parseRegisterSessionKeyInstruction<
   return {
     programAddress: instruction.programAddress,
     accounts: {
-      owner: getNextAccount(),
+      payer: getNextAccount(),
       escrow: getNextAccount(),
-      sessionKeyAccount: getNextAccount(),
+      sessionKey: getNextAccount(),
+      replayShard: getNextAccount(),
       systemProgram: getNextAccount(),
     },
-    data: getRegisterSessionKeyInstructionDataDecoder().decode(
+    data: getInitializeReplayShardInstructionDataDecoder().decode(
       instruction.data,
     ),
   };

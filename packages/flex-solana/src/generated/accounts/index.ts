@@ -8,4 +8,5 @@
 
 export * from "./escrowAccount";
 export * from "./pendingSettlement";
+export * from "./replayShard";
 export * from "./sessionKey";

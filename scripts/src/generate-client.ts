@@ -23,8 +23,14 @@ codama.update(
     revokeSessionKey: {
       accounts: { sessionKeyAccount: { defaultValue: null } },
     },
-    submitAuthorization: {
+    initializeReplayShard: {
       accounts: { sessionKey: { defaultValue: null } },
+    },
+    submitAuthorization: {
+      accounts: {
+        sessionKey: { defaultValue: null },
+        replayShard: { defaultValue: null },
+      },
     },
   }),
 );

@@ -10,8 +10,12 @@ pub use events::*;
 pub use state::*;
 
 pub use instructions::compute_split_amounts;
+pub use instructions::consume_replay_proof;
+pub use instructions::replay_default_root;
+pub use instructions::replay_shard_index;
 pub use instructions::validate_ed25519_ix_data;
 pub use instructions::PaymentAuthorization;
+pub use instructions::ReplayProof;
 
 use instructions::*;
 
@@ -59,6 +63,13 @@ pub mod flex {
         )
     }
 
+    pub fn initialize_replay_shard(
+        ctx: Context<InitializeReplayShard>,
+        shard_index: u16,
+    ) -> Result<()> {
+        instructions::initialize_replay_shard(ctx, shard_index)
+    }
+
     pub fn revoke_session_key(ctx: Context<RevokeSessionKey>) -> Result<()> {
         instructions::revoke_session_key(ctx)
     }
@@ -71,6 +82,7 @@ pub mod flex {
         instructions::close_escrow(ctx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_authorization(
         ctx: Context<SubmitAuthorization>,
         mint: Pubkey,
@@ -79,6 +91,7 @@ pub mod flex {
         authorization_id: u64,
         expires_at_slot: u64,
         splits: Vec<state::SplitEntry>,
+        replay_proof: ReplayProof,
     ) -> Result<()> {
         instructions::submit_authorization(
             ctx,
@@ -88,6 +101,7 @@ pub mod flex {
             authorization_id,
             expires_at_slot,
             splits,
+            replay_proof,
         )
     }
 
