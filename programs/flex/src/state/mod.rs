@@ -8,7 +8,7 @@ pub const MAX_PENDING_LIMIT: u16 = u16::MAX;
 pub const MAX_MINTS: u8 = 8;
 
 #[constant]
-pub const MIN_REFUND_TIMEOUT_SLOTS: u64 = 150;
+pub const MIN_REFUND_TIMEOUT_SLOTS: u64 = 10;
 #[constant]
 pub const MIN_DEADMAN_TIMEOUT_SLOTS: u64 = 1_000;
 #[constant]

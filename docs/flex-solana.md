@@ -279,7 +279,7 @@ pub fn create_escrow(
 
 **Constraints**:
 
-- `refund_timeout_slots >= 150` (MIN_REFUND_TIMEOUT_SLOTS)
+- `refund_timeout_slots >= 10` (MIN_REFUND_TIMEOUT_SLOTS)
 - `refund_timeout_slots <= 1,296,000` (MAX_REFUND_TIMEOUT_SLOTS, ~6 days)
 - `deadman_timeout_slots >= 1,000` (MIN_DEADMAN_TIMEOUT_SLOTS, ~6.7 min)
 - `deadman_timeout_slots <= 2,592,000` (MAX_DEADMAN_TIMEOUT_SLOTS, ~12 days)
@@ -839,17 +839,17 @@ This multi-step approach:
 - **Maximum session keys**: Configurable per escrow (enforced at `register_session_key`)
 - **Maximum splits**: 5 per authorization (enforced at `submit_authorization`)
 
-| Resource            | Limit                      | Rationale                                                                               |
-| ------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
-| `pending_count`     | Configurable (1-65,535)    | Per-escrow `max_pending` field; higher values enable higher throughput                  |
-| `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction                             |
-| `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                                                 |
-| `MAX_SPLITS`        | 5                          | Covers practical use cases (platform + merchant + referral + royalties); batch-friendly |
-| Refund timeout min  | 150 slots (~60s)           | Prevents degenerate zero-timeout escrows that undermine safety guarantees               |
-| Deadman timeout min | 1,000 slots (~6.7 min)     | Prevents race between refund window and deadman switch                                  |
-| Deadman/refund      | deadman >= 2x refund       | Ensures facilitator has time to finalize before deadman switch activates                |
-| Refund timeout max  | 1,296,000 slots (~6 days)  | Half of deadman max so the 2x constraint is always satisfiable                          |
-| Deadman timeout max | 2,592,000 slots (~12 days) | Prevents arithmetic overflow and unreasonable lock durations                            |
+| Resource            | Limit                      | Rationale                                                                                                            |
+| ------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `pending_count`     | Configurable (1-65,535)    | Per-escrow `max_pending` field; higher values enable higher throughput                                               |
+| `mint_count`        | 8                          | 8 mint pairs (16 accounts) fits in single close transaction                                                          |
+| `session_key_count` | Configurable (0=unlimited) | Prevents state bloat; recommended: 8-16                                                                              |
+| `MAX_SPLITS`        | 5                          | Covers practical use cases (platform + merchant + referral + royalties); batch-friendly                              |
+| Refund timeout min  | 10 slots (~4s)             | Safe minimum that ensures the facilitator can land the pending settlement on chain before the authorization expires. |
+| Deadman timeout min | 1,000 slots (~6.7 min)     | Prevents race between refund window and deadman switch                                                               |
+| Deadman/refund      | deadman >= 2x refund       | Ensures facilitator has time to finalize before deadman switch activates                                             |
+| Refund timeout max  | 1,296,000 slots (~6 days)  | Half of deadman max so the 2x constraint is always satisfiable                                                       |
+| Deadman timeout max | 2,592,000 slots (~12 days) | Prevents arithmetic overflow and unreasonable lock durations                                                         |
 
 **Implication**: When `pending_count` reaches `max_pending`, `submit_authorization` returns `PendingLimitReached` error. Facilitators must finalize existing settlements before submitting new ones. This creates back-pressure that prevents unbounded accumulation.
 
@@ -1377,7 +1377,7 @@ Estimated compute units per instruction (excluding transaction overhead):
 | 6028 | SettleAmountZero                | Settle amount must be greater than zero                                             |
 | 6029 | ExpiryTooFar                    | Authorization expiry exceeds refund timeout                                         |
 | 6030 | RefundAmountZero                | Refund amount must be greater than zero                                             |
-| 6031 | RefundTimeoutTooShort           | Refund timeout below minimum of 150 slots                                           |
+| 6031 | RefundTimeoutTooShort           | Refund timeout below minimum of 10 slots                                            |
 | 6032 | DeadmanTimeoutTooShort          | Deadman timeout below minimum of 1000 slots                                         |
 | 6033 | RefundTimeoutTooLong            | Refund timeout exceeds maximum of 1296000 slots                                     |
 | 6034 | DeadmanTimeoutTooLong           | Deadman timeout exceeds maximum of 2592000 slots                                    |

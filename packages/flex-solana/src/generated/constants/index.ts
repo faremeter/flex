@@ -9,4 +9,4 @@ export const MAX_PENDING_LIMIT = 65535;
 export const MAX_REFUND_TIMEOUT_SLOTS = 1296000;
 export const MAX_SPLITS = 5;
 export const MIN_DEADMAN_TIMEOUT_SLOTS = 1000;
-export const MIN_REFUND_TIMEOUT_SLOTS = 150;
+export const MIN_REFUND_TIMEOUT_SLOTS = 10;
