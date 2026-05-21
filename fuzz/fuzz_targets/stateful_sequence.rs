@@ -236,7 +236,7 @@ mod harness {
     }
 
     fn setup(scenario: &FuzzScenario) -> Option<TestEnv> {
-        let refund_timeout = 150u64.max(scenario.refund_timeout_slots as u64).min(1_296_000);
+        let refund_timeout = 10u64.max(scenario.refund_timeout_slots as u64).min(1_296_000);
         let deadman_timeout =
             1000u64.max(scenario.deadman_timeout_slots as u64).min(2_592_000);
         let deadman_timeout = deadman_timeout.max(refund_timeout * 2);

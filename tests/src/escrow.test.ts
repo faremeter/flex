@@ -15,8 +15,8 @@ import {
   FLEX_ERROR__PENDING_SETTLEMENTS_EXIST,
   FLEX_ERROR__DUPLICATE_ACCOUNTS,
   FLEX_ERROR__INVALID_TOKEN_ACCOUNT_PAIR,
-  FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
   FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT,
+  FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
   FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG,
   FLEX_ERROR__DEADMAN_TIMEOUT_TOO_LONG,
   FLEX_ERROR__DEADMAN_TOO_CLOSE_TO_REFUND,
@@ -102,11 +102,37 @@ describe("create_escrow", () => {
     expect(Number(e2.index)).toBe(11);
   });
 
-  it("fails with refund timeout below minimum", async () => {
+  it("accepts refund timeout above the 10-slot minimum", async () => {
+    const escrowPDA = await createEscrowHelper(
+      rpc,
+      ownerSigner,
+      facilitatorSigner,
+      20,
+      {
+        refundTimeoutSlots: 100,
+        deadmanTimeoutSlots: 1000,
+      },
+    );
+    const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
+    expect(Number(escrow.refundTimeoutSlots)).toBe(100);
+  });
+
+  it("fails with refund timeout below minimum of 10", async () => {
     await expectToFail(
       () =>
-        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 20, {
-          refundTimeoutSlots: 100,
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 28, {
+          refundTimeoutSlots: 5,
+          deadmanTimeoutSlots: 1000,
+        }),
+      FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
+    );
+  });
+
+  it("fails with refund timeout just below minimum", async () => {
+    await expectToFail(
+      () =>
+        createEscrowHelper(rpc, ownerSigner, facilitatorSigner, 29, {
+          refundTimeoutSlots: 9,
           deadmanTimeoutSlots: 1000,
         }),
       FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT,
@@ -164,13 +190,13 @@ describe("create_escrow", () => {
       facilitatorSigner,
       24,
       {
-        refundTimeoutSlots: 150,
+        refundTimeoutSlots: 10,
         deadmanTimeoutSlots: 1000,
       },
     );
 
     const escrow = defined(await fetchEscrowAccount(rpc, escrowPDA));
-    expect(Number(escrow.refundTimeoutSlots)).toBe(150);
+    expect(Number(escrow.refundTimeoutSlots)).toBe(10);
     expect(Number(escrow.deadmanTimeoutSlots)).toBe(1000);
   });
 

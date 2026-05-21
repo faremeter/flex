@@ -95,7 +95,7 @@ pub enum FlexError {
     #[msg("Refund amount must be greater than zero")]
     RefundAmountZero,
 
-    #[msg("Refund timeout below minimum of 150 slots")]
+    #[msg("Refund timeout below minimum of 10 slots")]
     RefundTimeoutTooShort,
 
     #[msg("Deadman timeout below minimum of 1000 slots")]

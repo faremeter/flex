@@ -76,7 +76,7 @@ export const FLEX_ERROR__SETTLE_AMOUNT_ZERO = 0x178c; // 6028
 export const FLEX_ERROR__EXPIRY_TOO_FAR = 0x178d; // 6029
 /** RefundAmountZero: Refund amount must be greater than zero */
 export const FLEX_ERROR__REFUND_AMOUNT_ZERO = 0x178e; // 6030
-/** RefundTimeoutTooShort: Refund timeout below minimum of 150 slots */
+/** RefundTimeoutTooShort: Refund timeout below minimum of 10 slots */
 export const FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT = 0x178f; // 6031
 /** DeadmanTimeoutTooShort: Deadman timeout below minimum of 1000 slots */
 export const FLEX_ERROR__DEADMAN_TIMEOUT_TOO_SHORT = 0x1790; // 6032
@@ -186,7 +186,7 @@ if (process.env.NODE_ENV !== "production") {
     [FLEX_ERROR__REFUND_AMOUNT_ZERO]: `Refund amount must be greater than zero`,
     [FLEX_ERROR__REFUND_EXCEEDS_AMOUNT]: `Cannot refund more than pending amount`,
     [FLEX_ERROR__REFUND_TIMEOUT_TOO_LONG]: `Refund timeout exceeds maximum of 1296000 slots`,
-    [FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT]: `Refund timeout below minimum of 150 slots`,
+    [FLEX_ERROR__REFUND_TIMEOUT_TOO_SHORT]: `Refund timeout below minimum of 10 slots`,
     [FLEX_ERROR__REFUND_WINDOW_EXPIRED]: `Cannot refund after refund timeout`,
     [FLEX_ERROR__REFUND_WINDOW_NOT_EXPIRED]: `Cannot finalize before refund timeout`,
     [FLEX_ERROR__SESSION_KEY_ALREADY_EXPIRED]: `Session key expires_at_slot is already in the past`,
