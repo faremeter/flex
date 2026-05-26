@@ -25,7 +25,7 @@ export async function findPendingPda(
   config: { programAddress?: Address | undefined } = {},
 ): Promise<ProgramDerivedAddress> {
   const {
-    programAddress = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS" as Address<"EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS">,
+    programAddress = "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97" as Address<"GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97">,
   } = config;
   return await getProgramDerivedAddress({
     programAddress,
