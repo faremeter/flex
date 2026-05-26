@@ -11,6 +11,7 @@
     "@faremeter/info": "^0.22.0",
     "@faremeter/logs": "^0.22.0",
     "@solana/kit": "^6.7.0",
+    "@sqds/multisig": "^2.1.4",
     "dotenv": "^16.4.7"
   },
   "devDependencies": {
