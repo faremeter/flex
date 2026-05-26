@@ -22,3 +22,6 @@ docs/api/
 
 # Temporary files
 tmp/
+
+# Dispatch orchestration artifacts
+dispatch/
