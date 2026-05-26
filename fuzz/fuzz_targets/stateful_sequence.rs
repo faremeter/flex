@@ -24,7 +24,7 @@ mod harness {
     const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
     fn program_id() -> Pubkey {
-        "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS"
+        "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97"
             .parse()
             .unwrap()
     }

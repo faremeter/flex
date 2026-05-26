@@ -15,7 +15,11 @@ pub use instructions::PaymentAuthorization;
 
 use instructions::*;
 
-declare_id!("EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS");
+declare_id!("GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97");
+
+#[used]
+#[no_mangle]
+pub static FLEX_VERSION: &str = concat!("FLEX_VERSION=", env!("CARGO_PKG_VERSION"), "\0");
 
 #[program]
 pub mod flex {

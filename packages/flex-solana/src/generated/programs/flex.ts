@@ -97,7 +97,7 @@ import {
 } from "../pdas";
 
 export const FLEX_PROGRAM_ADDRESS =
-  "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS" as Address<"EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS">;
+  "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97" as Address<"GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97">;
 
 export enum FlexAccount {
   EscrowAccount,
@@ -294,7 +294,7 @@ export function identifyFlexInstruction(
 }
 
 export type ParsedFlexInstruction<
-  TProgram extends string = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS",
+  TProgram extends string = "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97",
 > =
   | ({
       instructionType: FlexInstruction.CloseEscrow;

@@ -6,10 +6,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-flex = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS"
+flex = "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97"
 
 [programs.devnet]
-flex = "EcfUgNgDXmBx4Xns2qZLE54xpM7V1N6PL8MdDW1syujS"
+flex = "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97"
+
+[programs.mainnet]
+flex = "GtyEE2qh5wP3Vu2xzft5gDZUpiv4mNpTYk8XaQdqZK97"
 
 [registry]
 url = "https://api.apr.dev"
