@@ -20,7 +20,7 @@ format-ts:
 	bun prettier --write .
 
 test-unit:
-	bun test packages/
+	bun test packages/ scripts/
 
 test-integration: build-anchor
 	bun test --timeout 30000 tests/
