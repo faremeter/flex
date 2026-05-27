@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Thin wrapper. All argument parsing, env validation, account-state
+# checks, the close-buffer ix composition, and the proposal-creation
+# sendAndConfirm live in scripts/src/close.ts's close-buffer
+# subcommand. The proposal still has to be approved and executed via
+# program-squads-approve and program-squads-execute. Pass --help for
+# usage.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+export FLEX_INVOCATION_NAME="$(basename "$0")"
+exec bun "$REPO_ROOT/scripts/src/close.ts" close-buffer "$@"

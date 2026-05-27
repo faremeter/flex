@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Thin wrapper. All orchestration, argument parsing, the
+# --i-want-to-close-this-program confirmation gate, the
+# vault-is-authority assertion, the close-proposal composition + atomic
+# submit, the operator confirmation prompt, and the post-execution
+# program-data poll live in scripts/src/close.ts. Pass --help
+# for usage.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+export FLEX_INVOCATION_NAME="$(basename "$0")"
+exec bun "$REPO_ROOT/scripts/src/close.ts" "$@"
