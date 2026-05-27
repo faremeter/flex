@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "@faremeter/flex-solana": "workspace:*",
-    "@faremeter/info": "^0.17.1",
-    "@faremeter/logs": "^0.17.1",
+    "@faremeter/info": "^0.22.0",
+    "@faremeter/logs": "^0.22.0",
     "@solana/kit": "^6.7.0",
     "dotenv": "^16.4.7"
   },
