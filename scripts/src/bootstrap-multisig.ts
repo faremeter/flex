@@ -1,0 +1,103 @@
+import "dotenv/config";
+import { configureApp, getLogger } from "@faremeter/logs";
+import { sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
+import { type Cluster } from "./cluster.config";
+import { squadsConfig } from "./squads.config";
+import { createMultisig, getVaultPda } from "./squads";
+import { connectionFor, loadWeb3Keypair } from "./solana";
+import { invocationName } from "./cli-helpers";
+
+const PROGRAM = invocationName("scripts/src/bootstrap-multisig.ts");
+
+const USAGE = `usage: ${PROGRAM} <cluster>
+
+Provision a Squads v4 multisig for the named cluster using the
+configuration in scripts/src/squads.config.ts.
+
+Arguments:
+  cluster    one of: devnet, mainnet
+
+Environment:
+  CREATOR_KEYPAIR_PATH   path to the keypair that pays for and creates
+                         the multisig (required)
+  MAINNET_RPC_URL        RPC endpoint to use when cluster is mainnet
+
+The script prints the new multisig address and vault PDA. Record both
+values in operational docs and replace the placeholder "multisig" entry
+for the target cluster in scripts/src/squads.config.ts.
+`;
+
+await configureApp();
+const logger = await getLogger(["flex", "bootstrap-multisig"]);
+
+const [, , clusterArg] = process.argv;
+
+if (clusterArg === "-h" || clusterArg === "--help") {
+  process.stdout.write(USAGE);
+  process.exit(0);
+}
+
+if (clusterArg !== "devnet" && clusterArg !== "mainnet") {
+  process.stderr.write(USAGE);
+  logger.error(
+    `${PROGRAM}: cluster argument must be "devnet" or "mainnet"; got ${String(clusterArg)}`,
+  );
+  process.exit(2);
+}
+
+const cluster: Cluster = clusterArg;
+const clusterConfig = squadsConfig[cluster];
+
+// timeLock and other per-cluster invariants are validated by
+// assertValidConfig() at squads.config.ts module-load time; if the
+// config were invalid the import on line 5 would have thrown before
+// reaching here, so no duplicate guard is needed.
+
+const CREATOR_KEYPAIR_PATH = process.env.CREATOR_KEYPAIR_PATH;
+if (!CREATOR_KEYPAIR_PATH) {
+  logger.error(
+    "CREATOR_KEYPAIR_PATH is required (the keypair that pays for and creates the multisig)",
+  );
+  process.exit(1);
+}
+
+const connection = connectionFor(cluster);
+const creator = loadWeb3Keypair(CREATOR_KEYPAIR_PATH);
+
+logger.info(`Cluster:    ${cluster}`);
+logger.info(`RPC URL:    ${connection.rpcEndpoint}`);
+logger.info(`Creator:    ${creator.publicKey.toBase58()}`);
+logger.info(`Members:    ${clusterConfig.members.length}`);
+logger.info(`Threshold:  ${clusterConfig.threshold}`);
+logger.info(`Vault idx:  ${clusterConfig.vaultIndex}`);
+logger.info(`Time lock:  ${clusterConfig.timeLock} seconds`);
+
+const result = await createMultisig({
+  connection,
+  creator: creator.publicKey,
+  members: clusterConfig.members,
+  threshold: clusterConfig.threshold,
+  timeLock: clusterConfig.timeLock,
+  vaultIndex: clusterConfig.vaultIndex,
+});
+
+logger.info(`Sending multisig_create transaction...`);
+const tx = new Transaction().add(result.instruction);
+await sendAndConfirmTransaction(connection, tx, [creator, result.createKey]);
+
+const vault = getVaultPda(result.multisig, clusterConfig.vaultIndex);
+if (!vault.equals(result.vault)) {
+  throw new Error(
+    `bootstrap-multisig: vault PDA mismatch: createMultisig returned ${result.vault.toBase58()}, getVaultPda returned ${vault.toBase58()}`,
+  );
+}
+
+logger.info(`Multisig created successfully`);
+
+process.stdout.write(`MULTISIG_ADDRESS=${result.multisig.toBase58()}\n`);
+process.stdout.write(`VAULT_PDA=${vault.toBase58()}\n`);
+
+logger.info(
+  `Record both values in operational docs and replace the placeholder ` +
+    `"multisig" entry for ${cluster} in scripts/src/squads.config.ts.`,
+);

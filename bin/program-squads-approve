@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Thin wrapper. All argument parsing, env validation, and the
+# proposalApprove + sendAndConfirm calls live in
+# scripts/src/squads-cli.ts. Pass --help for usage.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+export FLEX_INVOCATION_NAME="$(basename "$0")"
+exec bun "$REPO_ROOT/scripts/src/squads-cli.ts" approve "$@"

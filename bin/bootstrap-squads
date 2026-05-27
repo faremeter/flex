@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Thin wrapper. All orchestration, argument parsing, and validation
+# lives in scripts/src/bootstrap-multisig.ts.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+export FLEX_INVOCATION_NAME="$(basename "$0")"
+exec bun "$REPO_ROOT/scripts/src/bootstrap-multisig.ts" "$@"

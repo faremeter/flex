@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Thin wrapper. All orchestration, argument parsing, idempotency checks
+# (skipping proposal composition when the otter_verify PDA already
+# exists on-chain), the Squads proposal compose+submit cycle, the
+# operator confirmation prompt, the on-chain poll, and the OtterSec job
+# submission live in scripts/src/verify.ts. Pass --help for usage.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+export FLEX_INVOCATION_NAME="$(basename "$0")"
+exec bun "$REPO_ROOT/scripts/src/verify.ts" "$@"
