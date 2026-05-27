@@ -25,7 +25,7 @@
     "tsc": "tsc --build"
   },
   "dependencies": {
-    "@faremeter/logs": "^0.17.1",
+    "@faremeter/logs": "^0.22.0",
     "@solana/kit": "^6.7.0",
     "@solana/program-client-core": "^6.7.0",
     "arktype": "^2.2.0"
