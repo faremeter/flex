@@ -116,11 +116,11 @@ make clean
   stays executable indefinitely unless cancelled. Multisig config changes
   invalidate un-approved proposals only; see "Vault-stale quirk" below.
 - **Duplicate-proposal guard.** The guard in `bin/program-deploy`,
-  `bin/program-rollback`, `bin/program-verify`, and `bin/program-close`
-  aborts hard if any open vault proposal already targets the program
-  upgrade authority. There is no override flag. Operators resolve the
-  existing proposal (execute or cancel) via the Squads UI before
-  retrying.
+  `bin/program-rollback`, `bin/program-verify`, `bin/program-close`,
+  and `bin/program-initial-deploy` aborts hard if any open vault
+  proposal already targets the program upgrade authority. There is no
+  override flag. Operators resolve the existing proposal (execute or
+  cancel) via the Squads UI before retrying.
 - **Vault-stale quirk.** Changing multisig membership or threshold invalidates
   only un-approved proposals. An already-approved vault proposal remains
   executable across config changes — `vault_transaction_execute` has no
@@ -193,10 +193,11 @@ once a threshold of members has voted Cancel, the proposal
 transitions to the Cancelled state and is no longer executable.
 
 The duplicate-proposal guard in `bin/program-deploy`,
-`bin/program-rollback`, `bin/program-verify`, and `bin/program-close`
-treats Draft / Active / Approved proposals targeting the program as
-blocking — there is no override flag. Cancelling a stuck proposal is
-how the operator clears that guard. Use it when:
+`bin/program-rollback`, `bin/program-verify`, `bin/program-close`,
+and `bin/program-initial-deploy` treats Draft / Active / Approved
+proposals targeting the program as blocking — there is no override
+flag. Cancelling a stuck proposal is how the operator clears that
+guard. Use it when:
 
 - A proposal was approved before a multisig config change
   (membership rotation, threshold change) staled it, and Squads v4's
@@ -939,8 +940,9 @@ The two operational scenarios are:
 
 ### No duplicate-proposal guard
 
-Unlike `bin/program-deploy`, `bin/program-rollback`, `bin/program-close`,
-and `bin/program-verify` — all of which run
+Unlike `bin/program-deploy`, `bin/program-rollback`,
+`bin/program-close`, `bin/program-verify`, and
+`bin/program-initial-deploy` — all of which run
 `guardNoOpenProposalsForProgram` to refuse composing a new proposal
 while an open proposal targets the program — `bin/program-vault-drain`
 has no equivalent guard. The
