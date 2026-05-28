@@ -209,6 +209,53 @@ function classifyOpenStatus(
   }
 }
 
+export type ProposalSnapshot = {
+  index: bigint;
+  proposalPda: PublicKey;
+  status: OpenProposalStatus;
+  targetsProgram: boolean;
+};
+
+// Filter a precomputed proposal-snapshot list down to those that are
+// still executable and target the program. Encodes Squads v4's
+// executability semantics:
+//
+//   - i > staleTransactionIndex: Draft/Active/Approved are all live.
+//     Draft can be activated, Active can be voted into Approved, and
+//     Approved can be executed.
+//
+//   - i <= staleTransactionIndex: only Approved survives.
+//     `proposal_activate` and `proposal_vote` both reject stale
+//     proposals with StaleProposal, so stale Draft cannot reach
+//     Active and stale Active cannot reach Approved. But
+//     `vault_transaction_execute` has no staleness check, and an
+//     Approved-then-staled proposal stays Approved indefinitely
+//     (only `proposal_cancel` clears it). That stale-Approved
+//     window is the duplicate-proposal hole this filter closes.
+//
+// Source: programs/squads_multisig_program/src/instructions/{proposal_activate,proposal_vote,vault_transaction_execute}.rs
+// in https://github.com/Squads-Protocol/v4.
+export function selectBlockingProposals(
+  snapshots: readonly ProposalSnapshot[],
+  staleTransactionIndex: bigint,
+): OpenProposal[] {
+  const blocking: OpenProposal[] = [];
+  for (const s of snapshots) {
+    if (!s.targetsProgram) {
+      continue;
+    }
+    if (s.index <= staleTransactionIndex && s.status !== "Approved") {
+      continue;
+    }
+    blocking.push({
+      proposalPda: s.proposalPda,
+      transactionIndex: s.index,
+      status: s.status,
+    });
+  }
+  return blocking;
+}
+
 export async function listOpenProposals(args: {
   connection: Connection;
   multisig: PublicKey;
@@ -225,9 +272,13 @@ export async function listOpenProposals(args: {
 
   const targetProgramIdBase58 = args.programId.toBase58();
 
-  const results: OpenProposal[] = [];
+  const snapshots: ProposalSnapshot[] = [];
 
-  for (let i = staleTransactionIndex + 1n; i <= transactionIndex; i++) {
+  // Walk the full lifetime range. Stale-Approved proposals targeting
+  // the program are still executable in Squads v4 and must be visible
+  // to the duplicate-proposal guard; starting the scan above
+  // `staleTransactionIndex` would silently miss them.
+  for (let i = 1n; i <= transactionIndex; i++) {
     const [proposalPda] = getProposalPda({
       multisigPda: args.multisig,
       transactionIndex: i,
@@ -267,18 +318,16 @@ export async function listOpenProposals(args: {
         (idx) => accountKeysBase58[idx] === targetProgramIdBase58,
       ),
     );
-    if (!targetsProgram) {
-      continue;
-    }
 
-    results.push({
+    snapshots.push({
+      index: i,
       proposalPda,
-      transactionIndex: i,
       status: openStatus,
+      targetsProgram,
     });
   }
 
-  return results;
+  return selectBlockingProposals(snapshots, staleTransactionIndex);
 }
 
 // Throws if any open vault proposal on `multisig` targets `programId`.

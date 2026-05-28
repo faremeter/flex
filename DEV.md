@@ -113,8 +113,8 @@ make clean
 ## Squads proposal lifecycle and time lock
 
 - Squads v4 does NOT expire un-executed proposals. A fully approved proposal
-  stays executable indefinitely unless cancelled or invalidated by a multisig
-  config change.
+  stays executable indefinitely unless cancelled. Multisig config changes
+  invalidate un-approved proposals only; see "Vault-stale quirk" below.
 - **Duplicate-proposal guard.** The guard in `bin/program-deploy`,
   `bin/program-rollback`, `bin/program-verify`, and `bin/program-close`
   aborts hard if any open vault proposal already targets the program
@@ -123,8 +123,12 @@ make clean
   retrying.
 - **Vault-stale quirk.** Changing multisig membership or threshold invalidates
   only un-approved proposals. An already-approved vault proposal remains
-  executable across config changes. Operators MUST `proposal_cancel` before
-  retiring members with in-flight upgrade approvals.
+  executable across config changes — `vault_transaction_execute` has no
+  staleness check. The duplicate-proposal guard catches this as a backstop:
+  it walks the full lifetime range and flags any stale-Approved proposal
+  targeting the program. Operator hygiene is still to `proposal_cancel`
+  before retiring members with in-flight upgrade approvals — surfacing the
+  issue at decommission is cheaper than surfacing it at the next release.
 - **Time lock semantics.** Per-multisig, expressed in seconds; gates the
   Approved → Executable transition. Mainnet default: 86400 (24h). Devnet
   default: 0. Maximum: 7,776,000 (90 days).
@@ -194,10 +198,11 @@ treats Draft / Active / Approved proposals targeting the program as
 blocking — there is no override flag. Cancelling a stuck proposal is
 how the operator clears that guard. Use it when:
 
-- A proposal was approved but cannot execute because a multisig
-  config change (membership rotation, threshold change) intervened
-  and Squads v4's "vault-stale quirk" keeps the proposal Approved
-  but unrunnable.
+- A proposal was approved before a multisig config change
+  (membership rotation, threshold change) staled it, and Squads v4's
+  "vault-stale quirk" keeps it executable — leaving the
+  duplicate-proposal guard to flag it at the next release attempt
+  against this program. Cancel clears that flag.
 - The team decided to abandon a proposed upgrade (e.g. composed
   against a stale `.so` or with the wrong tag) before a quorum
   signed off, but at least one approval has already been recorded.
