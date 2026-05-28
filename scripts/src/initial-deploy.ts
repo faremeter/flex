@@ -5,7 +5,11 @@ import fs from "fs";
 import path from "path";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
-import { createUpgradeProposal, getVaultPda } from "./squads";
+import {
+  createUpgradeProposal,
+  getVaultPda,
+  guardNoOpenProposalsForProgram,
+} from "./squads";
 import { buildUpgradeIx } from "./bpf-loader-ix";
 import {
   readUpgradeAuthority,
@@ -206,6 +210,18 @@ async function runLivenessTest(
   const programId = getProgramId();
   const { multisig, vaultIndex } = squadsConfig[cluster];
   const vaultPDA = getVaultPda(multisig, vaultIndex);
+
+  // Fail before the write-buffer spend if the multisig already has an
+  // open vault proposal targeting this program. Same guard the other
+  // program-* operator commands run; here it also protects against a
+  // re-run of initial-deploy after a partial earlier attempt left a
+  // stale-Approved upgrade proposal behind.
+  await guardNoOpenProposalsForProgram({
+    connection,
+    multisig,
+    programId,
+    errorPreamble: `duplicate-proposal guard (${PROGRAM}): resolve via the Squads UI before re-running`,
+  });
 
   logger.info(`phase 3: writing upgrade buffer for ${programId.toBase58()}`);
   const writeBufferOutput = runSolana([
