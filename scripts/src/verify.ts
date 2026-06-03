@@ -454,8 +454,8 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("solana-verify")) {
     throw new Error("solana-verify is required (cargo install solana-verify)");
   }
-  const operatorKeypair = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorKeypair;
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const payer = opts.payer ?? operatorPayerURL;
 
   // ---- resolve config ----
   const connection = connectionFor(cluster, opts.rpcOverride);

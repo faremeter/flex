@@ -4,7 +4,7 @@ import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import { createMultisig, getVaultPda } from "./squads";
 import { connectionFor, sendWeb3Tx } from "./solana";
-import { parseSignerURL } from "./signer";
+import { parseSignerURL, requireSignerURL } from "./signer";
 import { invocationName } from "./cli-helpers";
 
 const PROGRAM = invocationName("scripts/src/bootstrap-multisig.ts");
@@ -53,16 +53,10 @@ const clusterConfig = squadsConfig[cluster];
 // config were invalid the import on line 5 would have thrown before
 // reaching here, so no duplicate guard is needed.
 
-const CREATOR_KEYPAIR_PATH = process.env.CREATOR_KEYPAIR_PATH;
-if (!CREATOR_KEYPAIR_PATH) {
-  logger.error(
-    "CREATOR_KEYPAIR_PATH is required (the keypair URL or path that pays for and creates the multisig; accepts file paths and usb://ledger?key=N)",
-  );
-  process.exit(1);
-}
+const creatorURL = requireSignerURL("CREATOR_KEYPAIR_PATH");
 
 const connection = connectionFor(cluster);
-const creator = await parseSignerURL(CREATOR_KEYPAIR_PATH);
+const creator = await parseSignerURL(creatorURL);
 
 logger.info(`Cluster:    ${cluster}`);
 logger.info(`RPC URL:    ${connection.rpcEndpoint}`);

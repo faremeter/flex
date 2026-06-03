@@ -199,7 +199,7 @@ async function runLivenessTest(
   cluster: Cluster,
   soPath: string,
 ): Promise<LivenessTestResult> {
-  const operatorURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
   const resolvedSoPath = path.resolve(soPath);
   if (!fs.existsSync(resolvedSoPath)) {
     throw new Error(`shared object not found: ${resolvedSoPath}`);
@@ -230,7 +230,7 @@ async function runLivenessTest(
     "--url",
     rpcURL,
     "--keypair",
-    operatorURL,
+    operatorPayerURL,
     resolvedSoPath,
   ]);
   const bufferAddress = extractBufferAddress(writeBufferOutput);
@@ -245,7 +245,7 @@ async function runLivenessTest(
     "--url",
     rpcURL,
     "--keypair",
-    operatorURL,
+    operatorPayerURL,
     bufferAddress.toBase58(),
     "--new-buffer-authority",
     vaultPDA.toBase58(),
@@ -257,7 +257,7 @@ async function runLivenessTest(
     authority: vaultPDA,
   });
 
-  const operator = await parseSignerURL(operatorURL);
+  const operator = await parseSignerURL(operatorPayerURL);
   try {
     const proposal = await createUpgradeProposal({
       connection,
@@ -331,7 +331,7 @@ async function pollDeployedShaMatches(
 // ---------- the orchestrator (the bin script's entire payload) ----------
 
 function preflight(cluster: Cluster): {
-  operatorKeypair: string;
+  operatorPayerURL: string;
   rpcURL: string;
   programId: PublicKey;
   vaultPDA: PublicKey;
@@ -347,7 +347,7 @@ function preflight(cluster: Cluster): {
       `program keypair not found: ${KEYPAIR_PATH}; if you relocated the keypair out-of-band after the original keygen, copy it back to that path before running initial-deploy`,
     );
   }
-  const operatorKeypair = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
 
   const connection = connectionFor(cluster);
   const rpcURL = connection.rpcEndpoint;
@@ -361,13 +361,13 @@ function preflight(cluster: Cluster): {
   logger.info(`multisig:   ${multisig.toBase58()}`);
   logger.info(`vault pda:  ${vaultPDA.toBase58()}`);
 
-  return { operatorKeypair, rpcURL, programId, vaultPDA, multisig };
+  return { operatorPayerURL, rpcURL, programId, vaultPDA, multisig };
 }
 
 async function phase1Deploy(
   cluster: Cluster,
   rpcURL: string,
-  operatorKeypair: string,
+  operatorPayerURL: string,
   programId: PublicKey,
 ): Promise<void> {
   logger.info(
@@ -396,7 +396,7 @@ async function phase1Deploy(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorPayerURL,
     "--program-id",
     KEYPAIR_PATH,
     "--max-len",
@@ -411,7 +411,7 @@ async function phase1Deploy(
 async function phase2Handoff(
   cluster: Cluster,
   rpcURL: string,
-  operatorKeypair: string,
+  operatorPayerURL: string,
   programId: PublicKey,
   vaultPDA: PublicKey,
 ): Promise<void> {
@@ -440,7 +440,7 @@ async function phase2Handoff(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorPayerURL,
     "--new-upgrade-authority",
     vaultPDA.toBase58(),
     "--skip-new-upgrade-authority-signer-check",
@@ -570,7 +570,7 @@ async function cmdRun(args: string[]): Promise<void> {
   await phase1Deploy(
     cluster,
     config.rpcURL,
-    config.operatorKeypair,
+    config.operatorPayerURL,
     config.programId,
   );
   stateSet(stateFile, "phase1_complete", true);
@@ -578,7 +578,7 @@ async function cmdRun(args: string[]): Promise<void> {
   await phase2Handoff(
     cluster,
     config.rpcURL,
-    config.operatorKeypair,
+    config.operatorPayerURL,
     config.programId,
     config.vaultPDA,
   );

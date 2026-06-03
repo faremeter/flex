@@ -23,7 +23,11 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { clusterRpcUrl, type Cluster } from "./cluster.config";
-import { KeypairSigner, printBlindSignContext, type Signer } from "./signer";
+import {
+  printBlindSignContext,
+  type BlindSignContext,
+  type Signer,
+} from "./signer";
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
@@ -92,17 +96,6 @@ export function connectionFor(cluster: Cluster, override?: string): Connection {
 }
 
 /**
- * Load a Solana keypair from a JSON secret-key file as a web3.js `Keypair`.
- * The kit-typed `loadKeypair` below remains available for non-Squads code
- * (e.g., the devnet escrow setup script that predates this branch).
- */
-export function loadWeb3Keypair(filePath: string): Keypair {
-  const resolved = path.resolve(filePath);
-  const raw = JSON.parse(fs.readFileSync(resolved, "utf-8")) as number[];
-  return Keypair.fromSecretKey(Uint8Array.from(raw));
-}
-
-/**
  * Send a legacy web3.js transaction signed by `feePayer`, awaiting
  * confirmation. Used by code that builds instructions via `@sqds/multisig`
  * (which is web3.js-native).
@@ -119,14 +112,10 @@ export function loadWeb3Keypair(filePath: string): Keypair {
  * index, etc.) so the operator can cross-check what the device
  * displays. The block is suppressed for `KeypairSigner` payers.
  */
-export interface BlindSignSendOptions {
-  label: string;
-  multisig?: import("@solana/web3.js").PublicKey;
-  vaultPDA?: import("@solana/web3.js").PublicKey;
-  proposalPDA?: import("@solana/web3.js").PublicKey;
-  transactionPDA?: import("@solana/web3.js").PublicKey;
-  transactionIndex?: bigint;
-}
+export type BlindSignSendOptions = Omit<
+  BlindSignContext,
+  "signer" | "message" | "instructions"
+>;
 
 export async function sendWeb3Tx(
   connection: Connection,
@@ -236,18 +225,6 @@ export async function sendVersionedWeb3Tx(
     throw new Error(`transaction failed: ${JSON.stringify(result.value.err)}`);
   }
   return signature;
-}
-
-/**
- * Load a Keypair from a JSON secret-key file as a Signer. Convenience
- * wrapper for call sites that have a known file path; for env-driven
- * call sites prefer `parseSignerURL` so the operator can substitute a
- * Ledger URL.
- */
-export async function loadKeypairSignerFromFile(
-  filePath: string,
-): Promise<Signer> {
-  return KeypairSigner.fromFile(filePath);
 }
 
 export async function loadKeypair(filePath: string): Promise<KeyPairSigner> {

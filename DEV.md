@@ -989,8 +989,11 @@ forms are:
   default for the same URL).
 - `usb://ledger?key=N&change=M` — appends a fourth `/M'` level for
   operators who keep multiple deploy keys on the same device.
-- `file:///path/to/keypair.json` — explicit file URL form; identical
-  semantics to a plain path.
+
+`file://` URLs are intentionally not accepted. The `solana` CLI does
+not recognise them at `--keypair`, so accepting them in the TypeScript
+layer would create a quiet capability hole at the first `solana
+program write-buffer` shellout. Use a plain path instead.
 
 The same value passes verbatim through to the `solana` CLI shellouts
 (`solana program write-buffer`, `set-buffer-authority`,

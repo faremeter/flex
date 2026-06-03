@@ -962,8 +962,8 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("bun")) {
     throw new Error("bun is required but not installed");
   }
-  const operatorKeypair = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorKeypair;
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const payer = opts.payer ?? operatorPayerURL;
 
   const connection = connectionFor(cluster, opts.rpcOverride);
   const rpcURL = connection.rpcEndpoint;

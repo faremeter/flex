@@ -61,9 +61,12 @@ export class KeypairSigner implements Signer {
     return new KeypairSigner(kp, `file://${resolved}`);
   }
 
-  // Mainly for tests; bypasses the file read so callers can build a
-  // signer around a freshly generated Keypair.
-  static fromKeypair(kp: Keypair, url = "keypair://memory"): KeypairSigner {
+  // Test-only constructor for callers that already hold a Keypair in
+  // memory (e.g. signer round-trip tests against a generated key).
+  // Production callers should go through KeypairSigner.fromFile or
+  // parseSignerURL so the operator-supplied URL flows through to the
+  // signer's `url` field for logging and verification.
+  static forTesting(kp: Keypair, url: string): KeypairSigner {
     return new KeypairSigner(kp, url);
   }
 
@@ -151,6 +154,28 @@ export class LedgerSigner implements Signer {
     );
   }
 
+  // Test-only constructor that bypasses transport open/getAddress so
+  // unit tests can exercise the message-handoff path with a mocked
+  // Solana app and a no-op transport. Production callers must go
+  // through LedgerSigner.open.
+  static forTesting(args: {
+    transport: Transport;
+    app: Solana;
+    derivationPath: string;
+    blindSigningEnabled: boolean;
+    pubkeyBytes: Buffer;
+    url: string;
+  }): LedgerSigner {
+    return new LedgerSigner(
+      args.transport,
+      args.app,
+      args.derivationPath,
+      args.blindSigningEnabled,
+      args.pubkeyBytes,
+      args.url,
+    );
+  }
+
   async signTransaction(tx: Transaction): Promise<Transaction> {
     const messageBytes = tx.compileMessage().serialize();
     const { signature } = await this.app.signTransaction(
@@ -182,6 +207,12 @@ export class LedgerSigner implements Signer {
 // responsible for `await signer.close()` once it is done — for a
 // LedgerSigner this releases the USB HID handle so Ledger Live or
 // another shell can attach immediately afterwards.
+//
+// Only two forms are accepted: a plain filesystem path, or a
+// `usb://ledger?key=N[&change=M]` URL. `file://` is intentionally not
+// supported — the `solana` CLI does not accept it at `--keypair`, so
+// shipping it as a TypeScript-only alias would create a quiet
+// capability hole at the first shellout.
 export async function parseSignerURL(spec: string): Promise<Signer> {
   const trimmed = spec.trim();
   if (trimmed.length === 0) {
@@ -190,12 +221,10 @@ export async function parseSignerURL(spec: string): Promise<Signer> {
   if (trimmed.startsWith("usb://")) {
     return openLedgerSignerFromURL(trimmed);
   }
-  if (trimmed.startsWith("file://")) {
-    const url = new URL(trimmed);
-    return KeypairSigner.fromFile(url.pathname);
-  }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
-    throw new Error(`unsupported signer URL scheme: ${trimmed}`);
+    throw new Error(
+      `unsupported signer URL scheme: ${trimmed}; only file paths and usb://ledger?key=N are accepted`,
+    );
   }
   return KeypairSigner.fromFile(trimmed);
 }
@@ -256,13 +285,13 @@ async function openLedgerSignerFromURL(spec: string): Promise<Signer> {
   return LedgerSigner.open(spec, derivationPath);
 }
 
-// Variant of cli-helpers' requireEnvFile that accepts either a
-// filesystem path or a usb://ledger URL. Plain paths still must point
-// to an existing file (legacy behaviour for the file-key flow); URLs
-// are returned as-is and validated when the transport opens.
+// Env-var helper for an operator-payer signer URL. Accepted forms are
+// a plain filesystem path (must exist on disk; legacy file-key flow)
+// or a `usb://ledger?key=N[&change=M]` URL (passed through
+// unchanged; transport validation defers to LedgerSigner.open).
 export function requireSignerURL(name: string): string {
   const v = requireEnv(name);
-  if (v.startsWith("usb://") || v.startsWith("file://")) {
+  if (v.startsWith("usb://")) {
     return v;
   }
   if (!fs.existsSync(v)) {
@@ -311,7 +340,7 @@ const SQUADS_PROGRAM_ID = squadsGenerated.PROGRAM_ID;
 
 function decodeInstructionName(ix: TransactionInstruction): string {
   if (!ix.programId.equals(SQUADS_PROGRAM_ID)) {
-    return ix.programId.toBase58();
+    return "(non-Squads instruction)";
   }
   const head = Buffer.from(ix.data.subarray(0, Math.min(8, ix.data.length)));
   for (const entry of SQUADS_DISCRIMINATORS) {

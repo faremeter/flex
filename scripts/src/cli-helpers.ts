@@ -44,14 +44,6 @@ export function requireEnv(name: string): string {
   return trimmed;
 }
 
-export function requireEnvFile(name: string): string {
-  const v = requireEnv(name);
-  if (!fs.existsSync(v)) {
-    throw new Error(`${name} does not point to a file: ${v}`);
-  }
-  return v;
-}
-
 export function commandExists(name: string): boolean {
   const which = spawnSync("which", [name], { stdio: "ignore" });
   return which.status === 0;
