@@ -112,7 +112,7 @@ is the default entry point):
                                      verify buffer authority
   size-guard <cluster> <verify-mode> <buffer> <multisig> <program-id>
                                      refuse oversized batched proposals
-  compose-proposal <cluster> <verify-mode> <buffer> <multisig> <proposer-keypair> <program-id> [<rpc>]
+  compose-proposal <cluster> <verify-mode> <buffer> <multisig> <proposer-signer-url> <program-id> [<rpc>]
                                      build + submit the upgrade proposal
   poll <cluster> <program-id> <expected-sha> <expected-size-bytes> [<timeout>] [<rpc>]
                                      poll until deployed sha matches
@@ -460,7 +460,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
     verifyModeRaw,
     bufferRaw,
     multisigRaw,
-    proposerKeypairPath,
+    proposerSignerURL,
     programIdRaw,
     rpcOverride,
   ] = args;
@@ -472,8 +472,8 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   if (!multisigRaw) {
     throw new Error("compose-proposal requires <multisig>");
   }
-  if (!proposerKeypairPath) {
-    throw new Error("compose-proposal requires <proposer-keypair-path>");
+  if (!proposerSignerURL) {
+    throw new Error("compose-proposal requires <proposer-signer-url>");
   }
   if (!programIdRaw) {
     throw new Error("compose-proposal requires <program-id>");
@@ -487,7 +487,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const connection = connectionFor(cluster, rpcOverride);
 
   const repoURL = detectRepoURL();
-  const proposer = await parseSignerURL(proposerKeypairPath);
+  const proposer = await parseSignerURL(proposerSignerURL);
   let proposal;
   try {
     const instructions = await buildInstructionsForMode({

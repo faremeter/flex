@@ -13,12 +13,13 @@ import {
 } from "@solana/web3.js";
 import { generated as squadsGenerated } from "@sqds/multisig";
 import {
-  KeypairSigner,
-  LedgerSigner,
+  createKeypairSigner,
+  createLedgerSigner,
   parseLedgerURLSpec,
   parseSignerURL,
   requireSignerURL,
   renderBlindSignContext,
+  type LedgerSigner,
 } from "./signer";
 import type Solana from "@ledgerhq/hw-app-solana";
 import type Transport from "@ledgerhq/hw-transport";
@@ -90,12 +91,12 @@ describe("parseLedgerURLSpec", () => {
 });
 
 describe("parseSignerURL", () => {
-  test("returns a KeypairSigner for a plain filesystem path", async () => {
+  test("returns a keypair signer for a plain filesystem path", async () => {
     const kp = Keypair.generate();
     const file = writeKeypairFile(kp);
     try {
       const signer = await parseSignerURL(file);
-      expect(signer).toBeInstanceOf(KeypairSigner);
+      expect(signer.kind).toBe("keypair");
       expect(signer.publicKey.equals(kp.publicKey)).toBe(true);
     } finally {
       fs.rmSync(path.dirname(file), { recursive: true });
@@ -143,7 +144,7 @@ describe("parseSignerURL", () => {
 describe("KeypairSigner", () => {
   test("signTransaction attaches a signature in the fee-payer slot", async () => {
     const kp = Keypair.generate();
-    const signer = KeypairSigner.forTesting(kp, "file:///test");
+    const signer = createKeypairSigner(kp, "file:///test");
     const tx = new Transaction({
       blockhash: "11111111111111111111111111111111",
       lastValidBlockHeight: 1,
@@ -163,7 +164,7 @@ describe("KeypairSigner", () => {
 
   test("signVersionedTransaction attaches a verifiable signature", async () => {
     const kp = Keypair.generate();
-    const signer = KeypairSigner.forTesting(kp, "file:///test");
+    const signer = createKeypairSigner(kp, "file:///test");
     const message = new TransactionMessage({
       payerKey: signer.publicKey,
       recentBlockhash: "11111111111111111111111111111111",
@@ -183,12 +184,12 @@ describe("KeypairSigner", () => {
   });
 
   test("close is a no-op", async () => {
-    const signer = KeypairSigner.forTesting(Keypair.generate(), "file:///test");
+    const signer = createKeypairSigner(Keypair.generate(), "file:///test");
     await signer.close();
   });
 });
 
-// LedgerSigner tests use the LedgerSigner.forTesting factory with a
+// LedgerSigner tests use the createLedgerSigner factory with a
 // mocked Solana app and a no-op transport. We cannot exercise the
 // open() path without hardware, but we can exercise the
 // message-handoff codepath that open() returns to.
@@ -206,7 +207,7 @@ function makeLedgerSignerForTest(args: {
       return { signature: recordedSignature };
     },
   } as unknown as Solana;
-  return LedgerSigner.forTesting({
+  return createLedgerSigner({
     transport,
     app,
     derivationPath: args.derivationPath ?? "44'/501'/0'",
@@ -321,9 +322,18 @@ describe("requireSignerURL", () => {
     expect(requireSignerURL(VAR)).toBe("usb://ledger?key=0");
   });
 
-  test("rejects file:// URLs because the solana CLI does not accept them", () => {
-    process.env[VAR] = "file:///nonexistent/path.json";
-    expect(() => requireSignerURL(VAR)).toThrow(/does not point to a file/);
+  test("rejects file:// URLs at the env-var validation layer", () => {
+    process.env[VAR] = "file:///path.json";
+    expect(() => requireSignerURL(VAR)).toThrow(
+      /unsupported signer URL scheme/,
+    );
+  });
+
+  test("rejects other URL schemes at the env-var validation layer", () => {
+    process.env[VAR] = "ssh://example/key";
+    expect(() => requireSignerURL(VAR)).toThrow(
+      /unsupported signer URL scheme/,
+    );
   });
 
   test("returns a plain path when it exists on disk", () => {
@@ -360,7 +370,7 @@ describe("renderBlindSignContext", () => {
 
   test("decodes the five Squads instructions and includes the message hash", () => {
     const kp = Keypair.generate();
-    const signer = KeypairSigner.forTesting(kp, "file:///test");
+    const signer = createKeypairSigner(kp, "file:///test");
     const message = Buffer.from("deadbeef", "hex");
     const multisig = new PublicKey(
       "So11111111111111111111111111111111111111112",
@@ -393,7 +403,7 @@ describe("renderBlindSignContext", () => {
 
   test("flags unrecognised Squads instructions with their hex prefix", () => {
     const kp = Keypair.generate();
-    const signer = KeypairSigner.forTesting(kp, "file:///test");
+    const signer = createKeypairSigner(kp, "file:///test");
     const unknownDisc = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
     const out = renderBlindSignContext({
       signer,
@@ -414,7 +424,7 @@ describe("renderBlindSignContext", () => {
 
   test("non-Squads instruction labels the entry without restating the program ID", () => {
     const kp = Keypair.generate();
-    const signer = KeypairSigner.forTesting(kp, "file:///test");
+    const signer = createKeypairSigner(kp, "file:///test");
     const otherProgram = new PublicKey(
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     );

@@ -80,7 +80,7 @@ Inspection subcommands (rarely needed; the orchestrator is the default):
   resolve <cluster> <key> [<rpc>]
   assert-vault-is-authority <cluster> [<rpc>]
   guard-duplicate-proposal <cluster> [<rpc>]
-  compose-close-proposal <cluster> <proposer-keypair> [<rpc>]
+  compose-close-proposal <cluster> <proposer-signer-url> [<rpc>]
   poll-closed <cluster> <timeout-seconds> [<rpc>]
 `;
 
@@ -336,10 +336,10 @@ async function cmdGuardDuplicateProposal(args: string[]): Promise<void> {
 }
 
 async function cmdComposeCloseProposal(args: string[]): Promise<void> {
-  const [clusterRaw, proposerKeypairPath, rpcOverride] = args;
+  const [clusterRaw, proposerSignerURL, rpcOverride] = args;
   const cluster = parseCluster(clusterRaw);
-  if (!proposerKeypairPath) {
-    throw new Error("compose-close-proposal requires <proposer-keypair-path>");
+  if (!proposerSignerURL) {
+    throw new Error("compose-close-proposal requires <proposer-signer-url>");
   }
 
   const programId = getProgramId();
@@ -347,7 +347,7 @@ async function cmdComposeCloseProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = await parseSignerURL(proposerKeypairPath);
+  const proposer = await parseSignerURL(proposerSignerURL);
   try {
     // recipient = vault PDA: the reclaimed program-data rent flows back to
     // the multisig vault, not to an individual operator. This is the only

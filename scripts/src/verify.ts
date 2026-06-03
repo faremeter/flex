@@ -75,7 +75,7 @@ entry point):
   resolve <cluster> <key> [<rpc>]
   guard-existing-proposal <cluster> <multisig> <program-id> [<rpc>]
   check-already-verified <cluster> <program-id> <uploader> [<rpc>]
-  compose-proposal <cluster> <multisig> <proposer-keypair> <program-id> [<rpc>]
+  compose-proposal <cluster> <multisig> <proposer-signer-url> <program-id> [<rpc>]
   poll-verified <cluster> <program-id> <uploader> [<timeout>] [<rpc>]
   submit-verify <program-id> <uploader> <commit-or-tag>
 `;
@@ -202,7 +202,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const [
     clusterRaw,
     multisigRaw,
-    proposerKeypairPath,
+    proposerSignerURL,
     programIdRaw,
     rpcOverride,
   ] = args;
@@ -210,8 +210,8 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   if (!multisigRaw) {
     throw new Error("compose-proposal requires <multisig>");
   }
-  if (!proposerKeypairPath) {
-    throw new Error("compose-proposal requires <proposer-keypair-path>");
+  if (!proposerSignerURL) {
+    throw new Error("compose-proposal requires <proposer-signer-url>");
   }
   if (!programIdRaw) {
     throw new Error("compose-proposal requires <program-id>");
@@ -228,7 +228,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = await parseSignerURL(proposerKeypairPath);
+  const proposer = await parseSignerURL(proposerSignerURL);
 
   const repoURL = detectRepoURL();
   const verifyInitIx = await buildVerifyInitIx({
