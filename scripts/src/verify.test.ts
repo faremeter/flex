@@ -8,7 +8,8 @@ import path from "node:path";
 // vault-transaction-create / proposal-create instructions to the chain,
 // leaving the operator to "approve" a proposal that did not yet exist.
 //
-// The fix in both cases is the same: load the proposer's keypair, then
+// The fix in both cases is the same: resolve the proposer's signer (now
+// via parseSignerURL, so the operator can supply a Ledger URL), then
 // sendWeb3Tx the two proposal instructions atomically with the index
 // prediction. These assertions encode the post-fix shape so any future
 // edit that drops the submission step (or reverts the proposer arg to a
@@ -21,28 +22,28 @@ function read(relPath: string): string {
 }
 
 describe("compose-proposal helpers submit the proposal-create ixs", () => {
-  test("verify.ts imports sendWeb3Tx and loadWeb3Keypair from ./solana", () => {
+  test("verify.ts imports sendWeb3Tx and parseSignerURL", () => {
     const src = read("scripts/src/verify.ts");
     expect(src).toMatch(/\bsendWeb3Tx\b/);
-    expect(src).toMatch(/\bloadWeb3Keypair\b/);
+    expect(src).toMatch(/\bparseSignerURL\b/);
   });
 
-  test("verify.ts cmdComposeProposal accepts a keypair path, not a raw PublicKey", () => {
+  test("verify.ts cmdComposeProposal accepts a signer URL, not a raw PublicKey", () => {
     const src = read("scripts/src/verify.ts");
-    expect(src).toMatch(/loadWeb3Keypair\(proposerKeypairPath\)/);
+    expect(src).toMatch(/parseSignerURL\(proposerKeypairPath\)/);
     expect(src).not.toMatch(/const proposer = new PublicKey\(proposerRaw\)/);
   });
 
   test("verify.ts calls sendWeb3Tx with vaultTransactionCreateIx + proposalCreateIx", () => {
     const src = read("scripts/src/verify.ts");
-    expect(src).toMatch(/sendWeb3Tx\(connection, proposer, \[/);
+    expect(src).toMatch(/sendWeb3Tx\(\s*connection,\s*proposer,/);
     expect(src).toMatch(/proposal\.vaultTransactionCreateIx/);
     expect(src).toMatch(/proposal\.proposalCreateIx/);
   });
 
   test("deploy.ts calls sendWeb3Tx with vaultTransactionCreateIx + proposalCreateIx", () => {
     const src = read("scripts/src/deploy.ts");
-    expect(src).toMatch(/sendWeb3Tx\(connection, proposer, \[/);
+    expect(src).toMatch(/sendWeb3Tx\(\s*connection,\s*proposer,/);
     expect(src).toMatch(/proposal\.vaultTransactionCreateIx/);
     expect(src).toMatch(/proposal\.proposalCreateIx/);
   });

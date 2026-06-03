@@ -16,9 +16,9 @@ import {
   connectionFor,
   detectRepoURL,
   gitResolveCommit,
-  loadWeb3Keypair,
   sendWeb3Tx,
 } from "./solana";
+import { parseSignerURL, requireSignerURL } from "./signer";
 import {
   closePromptReadline,
   commandExists,
@@ -26,7 +26,6 @@ import {
   invocationName,
   parseCluster,
   prompt as promptOperator,
-  requireEnvFile,
 } from "./cli-helpers";
 
 const PROGRAM = invocationName("scripts/src/verify.ts");
@@ -229,7 +228,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = loadWeb3Keypair(proposerKeypairPath);
+  const proposer = await parseSignerURL(proposerKeypairPath);
 
   const repoURL = detectRepoURL();
   const verifyInitIx = await buildVerifyInitIx({
@@ -238,22 +237,38 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
     repoURL,
   });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [verifyInitIx],
-    proposer: proposer.publicKey,
-  });
+  let proposal;
+  try {
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [verifyInitIx],
+      proposer: proposer.publicKey,
+    });
 
-  // Submit atomically with the index prediction. Same rationale as
-  // deploy.ts's compose-proposal: splitting compose and submit lets
-  // unrelated multisig activity shift the index between them, which
-  // would invalidate the predicted proposal PDA and URL printed here.
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+    // Submit atomically with the index prediction. Same rationale as
+    // deploy.ts's compose-proposal: splitting compose and submit lets
+    // unrelated multisig activity shift the index between them, which
+    // would invalidate the predicted proposal PDA and URL printed here.
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (verify-init)",
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
 
   const { timeLock } = await getMultisigConfig(connection, multisig);
   const earliestLegalExecuteEpochMs = Date.now() + timeLock * 1000;
@@ -439,7 +454,7 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("solana-verify")) {
     throw new Error("solana-verify is required (cargo install solana-verify)");
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
+  const operatorKeypair = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
   const payer = opts.payer ?? operatorKeypair;
 
   // ---- resolve config ----
@@ -489,23 +504,39 @@ async function cmdRun(args: string[]): Promise<void> {
     logger.info(
       "composing and submitting Squads verify-init proposal-creation transaction",
     );
-    const proposer = loadWeb3Keypair(payer);
-    const verifyInitIx = await buildVerifyInitIx({
-      programId,
-      uploader: vaultPda,
-      repoURL,
-    });
-    const proposal = await createUpgradeProposal({
-      connection,
-      multisig,
-      vaultIndex,
-      instructions: [verifyInitIx],
-      proposer: proposer.publicKey,
-    });
-    await sendWeb3Tx(connection, proposer, [
-      proposal.vaultTransactionCreateIx,
-      proposal.proposalCreateIx,
-    ]);
+    const proposer = await parseSignerURL(payer);
+    let proposal;
+    try {
+      const verifyInitIx = await buildVerifyInitIx({
+        programId,
+        uploader: vaultPda,
+        repoURL,
+      });
+      proposal = await createUpgradeProposal({
+        connection,
+        multisig,
+        vaultIndex,
+        instructions: [verifyInitIx],
+        proposer: proposer.publicKey,
+      });
+      await sendWeb3Tx(
+        connection,
+        proposer,
+        [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+        {
+          blindSign: {
+            label: "vaultTransactionCreate + proposalCreate (verify-init)",
+            multisig,
+            vaultPDA: vaultPda,
+            proposalPDA: proposal.proposalPda,
+            transactionPDA: proposal.transactionPda,
+            transactionIndex: proposal.transactionIndex,
+          },
+        },
+      );
+    } finally {
+      await proposer.close();
+    }
     const { timeLock } = await getMultisigConfig(connection, multisig);
     const earliestLegalIso = new Date(
       Date.now() + timeLock * 1000,

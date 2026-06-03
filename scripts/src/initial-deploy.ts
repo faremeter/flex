@@ -15,14 +15,14 @@ import {
   readUpgradeAuthority,
   sha256OfDeployedProgram,
 } from "./program-version";
-import { connectionFor, loadWeb3Keypair, sendWeb3Tx } from "./solana";
+import { connectionFor, sendWeb3Tx } from "./solana";
+import { parseSignerURL, requireSignerURL } from "./signer";
 import {
   closePromptReadline,
   initStateFile as initStateFileShared,
   invocationName,
   parseCluster,
   prompt,
-  requireEnvFile,
   runSolana as runSolanaShared,
   sha256OfFile,
   stateSet,
@@ -199,7 +199,7 @@ async function runLivenessTest(
   cluster: Cluster,
   soPath: string,
 ): Promise<LivenessTestResult> {
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
+  const operatorURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
   const resolvedSoPath = path.resolve(soPath);
   if (!fs.existsSync(resolvedSoPath)) {
     throw new Error(`shared object not found: ${resolvedSoPath}`);
@@ -230,7 +230,7 @@ async function runLivenessTest(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorURL,
     resolvedSoPath,
   ]);
   const bufferAddress = extractBufferAddress(writeBufferOutput);
@@ -245,7 +245,7 @@ async function runLivenessTest(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorURL,
     bufferAddress.toBase58(),
     "--new-buffer-authority",
     vaultPDA.toBase58(),
@@ -257,31 +257,45 @@ async function runLivenessTest(
     authority: vaultPDA,
   });
 
-  const operator = loadWeb3Keypair(operatorKeypair);
+  const operator = await parseSignerURL(operatorURL);
+  try {
+    const proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [upgradeIx],
+      proposer: operator.publicKey,
+    });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [upgradeIx],
-    proposer: operator.publicKey,
-  });
+    logger.info(
+      `submitting Squads proposal-creation transaction (proposer=${operator.publicKey.toBase58()})`,
+    );
+    await sendWeb3Tx(
+      connection,
+      operator,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (initial-deploy)",
+          multisig,
+          vaultPDA,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
 
-  logger.info(
-    `submitting Squads proposal-creation transaction (proposer=${operator.publicKey.toBase58()})`,
-  );
-  await sendWeb3Tx(connection, operator, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
-
-  return {
-    proposalPda: proposal.proposalPda,
-    transactionPda: proposal.transactionPda,
-    transactionIndex: proposal.transactionIndex,
-    bufferAddress,
-    squadsUrl: proposal.squadsUrl,
-  };
+    return {
+      proposalPda: proposal.proposalPda,
+      transactionPda: proposal.transactionPda,
+      transactionIndex: proposal.transactionIndex,
+      bufferAddress,
+      squadsUrl: proposal.squadsUrl,
+    };
+  } finally {
+    await operator.close();
+  }
 }
 
 async function pollDeployedShaMatches(
@@ -333,7 +347,7 @@ function preflight(cluster: Cluster): {
       `program keypair not found: ${KEYPAIR_PATH}; if you relocated the keypair out-of-band after the original keygen, copy it back to that path before running initial-deploy`,
     );
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
+  const operatorKeypair = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
 
   const connection = connectionFor(cluster);
   const rpcURL = connection.rpcEndpoint;

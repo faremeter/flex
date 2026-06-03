@@ -34,9 +34,9 @@ import {
   connectionFor,
   detectRepoURL,
   gitResolveCommit,
-  loadWeb3Keypair,
   sendWeb3Tx,
 } from "./solana";
+import { parseSignerURL, requireSignerURL } from "./signer";
 import {
   closePromptReadline,
   commandExists,
@@ -45,7 +45,6 @@ import {
   invocationName,
   parseCluster,
   prompt,
-  requireEnvFile,
   runSolana as runSolanaShared,
   sha256OfFile,
   stateSet,
@@ -487,34 +486,49 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = loadWeb3Keypair(proposerKeypairPath);
-
   const repoURL = detectRepoURL();
-  const instructions = await buildInstructionsForMode({
-    programId,
-    bufferAccount,
-    vaultPda,
-    verifyMode,
-    repoURL,
-  });
+  const proposer = await parseSignerURL(proposerKeypairPath);
+  let proposal;
+  try {
+    const instructions = await buildInstructionsForMode({
+      programId,
+      bufferAccount,
+      vaultPda,
+      verifyMode,
+      repoURL,
+    });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions,
-    proposer: proposer.publicKey,
-  });
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions,
+      proposer: proposer.publicKey,
+    });
 
-  // Submit the proposal-creation transaction atomically with the
-  // index prediction. Splitting compose and submit lets unrelated
-  // multisig activity shift the index and invalidate the predicted
-  // PDAs/URL between the two — the operator would then approve a
-  // proposal at a different PDA than what was printed.
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+    // Submit the proposal-creation transaction atomically with the
+    // index prediction. Splitting compose and submit lets unrelated
+    // multisig activity shift the index and invalidate the predicted
+    // PDAs/URL between the two — the operator would then approve a
+    // proposal at a different PDA than what was printed.
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: `compose-proposal (${verifyMode})`,
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
 
   const { timeLock } = await getMultisigConfig(connection, multisig);
   const earliestLegalExecuteEpochMs = Date.now() + timeLock * 1000;
@@ -948,7 +962,7 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("bun")) {
     throw new Error("bun is required but not installed");
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
+  const operatorKeypair = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
   const payer = opts.payer ?? operatorKeypair;
 
   const connection = connectionFor(cluster, opts.rpcOverride);
@@ -1134,25 +1148,41 @@ async function cmdRun(args: string[]): Promise<void> {
 
   // ---- Step 130: compose_proposal ----
   logger.info("composing and submitting Squads proposal-creation transaction");
-  const proposer = loadWeb3Keypair(payer);
-  const instructions = await buildInstructionsForMode({
-    programId,
-    bufferAccount: bufferAddress,
-    vaultPda,
-    verifyMode,
-    repoURL,
-  });
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions,
-    proposer: proposer.publicKey,
-  });
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+  const proposer = await parseSignerURL(payer);
+  let proposal;
+  try {
+    const instructions = await buildInstructionsForMode({
+      programId,
+      bufferAccount: bufferAddress,
+      vaultPda,
+      verifyMode,
+      repoURL,
+    });
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions,
+      proposer: proposer.publicKey,
+    });
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: `release upgrade proposal (${verifyMode})`,
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
   const earliestLegalIso = new Date(Date.now() + timeLock * 1000).toISOString();
   stateSet(stateFile, "proposal_pda", proposal.proposalPda.toBase58());
   stateSet(stateFile, "transaction_pda", proposal.transactionPda.toBase58());

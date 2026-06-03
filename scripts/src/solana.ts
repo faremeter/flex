@@ -17,10 +17,13 @@ import {
   Connection,
   Keypair,
   Transaction,
-  sendAndConfirmTransaction,
+  TransactionMessage,
+  VersionedTransaction,
+  type AddressLookupTableAccount,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { clusterRpcUrl, type Cluster } from "./cluster.config";
+import { KeypairSigner, printBlindSignContext, type Signer } from "./signer";
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
@@ -103,14 +106,148 @@ export function loadWeb3Keypair(filePath: string): Keypair {
  * Send a legacy web3.js transaction signed by `feePayer`, awaiting
  * confirmation. Used by code that builds instructions via `@sqds/multisig`
  * (which is web3.js-native).
+ *
+ * The fee payer is a `Signer` so this works equally for an in-memory
+ * keypair and a Ledger device. `cosigners` covers the rare case where
+ * a second short-lived `Keypair` (e.g. the ephemeral `createKey` in
+ * `bootstrap-multisig`) must also sign the same transaction; a Ledger
+ * cannot be a cosigner because that ephemeral key is generated inside
+ * the program.
+ *
+ * `blindSign` lets call sites pass the metadata the Ledger blind-sign
+ * verification block needs (multisig PDA, vault PDA, transaction
+ * index, etc.) so the operator can cross-check what the device
+ * displays. The block is suppressed for `KeypairSigner` payers.
  */
+export interface BlindSignSendOptions {
+  label: string;
+  multisig?: import("@solana/web3.js").PublicKey;
+  vaultPDA?: import("@solana/web3.js").PublicKey;
+  proposalPDA?: import("@solana/web3.js").PublicKey;
+  transactionPDA?: import("@solana/web3.js").PublicKey;
+  transactionIndex?: bigint;
+}
+
 export async function sendWeb3Tx(
   connection: Connection,
-  feePayer: Keypair,
+  feePayer: Signer,
   instructions: TransactionInstruction[],
+  options?: {
+    cosigners?: Keypair[];
+    blindSign?: BlindSignSendOptions;
+  },
 ): Promise<string> {
-  const tx = new Transaction().add(...instructions);
-  return sendAndConfirmTransaction(connection, tx, [feePayer]);
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+  const tx = new Transaction({
+    blockhash,
+    lastValidBlockHeight,
+    feePayer: feePayer.publicKey,
+  }).add(...instructions);
+  for (const co of options?.cosigners ?? []) {
+    tx.partialSign(co);
+  }
+  if (options?.blindSign !== undefined) {
+    printBlindSignContext({
+      signer: feePayer,
+      label: options.blindSign.label,
+      message: Buffer.from(tx.compileMessage().serialize()),
+      instructions,
+      ...(options.blindSign.multisig !== undefined && {
+        multisig: options.blindSign.multisig,
+      }),
+      ...(options.blindSign.vaultPDA !== undefined && {
+        vaultPDA: options.blindSign.vaultPDA,
+      }),
+      ...(options.blindSign.proposalPDA !== undefined && {
+        proposalPDA: options.blindSign.proposalPDA,
+      }),
+      ...(options.blindSign.transactionPDA !== undefined && {
+        transactionPDA: options.blindSign.transactionPDA,
+      }),
+      ...(options.blindSign.transactionIndex !== undefined && {
+        transactionIndex: options.blindSign.transactionIndex,
+      }),
+    });
+  }
+  await feePayer.signTransaction(tx);
+  const signature = await connection.sendRawTransaction(tx.serialize());
+  const result = await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+    "confirmed",
+  );
+  if (result.value.err !== null) {
+    throw new Error(`transaction failed: ${JSON.stringify(result.value.err)}`);
+  }
+  return signature;
+}
+
+/**
+ * Send a versioned-v0 transaction signed by `feePayer`. The
+ * `vaultTransactionExecute` path returns address-lookup-table accounts
+ * that legacy transactions cannot reference, so the Squads execute
+ * step builds a v0 message and routes it through this helper.
+ */
+export async function sendVersionedWeb3Tx(
+  connection: Connection,
+  feePayer: Signer,
+  instruction: TransactionInstruction,
+  lookupTableAccounts: AddressLookupTableAccount[],
+  blindSign?: BlindSignSendOptions,
+): Promise<string> {
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+  const message = new TransactionMessage({
+    payerKey: feePayer.publicKey,
+    recentBlockhash: blockhash,
+    instructions: [instruction],
+  }).compileToV0Message(lookupTableAccounts);
+  const tx = new VersionedTransaction(message);
+  if (blindSign !== undefined) {
+    printBlindSignContext({
+      signer: feePayer,
+      label: blindSign.label,
+      message: Buffer.from(tx.message.serialize()),
+      instructions: [instruction],
+      ...(blindSign.multisig !== undefined && {
+        multisig: blindSign.multisig,
+      }),
+      ...(blindSign.vaultPDA !== undefined && {
+        vaultPDA: blindSign.vaultPDA,
+      }),
+      ...(blindSign.proposalPDA !== undefined && {
+        proposalPDA: blindSign.proposalPDA,
+      }),
+      ...(blindSign.transactionPDA !== undefined && {
+        transactionPDA: blindSign.transactionPDA,
+      }),
+      ...(blindSign.transactionIndex !== undefined && {
+        transactionIndex: blindSign.transactionIndex,
+      }),
+    });
+  }
+  await feePayer.signVersionedTransaction(tx);
+  const signature = await connection.sendRawTransaction(tx.serialize());
+  const result = await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+    "confirmed",
+  );
+  if (result.value.err !== null) {
+    throw new Error(`transaction failed: ${JSON.stringify(result.value.err)}`);
+  }
+  return signature;
+}
+
+/**
+ * Load a Keypair from a JSON secret-key file as a Signer. Convenience
+ * wrapper for call sites that have a known file path; for env-driven
+ * call sites prefer `parseSignerURL` so the operator can substitute a
+ * Ledger URL.
+ */
+export async function loadKeypairSignerFromFile(
+  filePath: string,
+): Promise<Signer> {
+  return KeypairSigner.fromFile(filePath);
 }
 
 export async function loadKeypair(filePath: string): Promise<KeyPairSigner> {

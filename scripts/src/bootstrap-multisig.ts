@@ -1,10 +1,10 @@
 import "dotenv/config";
 import { configureApp, getLogger } from "@faremeter/logs";
-import { sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import { createMultisig, getVaultPda } from "./squads";
-import { connectionFor, loadWeb3Keypair } from "./solana";
+import { connectionFor, sendWeb3Tx } from "./solana";
+import { parseSignerURL } from "./signer";
 import { invocationName } from "./cli-helpers";
 
 const PROGRAM = invocationName("scripts/src/bootstrap-multisig.ts");
@@ -56,13 +56,13 @@ const clusterConfig = squadsConfig[cluster];
 const CREATOR_KEYPAIR_PATH = process.env.CREATOR_KEYPAIR_PATH;
 if (!CREATOR_KEYPAIR_PATH) {
   logger.error(
-    "CREATOR_KEYPAIR_PATH is required (the keypair that pays for and creates the multisig)",
+    "CREATOR_KEYPAIR_PATH is required (the keypair URL or path that pays for and creates the multisig; accepts file paths and usb://ledger?key=N)",
   );
   process.exit(1);
 }
 
 const connection = connectionFor(cluster);
-const creator = loadWeb3Keypair(CREATOR_KEYPAIR_PATH);
+const creator = await parseSignerURL(CREATOR_KEYPAIR_PATH);
 
 logger.info(`Cluster:    ${cluster}`);
 logger.info(`RPC URL:    ${connection.rpcEndpoint}`);
@@ -72,32 +72,41 @@ logger.info(`Threshold:  ${clusterConfig.threshold}`);
 logger.info(`Vault idx:  ${clusterConfig.vaultIndex}`);
 logger.info(`Time lock:  ${clusterConfig.timeLock} seconds`);
 
-const result = await createMultisig({
-  connection,
-  creator: creator.publicKey,
-  members: clusterConfig.members,
-  threshold: clusterConfig.threshold,
-  timeLock: clusterConfig.timeLock,
-  vaultIndex: clusterConfig.vaultIndex,
-});
+try {
+  const result = await createMultisig({
+    connection,
+    creator: creator.publicKey,
+    members: clusterConfig.members,
+    threshold: clusterConfig.threshold,
+    timeLock: clusterConfig.timeLock,
+    vaultIndex: clusterConfig.vaultIndex,
+  });
 
-logger.info(`Sending multisig_create transaction...`);
-const tx = new Transaction().add(result.instruction);
-await sendAndConfirmTransaction(connection, tx, [creator, result.createKey]);
+  logger.info(`Sending multisig_create transaction...`);
+  await sendWeb3Tx(connection, creator, [result.instruction], {
+    cosigners: [result.createKey],
+    blindSign: {
+      label: "multisigCreateV2",
+      multisig: result.multisig,
+    },
+  });
 
-const vault = getVaultPda(result.multisig, clusterConfig.vaultIndex);
-if (!vault.equals(result.vault)) {
-  throw new Error(
-    `bootstrap-multisig: vault PDA mismatch: createMultisig returned ${result.vault.toBase58()}, getVaultPda returned ${vault.toBase58()}`,
+  const vault = getVaultPda(result.multisig, clusterConfig.vaultIndex);
+  if (!vault.equals(result.vault)) {
+    throw new Error(
+      `bootstrap-multisig: vault PDA mismatch: createMultisig returned ${result.vault.toBase58()}, getVaultPda returned ${vault.toBase58()}`,
+    );
+  }
+
+  logger.info(`Multisig created successfully`);
+
+  process.stdout.write(`MULTISIG_ADDRESS=${result.multisig.toBase58()}\n`);
+  process.stdout.write(`VAULT_PDA=${vault.toBase58()}\n`);
+
+  logger.info(
+    `Record both values in operational docs and replace the placeholder ` +
+      `"multisig" entry for ${cluster} in scripts/src/squads.config.ts.`,
   );
+} finally {
+  await creator.close();
 }
-
-logger.info(`Multisig created successfully`);
-
-process.stdout.write(`MULTISIG_ADDRESS=${result.multisig.toBase58()}\n`);
-process.stdout.write(`VAULT_PDA=${vault.toBase58()}\n`);
-
-logger.info(
-  `Record both values in operational docs and replace the placeholder ` +
-    `"multisig" entry for ${cluster} in scripts/src/squads.config.ts.`,
-);
