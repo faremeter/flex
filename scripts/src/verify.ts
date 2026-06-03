@@ -238,7 +238,9 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = await parseSignerURL(proposerSignerURL);
+  const proposer = await parseSignerURL(
+    validateSignerURL("<proposer-signer-url>", proposerSignerURL),
+  );
 
   const repoURL = detectRepoURL();
   const verifyInitIx = await buildVerifyInitIx({

@@ -498,7 +498,9 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const connection = connectionFor(cluster, rpcOverride);
 
   const repoURL = detectRepoURL();
-  const proposer = await parseSignerURL(proposerSignerURL);
+  const proposer = await parseSignerURL(
+    validateSignerURL("<proposer-signer-url>", proposerSignerURL),
+  );
   let proposal: UpgradeProposal;
   try {
     const instructions = await buildInstructionsForMode({

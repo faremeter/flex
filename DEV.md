@@ -1072,6 +1072,31 @@ Subsequent steps — `set-buffer-authority`, the proposal-create
 transaction, and (eventually) `set-upgrade-authority` during the
 initial deploy — are single-transaction signing events.
 
+### Blockhash-expiry window for proposal signing
+
+`sendWeb3Tx` fetches a recent blockhash, builds the transaction,
+prints the blind-sign verification block, and then awaits the
+signer's confirmation. When the signer is a Ledger device, that
+await blocks on the operator visually comparing the printed sha256
+hash against the device screen and then approving on-device. A
+recent blockhash is valid for ~150 slots, which is roughly 60 seconds
+on mainnet.
+
+A careful comparison plus on-device approval can plausibly exceed
+that budget — particularly on first-time release rehearsals or over
+a slow VNC/RDP link. The visible failure when the budget elapses is
+`Blockhash not found` from the cluster RPC, after which the proposal
+must be re-composed from scratch (the SDK has already burned the
+transaction index against the proposal pubkey it printed).
+
+Operationally: do the hash comparison before the prompt appears (the
+printed sha256 lands on stderr before the device confirmation
+prompt; the operator can pre-verify and then click), and budget
+re-runs into the rehearsal schedule. The downstream
+`bin/program-deploy` recovery procedure for partial-execution states
+covers this case explicitly under `DEV.md > Partial-execution
+recovery`.
+
 ### Pinned Ledger SDK versions
 
 The release tooling pins exact (no caret) versions of three official

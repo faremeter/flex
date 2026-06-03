@@ -30,7 +30,7 @@ describe("compose-proposal helpers submit the proposal-create ixs", () => {
 
   test("verify.ts cmdComposeProposal accepts a signer URL, not a raw PublicKey", () => {
     const src = read("scripts/src/verify.ts");
-    expect(src).toMatch(/parseSignerURL\(proposerSignerURL\)/);
+    expect(src).toMatch(/parseSignerURL\(\s*validateSignerURL\(/);
     expect(src).not.toMatch(/const proposer = new PublicKey\(proposerRaw\)/);
   });
 

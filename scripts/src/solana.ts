@@ -15,12 +15,12 @@ import {
 } from "@solana/kit";
 import {
   Connection,
-  Keypair,
-  type PublicKey,
   Transaction,
   TransactionMessage,
   VersionedTransaction,
   type AddressLookupTableAccount,
+  type Keypair,
+  type PublicKey,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { clusterRpcUrl, type Cluster } from "./cluster.config";
@@ -113,9 +113,14 @@ export function connectionFor(cluster: Cluster, override?: string): Connection {
  * index, etc.) so the operator can cross-check what the device
  * displays. The block is suppressed for `KeypairSigner` payers.
  */
+// Caller-supplied metadata for the Ledger blind-sign verification
+// block. `cosignerPubkeys` is intentionally excluded here — the send
+// helpers thread the real cosigner list from the Transaction itself,
+// so accepting a duplicate here would let a caller pass a value that
+// would be silently overridden.
 export type BlindSignSendOptions = Omit<
   BlindSignContext,
-  "signer" | "message" | "instructions"
+  "signer" | "message" | "instructions" | "cosignerPubkeys"
 >;
 
 // Build a complete `BlindSignContext` from the caller-supplied

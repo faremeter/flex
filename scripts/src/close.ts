@@ -357,7 +357,9 @@ async function cmdComposeCloseProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = await parseSignerURL(proposerSignerURL);
+  const proposer = await parseSignerURL(
+    validateSignerURL("<proposer-signer-url>", proposerSignerURL),
+  );
   try {
     // recipient = vault PDA: the reclaimed program-data rent flows back to
     // the multisig vault, not to an individual operator. This is the only

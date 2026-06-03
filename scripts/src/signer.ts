@@ -19,9 +19,9 @@
 
 import {
   PublicKey,
-  Transaction,
-  VersionedTransaction,
   Keypair,
+  type Transaction,
+  type VersionedTransaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import TransportNodeHid from "@ledgerhq/hw-transport-node-hid";
@@ -173,19 +173,27 @@ export async function openLedgerSigner(
   } catch (err) {
     // Best-effort transport release; do not let a close-side error
     // mask the underlying APDU failure (the one the operator actually
-    // needs to see). When close itself throws, chain its error as the
-    // cause of a wrapper around the original `err` so standard
-    // `error.cause instanceof Error` walkers traverse the full chain.
+    // needs to see). When close itself throws, throw the close error
+    // wrapped around the original `err` as its `cause`, and attach the
+    // close-side error as a second link so standard
+    // `error.cause instanceof Error` walkers reach the original APDU
+    // failure (which is what the operator actually needs to debug).
     try {
       await transport.close();
     } catch (closeErr) {
+      const openErr = err instanceof Error ? err : new Error(String(err));
+      const closeErrObj =
+        closeErr instanceof Error ? closeErr : new Error(String(closeErr));
       const wrapped = new Error(
-        `openLedgerSigner: transport close failed during error recovery: ${err instanceof Error ? err.message : String(err)}`,
-        {
-          cause:
-            closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
-        },
+        "openLedgerSigner: transport open failed and the cleanup close also failed",
+        { cause: openErr },
       );
+      // Attach the close-side error as a sibling link so a forensic
+      // reader can still see both. `cause` is the primary chain.
+      Object.defineProperty(wrapped, "closeCause", {
+        value: closeErrObj,
+        enumerable: false,
+      });
       throw wrapped;
     }
     throw err;
