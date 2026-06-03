@@ -117,6 +117,34 @@ export type BlindSignSendOptions = Omit<
   "signer" | "message" | "instructions"
 >;
 
+// Build a complete `BlindSignContext` from the caller-supplied
+// metadata and the just-compiled message + instructions. The
+// conditional-spread idiom is necessary under
+// `exactOptionalPropertyTypes` (a literal `undefined` for an optional
+// field is a type error); the helper keeps the spread in one place so
+// every send helper agrees on how the context is assembled.
+function buildBlindSignContext(args: {
+  signer: Signer;
+  message: Buffer;
+  instructions: TransactionInstruction[];
+  options: BlindSignSendOptions;
+}): BlindSignContext {
+  const o = args.options;
+  return {
+    signer: args.signer,
+    label: o.label,
+    message: args.message,
+    instructions: args.instructions,
+    ...(o.multisig !== undefined && { multisig: o.multisig }),
+    ...(o.vaultPDA !== undefined && { vaultPDA: o.vaultPDA }),
+    ...(o.proposalPDA !== undefined && { proposalPDA: o.proposalPDA }),
+    ...(o.transactionPDA !== undefined && { transactionPDA: o.transactionPDA }),
+    ...(o.transactionIndex !== undefined && {
+      transactionIndex: o.transactionIndex,
+    }),
+  };
+}
+
 export async function sendWeb3Tx(
   connection: Connection,
   feePayer: Signer,
@@ -137,27 +165,14 @@ export async function sendWeb3Tx(
     tx.partialSign(co);
   }
   if (options?.blindSign !== undefined) {
-    printBlindSignContext({
-      signer: feePayer,
-      label: options.blindSign.label,
-      message: Buffer.from(tx.compileMessage().serialize()),
-      instructions,
-      ...(options.blindSign.multisig !== undefined && {
-        multisig: options.blindSign.multisig,
+    printBlindSignContext(
+      buildBlindSignContext({
+        signer: feePayer,
+        message: Buffer.from(tx.compileMessage().serialize()),
+        instructions,
+        options: options.blindSign,
       }),
-      ...(options.blindSign.vaultPDA !== undefined && {
-        vaultPDA: options.blindSign.vaultPDA,
-      }),
-      ...(options.blindSign.proposalPDA !== undefined && {
-        proposalPDA: options.blindSign.proposalPDA,
-      }),
-      ...(options.blindSign.transactionPDA !== undefined && {
-        transactionPDA: options.blindSign.transactionPDA,
-      }),
-      ...(options.blindSign.transactionIndex !== undefined && {
-        transactionIndex: options.blindSign.transactionIndex,
-      }),
-    });
+    );
   }
   await feePayer.signTransaction(tx);
   const signature = await connection.sendRawTransaction(tx.serialize());
@@ -193,27 +208,14 @@ export async function sendVersionedWeb3Tx(
   }).compileToV0Message(lookupTableAccounts);
   const tx = new VersionedTransaction(message);
   if (blindSign !== undefined) {
-    printBlindSignContext({
-      signer: feePayer,
-      label: blindSign.label,
-      message: Buffer.from(tx.message.serialize()),
-      instructions: [instruction],
-      ...(blindSign.multisig !== undefined && {
-        multisig: blindSign.multisig,
+    printBlindSignContext(
+      buildBlindSignContext({
+        signer: feePayer,
+        message: Buffer.from(tx.message.serialize()),
+        instructions: [instruction],
+        options: blindSign,
       }),
-      ...(blindSign.vaultPDA !== undefined && {
-        vaultPDA: blindSign.vaultPDA,
-      }),
-      ...(blindSign.proposalPDA !== undefined && {
-        proposalPDA: blindSign.proposalPDA,
-      }),
-      ...(blindSign.transactionPDA !== undefined && {
-        transactionPDA: blindSign.transactionPDA,
-      }),
-      ...(blindSign.transactionIndex !== undefined && {
-        transactionIndex: blindSign.transactionIndex,
-      }),
-    });
+    );
   }
   await feePayer.signVersionedTransaction(tx);
   const signature = await connection.sendRawTransaction(tx.serialize());

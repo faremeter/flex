@@ -4,26 +4,32 @@ import { FLEX_PROGRAM_ADDRESS } from "@faremeter/flex-solana";
 import { configureApp, getLogger } from "@faremeter/logs";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
+
 import {
   createUpgradeProposal,
+  type UpgradeProposal,
   getMultisigConfig,
   getVaultPda,
   guardNoOpenProposalsForProgram,
 } from "./squads";
 import { OTTER_VERIFY_PROGRAM_ID, buildVerifyInitIx } from "./verify-init-ix";
 import { submitVerifyJob } from "./otter-verify";
+
 import {
   connectionFor,
   detectRepoURL,
   gitResolveCommit,
   sendWeb3Tx,
 } from "./solana";
-import { parseSignerURL, requireSignerURL } from "./signer";
+import { parseSignerURL } from "./signer";
+
 import {
   closePromptReadline,
   commandExists,
   emit,
   invocationName,
+  requireSignerURL,
+  validateSignerURL,
   parseCluster,
   prompt as promptOperator,
 } from "./cli-helpers";
@@ -237,7 +243,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
     repoURL,
   });
 
-  let proposal;
+  let proposal: UpgradeProposal;
   try {
     proposal = await createUpgradeProposal({
       connection,
@@ -455,7 +461,10 @@ async function cmdRun(args: string[]): Promise<void> {
     throw new Error("solana-verify is required (cargo install solana-verify)");
   }
   const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorPayerURL;
+  const payer =
+    opts.payer === undefined
+      ? operatorPayerURL
+      : validateSignerURL("--payer", opts.payer);
 
   // ---- resolve config ----
   const connection = connectionFor(cluster, opts.rpcOverride);
@@ -505,7 +514,7 @@ async function cmdRun(args: string[]): Promise<void> {
       "composing and submitting Squads verify-init proposal-creation transaction",
     );
     const proposer = await parseSignerURL(payer);
-    let proposal;
+    let proposal: UpgradeProposal;
     try {
       const verifyInitIx = await buildVerifyInitIx({
         programId,

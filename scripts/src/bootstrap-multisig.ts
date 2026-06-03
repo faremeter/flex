@@ -4,8 +4,8 @@ import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import { createMultisig, getVaultPda } from "./squads";
 import { connectionFor, sendWeb3Tx } from "./solana";
-import { parseSignerURL, requireSignerURL } from "./signer";
-import { invocationName } from "./cli-helpers";
+import { parseSignerURL } from "./signer";
+import { invocationName, requireSignerURL } from "./cli-helpers";
 
 const PROGRAM = invocationName("scripts/src/bootstrap-multisig.ts");
 

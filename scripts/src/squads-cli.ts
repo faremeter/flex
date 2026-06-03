@@ -6,8 +6,13 @@ import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import { createUpgradeProposal, getVaultPda } from "./squads";
 import { connectionFor, sendVersionedWeb3Tx, sendWeb3Tx } from "./solana";
-import { parseSignerURL, requireSignerURL } from "./signer";
-import { emit, invocationName, parseCluster } from "./cli-helpers";
+import { parseSignerURL } from "./signer";
+import {
+  emit,
+  invocationName,
+  parseCluster,
+  requireSignerURL,
+} from "./cli-helpers";
 
 await configureApp();
 const logger = await getLogger(["flex", "squads-cli"]);

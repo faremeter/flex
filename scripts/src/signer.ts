@@ -31,7 +31,6 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { generated as squadsGenerated } from "@sqds/multisig";
-import { requireEnv } from "./cli-helpers";
 
 export interface Signer {
   readonly kind: "keypair" | "ledger";
@@ -47,9 +46,10 @@ export interface Signer {
 // ---- Keypair signer (in-memory secret) ----
 
 // Test/internal helper that wraps an already-loaded Keypair. Production
-// callers go through `createKeypairSignerFromFile` or `parseSignerURL`
-// so the operator-supplied URL flows through to the signer's `url`
-// field for logging and verification.
+// callers go through `createKeypairSignerFromFile` or `parseSignerURL`,
+// which set the signer's `url` field to a synthesized `file://` form
+// built from the resolved absolute path. The field is informational
+// only — used for logging — and is not the operator's literal input.
 export function createKeypairSigner(kp: Keypair, url: string): Signer {
   return {
     kind: "keypair",
@@ -173,15 +173,20 @@ export async function openLedgerSigner(
   } catch (err) {
     // Best-effort transport release; do not let a close-side error
     // mask the underlying APDU failure (the one the operator actually
-    // needs to see). Re-wrap if close itself throws so the chain is
-    // preserved either way.
+    // needs to see). When close itself throws, chain its error as the
+    // cause of a wrapper around the original `err` so standard
+    // `error.cause instanceof Error` walkers traverse the full chain.
     try {
       await transport.close();
     } catch (closeErr) {
-      throw new Error(
-        "openLedgerSigner: transport close failed while propagating an earlier error; see cause chain for both",
-        { cause: { open: err, close: closeErr } },
+      const wrapped = new Error(
+        `openLedgerSigner: transport close failed during error recovery: ${err instanceof Error ? err.message : String(err)}`,
+        {
+          cause:
+            closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
+        },
       );
+      throw wrapped;
     }
     throw err;
   }
@@ -286,31 +291,6 @@ async function openLedgerSignerFromURL(spec: string): Promise<Signer> {
   return openLedgerSigner(spec, derivationPath);
 }
 
-// Env-var helper for an operator-payer signer URL. Accepted forms are
-// a plain filesystem path (must exist on disk; legacy file-key flow)
-// or a `usb://ledger?key=N[&change=M]` URL (passed through
-// unchanged; transport validation defers to `openLedgerSigner`).
-//
-// `file://` and other URL schemes are rejected here rather than
-// downstream so a misconfigured env var fails at the operator-facing
-// validation layer, not at a later `parseSignerURL` call inside a
-// helper.
-export function requireSignerURL(name: string): string {
-  const v = requireEnv(name);
-  if (v.startsWith("usb://")) {
-    return v;
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
-    throw new Error(
-      `${name} uses an unsupported signer URL scheme: ${v}; only file paths and usb://ledger?key=N are accepted`,
-    );
-  }
-  if (!fs.existsSync(v)) {
-    throw new Error(`${name} does not point to a file: ${v}`);
-  }
-  return v;
-}
-
 // ---- Blind-sign verification printer ----
 
 // Mapping of Squads-program instruction discriminators (the first 8
@@ -353,7 +333,7 @@ function decodeInstructionName(ix: TransactionInstruction): string {
   if (!ix.programId.equals(SQUADS_PROGRAM_ID)) {
     return "(non-Squads instruction)";
   }
-  const head = Buffer.from(ix.data.subarray(0, Math.min(8, ix.data.length)));
+  const head = Buffer.from(ix.data.subarray(0, 8));
   for (const entry of SQUADS_DISCRIMINATORS) {
     if (head.equals(entry.bytes)) {
       return entry.name;

@@ -16,11 +16,12 @@ import {
   sha256OfDeployedProgram,
 } from "./program-version";
 import { connectionFor, sendWeb3Tx } from "./solana";
-import { parseSignerURL, requireSignerURL } from "./signer";
+import { parseSignerURL } from "./signer";
 import {
   closePromptReadline,
   initStateFile as initStateFileShared,
   invocationName,
+  requireSignerURL,
   parseCluster,
   prompt,
   runSolana as runSolanaShared,

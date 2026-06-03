@@ -1,4 +1,5 @@
 import "dotenv/config";
+
 import {
   Connection,
   PublicKey,
@@ -13,14 +14,17 @@ import path from "path";
 import { Buffer } from "node:buffer";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig, type VerifyMode } from "./squads.config";
+
 import {
   createUpgradeProposal,
+  type UpgradeProposal,
   getMultisigConfig,
   getVaultPda,
   guardNoOpenProposalsForProgram,
 } from "./squads";
 import { buildUpgradeIx, buildCloseBufferIx } from "./bpf-loader-ix";
 import { buildVerifyInitIx } from "./verify-init-ix";
+
 import {
   readDeployedVersion,
   readProgramDataSlot,
@@ -30,19 +34,23 @@ import { samplePriorityFee } from "./priority-fees";
 import { publishRelease, type ReleaseArtifact } from "./github-release";
 import { submitVerifyJob } from "./otter-verify";
 import { signArtifact } from "./gpg";
+
 import {
   connectionFor,
   detectRepoURL,
   gitResolveCommit,
   sendWeb3Tx,
 } from "./solana";
-import { parseSignerURL, requireSignerURL } from "./signer";
+import { parseSignerURL } from "./signer";
+
 import {
   closePromptReadline,
   commandExists,
   emit,
   initStateFile as initStateFileShared,
   invocationName,
+  requireSignerURL,
+  validateSignerURL,
   parseCluster,
   prompt,
   runSolana as runSolanaShared,
@@ -488,7 +496,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
 
   const repoURL = detectRepoURL();
   const proposer = await parseSignerURL(proposerSignerURL);
-  let proposal;
+  let proposal: UpgradeProposal;
   try {
     const instructions = await buildInstructionsForMode({
       programId,
@@ -963,7 +971,10 @@ async function cmdRun(args: string[]): Promise<void> {
     throw new Error("bun is required but not installed");
   }
   const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorPayerURL;
+  const payer =
+    opts.payer === undefined
+      ? operatorPayerURL
+      : validateSignerURL("--payer", opts.payer);
 
   const connection = connectionFor(cluster, opts.rpcOverride);
   const rpcURL = connection.rpcEndpoint;
@@ -1149,7 +1160,7 @@ async function cmdRun(args: string[]): Promise<void> {
   // ---- Step 130: compose_proposal ----
   logger.info("composing and submitting Squads proposal-creation transaction");
   const proposer = await parseSignerURL(payer);
-  let proposal;
+  let proposal: UpgradeProposal;
   try {
     const instructions = await buildInstructionsForMode({
       programId,

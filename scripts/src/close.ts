@@ -5,12 +5,15 @@ import { configureApp, getLogger } from "@faremeter/logs";
 import path from "path";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
+
 import {
   createUpgradeProposal,
+  type UpgradeProposal,
   getMultisigConfig,
   getVaultPda,
   guardNoOpenProposalsForProgram,
 } from "./squads";
+
 import {
   BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
   deriveProgramDataAddress,
@@ -18,13 +21,16 @@ import {
 import { buildCloseBufferIx, buildCloseProgramDataIx } from "./bpf-loader-ix";
 import { readUpgradeAuthority } from "./program-version";
 import { connectionFor, sendWeb3Tx } from "./solana";
-import { parseSignerURL, requireSignerURL } from "./signer";
+import { parseSignerURL } from "./signer";
+
 import {
   closePromptReadline,
   commandExists,
   emit,
   initStateFile as initStateFileShared,
   invocationName,
+  requireSignerURL,
+  validateSignerURL,
   parseCluster,
   prompt as promptOperator,
   stateSet,
@@ -577,7 +583,10 @@ async function cmdRun(args: string[]): Promise<void> {
     throw new Error("bun is required but not installed");
   }
   const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorPayerURL;
+  const payer =
+    opts.payer === undefined
+      ? operatorPayerURL
+      : validateSignerURL("--payer", opts.payer);
 
   // ---- resolve config ----
   const connection = connectionFor(cluster, opts.rpcOverride);
@@ -632,7 +641,7 @@ async function cmdRun(args: string[]): Promise<void> {
   logger.warning("RETIRE: composing close proposal");
 
   const proposer = await parseSignerURL(payer);
-  let proposal;
+  let proposal: UpgradeProposal;
   try {
     const closeIx = buildCloseProgramDataIx({
       programId,
