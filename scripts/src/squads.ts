@@ -419,7 +419,6 @@ export async function createMultisig(args: {
     timeLock: args.timeLock,
     createKey: createKey.publicKey,
     rentCollector: null,
-    memo: null,
   });
 
   return {
