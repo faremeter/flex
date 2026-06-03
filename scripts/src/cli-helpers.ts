@@ -51,7 +51,7 @@ export function requireEnv(name: string): string {
 // than at a later `parseSignerURL` call inside a helper. `source`
 // names the input for the error message (env-var name, CLI flag, etc).
 export function validateSignerURL(source: string, value: string): string {
-  if (value.startsWith("usb://")) {
+  if (/^usb:\/\//i.test(value)) {
     return value;
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {

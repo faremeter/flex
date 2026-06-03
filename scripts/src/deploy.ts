@@ -92,7 +92,10 @@ Options:
   --help | -h                     Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR    Operator payer keypair path; required.
+  OPERATOR_PAYER_KEYPAIR    Signer URL for the operator payer; required.
+                            Accepts a filesystem path to a JSON keypair,
+                            or usb://ledger?key=N[&change=M] for a
+                            Ledger device.
   MAINNET_RPC_URL           Required when cluster=mainnet and no
                             --rpc-url override is supplied.
   GITHUB_TOKEN              Required when \`gh\` is not installed.

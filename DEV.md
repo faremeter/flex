@@ -1074,15 +1074,14 @@ initial deploy — are single-transaction signing events.
 
 ### Pinned Ledger SDK versions
 
-The release tooling pins exact (no caret) versions of four official
+The release tooling pins exact (no caret) versions of three official
 `@ledgerhq/*` packages:
 
 - `@ledgerhq/hw-app-solana@7.10.2`
 - `@ledgerhq/hw-transport-node-hid@6.33.2`
 - `@ledgerhq/hw-transport@6.35.2`
-- `@ledgerhq/errors@6.35.0`
 
-All four originate from the `LedgerHQ/ledger-live` monorepo, are
+All three originate from the `LedgerHQ/ledger-live` monorepo, are
 Apache-2.0 licensed, and are not deprecated. The `hw-transport-node-hid`
 pin transitively pins `node-hid@2.1.2`, which fetches a prebuilt
 native binary at install time. Prebuilts exist for `darwin-arm64`,

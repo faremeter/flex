@@ -224,7 +224,7 @@ export async function parseSignerURL(spec: string): Promise<Signer> {
   if (trimmed.length === 0) {
     throw new Error("signer URL is empty");
   }
-  if (trimmed.startsWith("usb://")) {
+  if (/^usb:\/\//i.test(trimmed)) {
     return openLedgerSignerFromURL(trimmed);
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
@@ -347,6 +347,7 @@ export interface BlindSignContext {
   label: string;
   message: Buffer;
   instructions: TransactionInstruction[];
+  cosignerPubkeys?: PublicKey[];
   multisig?: PublicKey;
   vaultPDA?: PublicKey;
   proposalPDA?: PublicKey;
@@ -374,6 +375,12 @@ export function renderBlindSignContext(ctx: BlindSignContext): string {
     );
   });
   lines.push("");
+  lines.push(`Fee payer:       ${ctx.signer.publicKey.toBase58()}`);
+  if (ctx.cosignerPubkeys !== undefined && ctx.cosignerPubkeys.length > 0) {
+    ctx.cosignerPubkeys.forEach((pk, i) => {
+      lines.push(`Cosigner ${(i + 1).toString()}:      ${pk.toBase58()}`);
+    });
+  }
   if (ctx.multisig !== undefined) {
     lines.push(`Multisig:        ${ctx.multisig.toBase58()}`);
   }

@@ -62,8 +62,10 @@ Executes the four-phase initial deploy for the Flex Anchor program:
 
 Environment:
 
-  OPERATOR_PAYER_KEYPAIR  Path to the operator's payer keypair JSON.
-                          Required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the operator payer. Required.
+                          Accepts a filesystem path to a JSON keypair,
+                          or usb://ledger?key=N[&change=M] for a
+                          Ledger device.
 
   MAINNET_RPC_URL         Required when cluster is \`mainnet\`.
 

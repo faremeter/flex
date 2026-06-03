@@ -41,8 +41,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the member keypair casting the vote;
-                          required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the member casting the vote;
+                          required. Accepts a filesystem path to a
+                          JSON keypair, or usb://ledger?key=N for a
+                          Ledger device.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -71,8 +73,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the member keypair casting the vote;
-                          required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the member casting the vote;
+                          required. Accepts a filesystem path to a
+                          JSON keypair, or usb://ledger?key=N for a
+                          Ledger device.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -116,9 +120,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the keypair that submits the
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the keypair that submits the
                           proposal-creation transaction; must be a
-                          member of the multisig. Required.
+                          member of the multisig. Required. Accepts a
+                          filesystem path or usb://ledger?key=N.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -144,8 +149,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the keypair that signs and pays the
-                          execute transaction; required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the keypair that signs and
+                          pays the execute transaction; required.
+                          Accepts a filesystem path or
+                          usb://ledger?key=N.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 

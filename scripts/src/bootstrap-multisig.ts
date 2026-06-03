@@ -18,8 +18,10 @@ Arguments:
   cluster    one of: devnet, mainnet
 
 Environment:
-  CREATOR_KEYPAIR_PATH   path to the keypair that pays for and creates
-                         the multisig (required)
+  CREATOR_KEYPAIR_PATH   signer URL for the keypair that pays for and
+                         creates the multisig (required). Accepts either
+                         a filesystem path to a JSON keypair, or
+                         usb://ledger?key=N[&change=M] for a Ledger.
   MAINNET_RPC_URL        RPC endpoint to use when cluster is mainnet
 
 The script prints the new multisig address and vault PDA. Record both

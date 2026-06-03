@@ -16,6 +16,7 @@ import {
 import {
   Connection,
   Keypair,
+  type PublicKey,
   Transaction,
   TransactionMessage,
   VersionedTransaction,
@@ -127,6 +128,7 @@ function buildBlindSignContext(args: {
   signer: Signer;
   message: Buffer;
   instructions: TransactionInstruction[];
+  cosignerPubkeys?: PublicKey[];
   options: BlindSignSendOptions;
 }): BlindSignContext {
   const o = args.options;
@@ -135,6 +137,9 @@ function buildBlindSignContext(args: {
     label: o.label,
     message: args.message,
     instructions: args.instructions,
+    ...(args.cosignerPubkeys !== undefined && {
+      cosignerPubkeys: args.cosignerPubkeys,
+    }),
     ...(o.multisig !== undefined && { multisig: o.multisig }),
     ...(o.vaultPDA !== undefined && { vaultPDA: o.vaultPDA }),
     ...(o.proposalPDA !== undefined && { proposalPDA: o.proposalPDA }),
@@ -161,7 +166,8 @@ export async function sendWeb3Tx(
     lastValidBlockHeight,
     feePayer: feePayer.publicKey,
   }).add(...instructions);
-  for (const co of options?.cosigners ?? []) {
+  const cosigners = options?.cosigners ?? [];
+  for (const co of cosigners) {
     tx.partialSign(co);
   }
   if (options?.blindSign !== undefined) {
@@ -170,6 +176,7 @@ export async function sendWeb3Tx(
         signer: feePayer,
         message: Buffer.from(tx.compileMessage().serialize()),
         instructions,
+        cosignerPubkeys: cosigners.map((co) => co.publicKey),
         options: options.blindSign,
       }),
     );
