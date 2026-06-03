@@ -365,6 +365,15 @@ no longer be re-created from the original secret.
 
 ## Standard release procedure
 
+> **Devnet is the proving ground.** Custody, procedure, and key shape
+> on devnet match mainnet — no shortcuts. The operator-payer keypair,
+> the three multisig members, the time-lock value, the verify mode,
+> and the GPG signing key are all expected to be the same kind of
+> long-lived, real-custody artifact on devnet as they are on mainnet.
+> Throwaway airdrop-funded file keypairs are explicitly the wrong
+> custody shape for devnet rehearsal: a rehearsal that skips the
+> custody step does not actually rehearse the release.
+
 After the initial deploy has succeeded and the Squads vault PDA holds
 upgrade authority for both clusters, every subsequent release runs
 through `bin/program-deploy <cluster>`. The script is the single entry
@@ -969,3 +978,145 @@ wallet, a different team member's keypair, or any address other
 than the operator's. The recipient is validated as a base58 pubkey
 before the proposal is composed; invalid input fails before any
 on-chain transaction is sent.
+
+## Using a Ledger as the operator payer
+
+`OPERATOR_PAYER_KEYPAIR` accepts either a filesystem path (back-compat
+with the file-keypair flow) or a Solana signer URL. The supported URL
+forms are:
+
+- `usb://ledger?key=N` — derivation path `44'/501'/N'` (the Solana CLI
+  default for the same URL).
+- `usb://ledger?key=N&change=M` — appends a fourth `/M'` level for
+  operators who keep multiple deploy keys on the same device.
+- `file:///path/to/keypair.json` — explicit file URL form; identical
+  semantics to a plain path.
+
+The same value passes verbatim through to the `solana` CLI shellouts
+(`solana program write-buffer`, `set-buffer-authority`,
+`set-upgrade-authority`, and `program deploy`), each of which natively
+understands `usb://ledger?key=N`.
+
+### Device prerequisites
+
+1. Install the **Solana app** on the Ledger device (Ledger Live →
+   "Manager" → install "Solana").
+2. Open the Solana app on the device. The transport opens cleanly only
+   while the app is running.
+3. **Enable blind signing** in the Solana app's on-device settings:
+   `Settings → Allow blind signing → Enabled`. The Ledger Solana app
+   does not natively decode Squads instructions, so every release
+   operation requires this setting. The first signing call without it
+   fails with the human-readable message
+   `Missing a parameter. Try enabling blind signature in the app`
+   surfaced by `@ledgerhq/hw-app-solana`.
+
+When `LedgerSigner.open` runs it reads the on-device blind-signing
+flag via `getAppConfiguration` and prints a stderr warning at
+transport-open time if the flag is off, so the operator catches the
+misconfiguration before the first signing call rather than at the
+device-confirm prompt.
+
+### Cross-checking what the device shows
+
+Before any LedgerSigner signing call, the release tooling prints a
+verification block to stderr that mirrors what the Ledger Solana app
+displays in blind-sign mode. The block looks like:
+
+```
+================ Ledger blind-sign verification ================
+About to sign: vaultTransactionCreate + proposalCreate (initial-deploy)
+Targeting Squads program: SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf
+
+Instructions (in order):
+  1. SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf :: vaultTransactionCreate
+  2. SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf :: proposalCreate
+
+Multisig:        <multisig-pda>
+Vault PDA:       <vault-pda>
+Transaction PDA: <tx-pda>
+Proposal PDA:    <proposal-pda>
+Transaction index: 7
+
+Compiled message sha256: f6d9...c4e2
+
+Confirm this hash matches the one shown on your Ledger device.
+================================================================
+```
+
+The `Compiled message sha256` is `sha256(message.serialize())` — the
+same hash the Ledger Solana app computes for the bytes it is about to
+sign. Visually comparing this hash against the device screen before
+approving is the operator's defence against an attacker substituting
+bytes between proposal composition and the device-confirm prompt.
+This is the same posture Squads web-UI Ledger users have today, with
+the addition that the CLI also names the multisig, vault PDA,
+transaction index, and decoded instruction discriminator so the
+operator can confirm "I am voting on tx #N for the right multisig"
+rather than just "the hash is what I expect".
+
+### Buffer-write expectations
+
+`bin/program-deploy` and `bin/program-initial-deploy` submit 250+
+write-buffer transactions during a release. Each transaction is a
+separate `solana program write-buffer` chunk, and **each one prompts
+the Ledger device for individual approval** when the keypair is a
+Ledger URL. Expect to confirm every chunk by hand; if this is the
+wrong UX for a particular operator, supply a file-keypair URL for
+buffer writes and reserve the Ledger for the proposal-create signing.
+
+Subsequent steps — `set-buffer-authority`, the proposal-create
+transaction, and (eventually) `set-upgrade-authority` during the
+initial deploy — are single-transaction signing events.
+
+### Pinned Ledger SDK versions
+
+The release tooling pins exact (no caret) versions of four official
+`@ledgerhq/*` packages:
+
+- `@ledgerhq/hw-app-solana@7.10.2`
+- `@ledgerhq/hw-transport-node-hid@6.33.2`
+- `@ledgerhq/hw-transport@6.35.2`
+- `@ledgerhq/errors@6.35.0`
+
+All four originate from the `LedgerHQ/ledger-live` monorepo, are
+Apache-2.0 licensed, and are not deprecated. The `hw-transport-node-hid`
+pin transitively pins `node-hid@2.1.2`, which fetches a prebuilt
+native binary at install time. Prebuilts exist for `darwin-arm64`,
+`darwin-x64`, and `linux-x64` (glibc, N-API v3); other targets fall
+back to a `node-gyp rebuild` that requires Python and a C++ toolchain.
+
+### Bun + node-hid troubleshooting
+
+Bun (the runtime this repository uses) implements N-API and loads
+`node-hid`'s native binding correctly in the current Bun version
+recorded in `bun.lock`. If a future Bun upgrade regresses native-
+binding resolution for `node-hid`, the documented fallback is to run
+the affected CLI under Node directly:
+
+```
+cd scripts
+npm install                                # forces prebuild-install under Node
+node --experimental-vm-modules <script>
+```
+
+The `@ledgerhq/*` JavaScript is plain Node-compatible code; the only
+Bun-specific risk is in `node-hid`'s `.node` binary resolution. Do not
+substitute community node-hid forks (`node-hid-ng`, etc.) — they are
+not Ledger-supported and the pin is intentional.
+
+### HID permissions on Linux
+
+Linux requires a udev rule granting the operator user read/write
+access to the Ledger HID interface. Drop this file at
+`/etc/udev/rules.d/20-ledger.rules` (the exact rules ship with Ledger
+Live; this is one example):
+
+```
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2c97", MODE="0660", \
+  TAG+="uaccess", TAG+="udev-acl"
+```
+
+Then reload udev (`sudo udevadm control --reload-rules && sudo
+udevadm trigger`) and replug the device. macOS and Windows have no
+equivalent step.

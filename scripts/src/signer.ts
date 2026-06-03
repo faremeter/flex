@@ -134,6 +134,13 @@ export class LedgerSigner implements Signer {
       await transport.close();
       throw err;
     }
+    if (!appConfig.blindSigningEnabled) {
+      process.stderr.write(
+        "WARNING: Ledger Solana app blind signing is DISABLED. " +
+          "Squads instructions are not natively decoded by the app and will fail to sign " +
+          "until you enable Settings -> Allow blind signing on the device.\n",
+      );
+    }
     return new LedgerSigner(
       transport,
       app,
