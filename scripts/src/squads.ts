@@ -126,20 +126,22 @@ export async function assertTimeLock(
   }
 }
 
-export async function createUpgradeProposal(args: {
-  connection: Connection;
-  multisig: PublicKey;
-  vaultIndex: number;
-  instructions: TransactionInstruction[];
-  proposer: PublicKey;
-}): Promise<{
+export interface UpgradeProposal {
   proposalPda: PublicKey;
   transactionPda: PublicKey;
   transactionIndex: bigint;
   vaultTransactionCreateIx: TransactionInstruction;
   proposalCreateIx: TransactionInstruction;
   squadsUrl: string;
-}> {
+}
+
+export async function createUpgradeProposal(args: {
+  connection: Connection;
+  multisig: PublicKey;
+  vaultIndex: number;
+  instructions: TransactionInstruction[];
+  proposer: PublicKey;
+}): Promise<UpgradeProposal> {
   const multisigAcct = await fetchMultisigAccount(
     args.connection,
     args.multisig,
