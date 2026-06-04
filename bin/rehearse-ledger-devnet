@@ -214,7 +214,7 @@ step::95::smoke_test_on_chain() {
 		|| log::fatal "smoke test failed; the program is deployed but did not respond as expected"
 }
 
-step::100::summary() {
+step::99::summary() {
 	log::info ""
 	log::info "================ Rehearsal complete ================"
 	log::info "  Program ID: $PROGRAM_ID"
