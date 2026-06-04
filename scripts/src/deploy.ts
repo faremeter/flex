@@ -1,4 +1,5 @@
 import "dotenv/config";
+
 import {
   Connection,
   PublicKey,
@@ -13,14 +14,17 @@ import path from "path";
 import { Buffer } from "node:buffer";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig, type VerifyMode } from "./squads.config";
+
 import {
   createUpgradeProposal,
+  type UpgradeProposal,
   getMultisigConfig,
   getVaultPda,
   guardNoOpenProposalsForProgram,
 } from "./squads";
 import { buildUpgradeIx, buildCloseBufferIx } from "./bpf-loader-ix";
 import { buildVerifyInitIx } from "./verify-init-ix";
+
 import {
   readDeployedVersion,
   readProgramDataSlot,
@@ -30,22 +34,25 @@ import { samplePriorityFee } from "./priority-fees";
 import { publishRelease, type ReleaseArtifact } from "./github-release";
 import { submitVerifyJob } from "./otter-verify";
 import { signArtifact } from "./gpg";
+
 import {
   connectionFor,
   detectRepoURL,
   gitResolveCommit,
-  loadWeb3Keypair,
   sendWeb3Tx,
 } from "./solana";
+import { parseSignerURL } from "./signer";
+
 import {
   closePromptReadline,
   commandExists,
   emit,
   initStateFile as initStateFileShared,
   invocationName,
+  requireSignerURL,
+  validateSignerURL,
   parseCluster,
   prompt,
-  requireEnvFile,
   runSolana as runSolanaShared,
   sha256OfFile,
   stateSet,
@@ -85,7 +92,10 @@ Options:
   --help | -h                     Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR    Operator payer keypair path; required.
+  OPERATOR_PAYER_KEYPAIR    Signer URL for the operator payer; required.
+                            Accepts a filesystem path to a JSON keypair,
+                            or usb://ledger?key=N[&change=M] for a
+                            Ledger device.
   MAINNET_RPC_URL           Required when cluster=mainnet and no
                             --rpc-url override is supplied.
   GITHUB_TOKEN              Required when \`gh\` is not installed.
@@ -113,7 +123,7 @@ is the default entry point):
                                      verify buffer authority
   size-guard <cluster> <verify-mode> <buffer> <multisig> <program-id>
                                      refuse oversized batched proposals
-  compose-proposal <cluster> <verify-mode> <buffer> <multisig> <proposer-keypair> <program-id> [<rpc>]
+  compose-proposal <cluster> <verify-mode> <buffer> <multisig> <proposer-signer-url> <program-id> [<rpc>]
                                      build + submit the upgrade proposal
   poll <cluster> <program-id> <expected-sha> <expected-size-bytes> [<timeout>] [<rpc>]
                                      poll until deployed sha matches
@@ -461,7 +471,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
     verifyModeRaw,
     bufferRaw,
     multisigRaw,
-    proposerKeypairPath,
+    proposerSignerURL,
     programIdRaw,
     rpcOverride,
   ] = args;
@@ -473,8 +483,8 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   if (!multisigRaw) {
     throw new Error("compose-proposal requires <multisig>");
   }
-  if (!proposerKeypairPath) {
-    throw new Error("compose-proposal requires <proposer-keypair-path>");
+  if (!proposerSignerURL) {
+    throw new Error("compose-proposal requires <proposer-signer-url>");
   }
   if (!programIdRaw) {
     throw new Error("compose-proposal requires <program-id>");
@@ -487,34 +497,51 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = loadWeb3Keypair(proposerKeypairPath);
-
   const repoURL = detectRepoURL();
-  const instructions = await buildInstructionsForMode({
-    programId,
-    bufferAccount,
-    vaultPda,
-    verifyMode,
-    repoURL,
-  });
+  const proposer = await parseSignerURL(
+    validateSignerURL("<proposer-signer-url>", proposerSignerURL),
+  );
+  let proposal: UpgradeProposal;
+  try {
+    const instructions = await buildInstructionsForMode({
+      programId,
+      bufferAccount,
+      vaultPda,
+      verifyMode,
+      repoURL,
+    });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions,
-    proposer: proposer.publicKey,
-  });
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions,
+      proposer: proposer.publicKey,
+    });
 
-  // Submit the proposal-creation transaction atomically with the
-  // index prediction. Splitting compose and submit lets unrelated
-  // multisig activity shift the index and invalidate the predicted
-  // PDAs/URL between the two — the operator would then approve a
-  // proposal at a different PDA than what was printed.
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+    // Submit the proposal-creation transaction atomically with the
+    // index prediction. Splitting compose and submit lets unrelated
+    // multisig activity shift the index and invalidate the predicted
+    // PDAs/URL between the two — the operator would then approve a
+    // proposal at a different PDA than what was printed.
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: `compose-proposal (${verifyMode})`,
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
 
   const { timeLock } = await getMultisigConfig(connection, multisig);
   const earliestLegalExecuteEpochMs = Date.now() + timeLock * 1000;
@@ -948,8 +975,11 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("bun")) {
     throw new Error("bun is required but not installed");
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorKeypair;
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const payer =
+    opts.payer === undefined
+      ? operatorPayerURL
+      : validateSignerURL("--payer", opts.payer);
 
   const connection = connectionFor(cluster, opts.rpcOverride);
   const rpcURL = connection.rpcEndpoint;
@@ -1134,25 +1164,41 @@ async function cmdRun(args: string[]): Promise<void> {
 
   // ---- Step 130: compose_proposal ----
   logger.info("composing and submitting Squads proposal-creation transaction");
-  const proposer = loadWeb3Keypair(payer);
-  const instructions = await buildInstructionsForMode({
-    programId,
-    bufferAccount: bufferAddress,
-    vaultPda,
-    verifyMode,
-    repoURL,
-  });
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions,
-    proposer: proposer.publicKey,
-  });
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+  const proposer = await parseSignerURL(payer);
+  let proposal: UpgradeProposal;
+  try {
+    const instructions = await buildInstructionsForMode({
+      programId,
+      bufferAccount: bufferAddress,
+      vaultPda,
+      verifyMode,
+      repoURL,
+    });
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions,
+      proposer: proposer.publicKey,
+    });
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: `release upgrade proposal (${verifyMode})`,
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
   const earliestLegalIso = new Date(Date.now() + timeLock * 1000).toISOString();
   stateSet(stateFile, "proposal_pda", proposal.proposalPda.toBase58());
   stateSet(stateFile, "transaction_pda", proposal.transactionPda.toBase58());

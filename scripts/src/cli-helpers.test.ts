@@ -9,7 +9,6 @@ import {
   invocationName,
   parseCluster,
   requireEnv,
-  requireEnvFile,
   sha256OfFile,
   stateSet,
 } from "./cli-helpers";
@@ -99,46 +98,6 @@ describe("requireEnv", () => {
   test("throws when the variable is the empty string", () => {
     process.env[VAR] = "";
     expect(() => requireEnv(VAR)).toThrow(/required/);
-  });
-});
-
-describe("requireEnvFile", () => {
-  const VAR = "FLEX_CLI_HELPERS_TEST_FILE";
-  const original = process.env[VAR];
-  let tmpFile: string;
-
-  beforeEach(() => {
-    tmpFile = path.join(
-      os.tmpdir(),
-      `cli-helpers-test-${process.pid}-${String(Date.now())}`,
-    );
-    fs.writeFileSync(tmpFile, "x");
-  });
-
-  afterEach(() => {
-    if (original === undefined) {
-      Reflect.deleteProperty(process.env, VAR);
-    } else {
-      process.env[VAR] = original;
-    }
-    if (fs.existsSync(tmpFile)) {
-      fs.unlinkSync(tmpFile);
-    }
-  });
-
-  test("returns the path when the file exists", () => {
-    process.env[VAR] = tmpFile;
-    expect(requireEnvFile(VAR)).toBe(tmpFile);
-  });
-
-  test("throws when the variable is unset", () => {
-    Reflect.deleteProperty(process.env, VAR);
-    expect(() => requireEnvFile(VAR)).toThrow(/required/);
-  });
-
-  test("throws when the path does not point at an existing file", () => {
-    process.env[VAR] = `${tmpFile}.missing`;
-    expect(() => requireEnvFile(VAR)).toThrow(/does not point to a file/);
   });
 });
 

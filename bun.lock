@@ -37,7 +37,6 @@
         "@faremeter/flex-solana": "workspace:*",
         "@faremeter/info": "^0.22.0",
         "@faremeter/logs": "^0.22.0",
-        "@ledgerhq/errors": "6.35.0",
         "@ledgerhq/hw-app-solana": "7.10.2",
         "@ledgerhq/hw-transport": "6.35.2",
         "@ledgerhq/hw-transport-node-hid": "6.33.2",

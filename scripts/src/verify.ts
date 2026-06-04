@@ -4,29 +4,34 @@ import { FLEX_PROGRAM_ADDRESS } from "@faremeter/flex-solana";
 import { configureApp, getLogger } from "@faremeter/logs";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
+
 import {
   createUpgradeProposal,
+  type UpgradeProposal,
   getMultisigConfig,
   getVaultPda,
   guardNoOpenProposalsForProgram,
 } from "./squads";
 import { OTTER_VERIFY_PROGRAM_ID, buildVerifyInitIx } from "./verify-init-ix";
 import { submitVerifyJob } from "./otter-verify";
+
 import {
   connectionFor,
   detectRepoURL,
   gitResolveCommit,
-  loadWeb3Keypair,
   sendWeb3Tx,
 } from "./solana";
+import { parseSignerURL } from "./signer";
+
 import {
   closePromptReadline,
   commandExists,
   emit,
   invocationName,
+  requireSignerURL,
+  validateSignerURL,
   parseCluster,
   prompt as promptOperator,
-  requireEnvFile,
 } from "./cli-helpers";
 
 const PROGRAM = invocationName("scripts/src/verify.ts");
@@ -66,7 +71,11 @@ Options:
   --help | -h                   Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR        Operator payer keypair path; required.
+  OPERATOR_PAYER_KEYPAIR        Signer URL for the operator payer;
+                                required. Accepts a filesystem path to
+                                a JSON keypair, or
+                                usb://ledger?key=N[&change=M] for a
+                                Ledger device.
   MAINNET_RPC_URL               Required when cluster=mainnet and no
                                 --rpc-url override is supplied.
 
@@ -76,7 +85,7 @@ entry point):
   resolve <cluster> <key> [<rpc>]
   guard-existing-proposal <cluster> <multisig> <program-id> [<rpc>]
   check-already-verified <cluster> <program-id> <uploader> [<rpc>]
-  compose-proposal <cluster> <multisig> <proposer-keypair> <program-id> [<rpc>]
+  compose-proposal <cluster> <multisig> <proposer-signer-url> <program-id> [<rpc>]
   poll-verified <cluster> <program-id> <uploader> [<timeout>] [<rpc>]
   submit-verify <program-id> <uploader> <commit-or-tag>
 `;
@@ -203,7 +212,7 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const [
     clusterRaw,
     multisigRaw,
-    proposerKeypairPath,
+    proposerSignerURL,
     programIdRaw,
     rpcOverride,
   ] = args;
@@ -211,8 +220,8 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   if (!multisigRaw) {
     throw new Error("compose-proposal requires <multisig>");
   }
-  if (!proposerKeypairPath) {
-    throw new Error("compose-proposal requires <proposer-keypair-path>");
+  if (!proposerSignerURL) {
+    throw new Error("compose-proposal requires <proposer-signer-url>");
   }
   if (!programIdRaw) {
     throw new Error("compose-proposal requires <program-id>");
@@ -229,7 +238,9 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = loadWeb3Keypair(proposerKeypairPath);
+  const proposer = await parseSignerURL(
+    validateSignerURL("<proposer-signer-url>", proposerSignerURL),
+  );
 
   const repoURL = detectRepoURL();
   const verifyInitIx = await buildVerifyInitIx({
@@ -238,22 +249,38 @@ async function cmdComposeProposal(args: string[]): Promise<void> {
     repoURL,
   });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [verifyInitIx],
-    proposer: proposer.publicKey,
-  });
+  let proposal: UpgradeProposal;
+  try {
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [verifyInitIx],
+      proposer: proposer.publicKey,
+    });
 
-  // Submit atomically with the index prediction. Same rationale as
-  // deploy.ts's compose-proposal: splitting compose and submit lets
-  // unrelated multisig activity shift the index between them, which
-  // would invalidate the predicted proposal PDA and URL printed here.
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+    // Submit atomically with the index prediction. Same rationale as
+    // deploy.ts's compose-proposal: splitting compose and submit lets
+    // unrelated multisig activity shift the index between them, which
+    // would invalidate the predicted proposal PDA and URL printed here.
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (verify-init)",
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
 
   const { timeLock } = await getMultisigConfig(connection, multisig);
   const earliestLegalExecuteEpochMs = Date.now() + timeLock * 1000;
@@ -439,8 +466,11 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("solana-verify")) {
     throw new Error("solana-verify is required (cargo install solana-verify)");
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorKeypair;
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const payer =
+    opts.payer === undefined
+      ? operatorPayerURL
+      : validateSignerURL("--payer", opts.payer);
 
   // ---- resolve config ----
   const connection = connectionFor(cluster, opts.rpcOverride);
@@ -489,23 +519,39 @@ async function cmdRun(args: string[]): Promise<void> {
     logger.info(
       "composing and submitting Squads verify-init proposal-creation transaction",
     );
-    const proposer = loadWeb3Keypair(payer);
-    const verifyInitIx = await buildVerifyInitIx({
-      programId,
-      uploader: vaultPda,
-      repoURL,
-    });
-    const proposal = await createUpgradeProposal({
-      connection,
-      multisig,
-      vaultIndex,
-      instructions: [verifyInitIx],
-      proposer: proposer.publicKey,
-    });
-    await sendWeb3Tx(connection, proposer, [
-      proposal.vaultTransactionCreateIx,
-      proposal.proposalCreateIx,
-    ]);
+    const proposer = await parseSignerURL(payer);
+    let proposal: UpgradeProposal;
+    try {
+      const verifyInitIx = await buildVerifyInitIx({
+        programId,
+        uploader: vaultPda,
+        repoURL,
+      });
+      proposal = await createUpgradeProposal({
+        connection,
+        multisig,
+        vaultIndex,
+        instructions: [verifyInitIx],
+        proposer: proposer.publicKey,
+      });
+      await sendWeb3Tx(
+        connection,
+        proposer,
+        [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+        {
+          blindSign: {
+            label: "vaultTransactionCreate + proposalCreate (verify-init)",
+            multisig,
+            vaultPDA: vaultPda,
+            proposalPDA: proposal.proposalPda,
+            transactionPDA: proposal.transactionPda,
+            transactionIndex: proposal.transactionIndex,
+          },
+        },
+      );
+    } finally {
+      await proposer.close();
+    }
     const { timeLock } = await getMultisigConfig(connection, multisig);
     const earliestLegalIso = new Date(
       Date.now() + timeLock * 1000,

@@ -1,11 +1,11 @@
 import "dotenv/config";
 import { configureApp, getLogger } from "@faremeter/logs";
-import { sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import { createMultisig, getVaultPda } from "./squads";
-import { connectionFor, loadWeb3Keypair } from "./solana";
-import { invocationName } from "./cli-helpers";
+import { connectionFor, sendWeb3Tx } from "./solana";
+import { parseSignerURL } from "./signer";
+import { invocationName, requireSignerURL } from "./cli-helpers";
 
 const PROGRAM = invocationName("scripts/src/bootstrap-multisig.ts");
 
@@ -18,8 +18,10 @@ Arguments:
   cluster    one of: devnet, mainnet
 
 Environment:
-  CREATOR_KEYPAIR_PATH   path to the keypair that pays for and creates
-                         the multisig (required)
+  CREATOR_KEYPAIR_PATH   signer URL for the keypair that pays for and
+                         creates the multisig (required). Accepts either
+                         a filesystem path to a JSON keypair, or
+                         usb://ledger?key=N[&change=M] for a Ledger.
   MAINNET_RPC_URL        RPC endpoint to use when cluster is mainnet
 
 The script prints the new multisig address and vault PDA. Record both
@@ -53,16 +55,10 @@ const clusterConfig = squadsConfig[cluster];
 // config were invalid the import on line 5 would have thrown before
 // reaching here, so no duplicate guard is needed.
 
-const CREATOR_KEYPAIR_PATH = process.env.CREATOR_KEYPAIR_PATH;
-if (!CREATOR_KEYPAIR_PATH) {
-  logger.error(
-    "CREATOR_KEYPAIR_PATH is required (the keypair that pays for and creates the multisig)",
-  );
-  process.exit(1);
-}
+const creatorURL = requireSignerURL("CREATOR_KEYPAIR_PATH");
 
 const connection = connectionFor(cluster);
-const creator = loadWeb3Keypair(CREATOR_KEYPAIR_PATH);
+const creator = await parseSignerURL(creatorURL);
 
 logger.info(`Cluster:    ${cluster}`);
 logger.info(`RPC URL:    ${connection.rpcEndpoint}`);
@@ -72,32 +68,41 @@ logger.info(`Threshold:  ${clusterConfig.threshold}`);
 logger.info(`Vault idx:  ${clusterConfig.vaultIndex}`);
 logger.info(`Time lock:  ${clusterConfig.timeLock} seconds`);
 
-const result = await createMultisig({
-  connection,
-  creator: creator.publicKey,
-  members: clusterConfig.members,
-  threshold: clusterConfig.threshold,
-  timeLock: clusterConfig.timeLock,
-  vaultIndex: clusterConfig.vaultIndex,
-});
+try {
+  const result = await createMultisig({
+    connection,
+    creator: creator.publicKey,
+    members: clusterConfig.members,
+    threshold: clusterConfig.threshold,
+    timeLock: clusterConfig.timeLock,
+    vaultIndex: clusterConfig.vaultIndex,
+  });
 
-logger.info(`Sending multisig_create transaction...`);
-const tx = new Transaction().add(result.instruction);
-await sendAndConfirmTransaction(connection, tx, [creator, result.createKey]);
+  logger.info(`Sending multisig_create transaction...`);
+  await sendWeb3Tx(connection, creator, [result.instruction], {
+    cosigners: [result.createKey],
+    blindSign: {
+      label: "multisigCreateV2",
+      multisig: result.multisig,
+    },
+  });
 
-const vault = getVaultPda(result.multisig, clusterConfig.vaultIndex);
-if (!vault.equals(result.vault)) {
-  throw new Error(
-    `bootstrap-multisig: vault PDA mismatch: createMultisig returned ${result.vault.toBase58()}, getVaultPda returned ${vault.toBase58()}`,
+  const vault = getVaultPda(result.multisig, clusterConfig.vaultIndex);
+  if (!vault.equals(result.vault)) {
+    throw new Error(
+      `bootstrap-multisig: vault PDA mismatch: createMultisig returned ${result.vault.toBase58()}, getVaultPda returned ${vault.toBase58()}`,
+    );
+  }
+
+  logger.info(`Multisig created successfully`);
+
+  process.stdout.write(`MULTISIG_ADDRESS=${result.multisig.toBase58()}\n`);
+  process.stdout.write(`VAULT_PDA=${vault.toBase58()}\n`);
+
+  logger.info(
+    `Record both values in operational docs and replace the placeholder ` +
+      `"multisig" entry for ${cluster} in scripts/src/squads.config.ts.`,
   );
+} finally {
+  await creator.close();
 }
-
-logger.info(`Multisig created successfully`);
-
-process.stdout.write(`MULTISIG_ADDRESS=${result.multisig.toBase58()}\n`);
-process.stdout.write(`VAULT_PDA=${vault.toBase58()}\n`);
-
-logger.info(
-  `Record both values in operational docs and replace the placeholder ` +
-    `"multisig" entry for ${cluster} in scripts/src/squads.config.ts.`,
-);
