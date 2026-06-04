@@ -146,6 +146,66 @@ step::70::build_program() {
 	(cd "$REPO_ROOT" && anchor build) || log::fatal "anchor build failed"
 }
 
+# Phase 1 of bin/program-initial-deploy spends ProgramData rent
+# (program_size * multiplier + ~45 bytes overhead). Phase 3 spends an
+# upgrade-buffer rent (program_size + ~37 bytes overhead). Both come
+# from the payer. The rehearsal previously assumed the payer was "big
+# enough"; on a 485 KB program with the default 2.0x multiplier it
+# needs ~10.2 SOL up-front, and a half-funded payer fails Phase 3 after
+# Phase 1 already locked the ProgramData rent behind the multisig.
+# Compute exact requirements via `solana rent` and fail loudly if the
+# payer is short, so the operator can top up before any value moves.
+step::75::ensure_payer_funded() {
+	local so_path="$REPO_ROOT/target/deploy/flex.so"
+	[[ -f $so_path ]] || log::fatal "flex.so missing at $so_path (step::70 should have produced it)"
+	local program_size
+	program_size=$(wc -c <"$so_path" | tr -d ' ')
+	[[ -n $program_size && $program_size -gt 0 ]] || log::fatal "could not determine flex.so size"
+
+	local multiplier="${FLEX_INITIAL_DEPLOY_MAX_LEN_MULTIPLIER:-2.0}"
+	# Match initial-deploy.ts's Math.ceil(programSize * multiplier).
+	local max_len
+	max_len=$(awk -v s="$program_size" -v m="$multiplier" 'BEGIN { printf "%d", ((s*m)==int(s*m)) ? s*m : int(s*m)+1 }')
+
+	# UpgradeableLoaderState::ProgramData header is 45 bytes;
+	# UpgradeableLoaderState::Buffer header is 37 bytes. Query
+	# `solana rent` for the authoritative cluster-side rent calc rather
+	# than reimplementing the formula here.
+	local pd_size=$((max_len + 45))
+	local buf_size=$((program_size + 37))
+	local rpc_url="${DEVNET_RPC_URL:-https://api.devnet.solana.com}"
+	local pd_rent buf_rent
+	pd_rent=$(solana rent "$pd_size" --url "$rpc_url" 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+	buf_rent=$(solana rent "$buf_size" --url "$rpc_url" 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+	[[ -n $pd_rent && -n $buf_rent ]] || log::fatal "failed to query solana rent for $rpc_url"
+
+	# Slop covers tx fees + set-buffer-authority + set-upgrade-authority
+	# + a small margin for unrelated CLI invocations. 0.1 SOL is empirically
+	# generous on devnet.
+	local slop="0.1"
+	local required
+	required=$(awk -v a="$pd_rent" -v b="$buf_rent" -v s="$slop" 'BEGIN { printf "%.4f", a+b+s }')
+
+	local payer_balance
+	payer_balance=$(solana balance "$PAYER_PUBKEY" --url "$rpc_url" 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+	[[ -n $payer_balance ]] || log::fatal "could not read payer balance for $PAYER_PUBKEY"
+
+	log::info "payer SOL budget:"
+	log::info "  Phase 1 ProgramData rent (size=$pd_size, mult=$multiplier): $pd_rent SOL"
+	log::info "  Phase 3 buffer rent      (size=$buf_size):                  $buf_rent SOL"
+	log::info "  Tx-fee + authority-swap slop:                                $slop SOL"
+	log::info "  Required total: $required SOL"
+	log::info "  Payer balance:  $payer_balance SOL ($PAYER_PUBKEY)"
+
+	local short
+	short=$(awk -v r="$required" -v p="$payer_balance" 'BEGIN { d=r-p; printf "%.4f", (d>0)?d:0 }')
+	if awk -v p="$payer_balance" -v r="$required" 'BEGIN { exit (p+0 >= r+0) ? 0 : 1 }'; then
+		log::info "payer funding OK"
+	else
+		log::fatal "payer is short $short SOL; fund $PAYER_PUBKEY to >= $required SOL before retrying (e.g. 'solana transfer --from $LEDGER_URL --allow-unfunded-recipient $PAYER_PUBKEY $short --url $rpc_url')"
+	fi
+}
+
 step::80::bootstrap_multisig() {
 	if [[ -f $REHEARSAL_DIR/multisig ]]; then
 		MULTISIG=$(cat "$REHEARSAL_DIR/multisig")
