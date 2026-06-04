@@ -204,17 +204,21 @@ step::90::initial_deploy() {
 	# to land, then write the value to the FIFO.
 	log::info "waiting for Phase 2 vault-PDA prompt..."
 	local vault_pda=""
-	for _ in $(seq 1 1200); do
-		# `|| true` keeps the pipeline's exit code at 0 even when grep
-		# matches nothing — opsh runs the script with `set -euo pipefail`
-		# so a non-zero pipeline kills the rehearsal and triggers the
-		# EXIT trap before bin/program-initial-deploy has finished
-		# loading its config.
+	# Use a deadline-driven while loop with explicit iteration logging
+	# every 30s; `for _ in $(seq ...)` interacted badly with opsh's
+	# set -e and was running zero iterations.
+	local deadline=$(($(date +%s) + 1800))
+	local last_log=$(date +%s)
+	while (( $(date +%s) < deadline )); do
 		vault_pda=$(grep -oE 'vault pda:[[:space:]]+[A-HJ-NP-Za-km-z1-9]{32,44}' "$deploy_log" 2>/dev/null | tail -1 | awk '{print $NF}' || true)
 		if [[ -n $vault_pda ]] && grep -q "retype the vault PDA exactly to proceed" "$deploy_log" 2>/dev/null; then
 			break
 		fi
-		sleep 1
+		if (( $(date +%s) - last_log >= 30 )); then
+			log::info "still waiting for Phase 2 prompt ($(date -u +%H:%M:%SZ))"
+			last_log=$(date +%s)
+		fi
+		sleep 2
 	done
 	[[ -n $vault_pda ]] || log::fatal "vault PDA never printed; see $deploy_log"
 	log::info "feeding vault PDA ($vault_pda) to FIFO"
@@ -226,7 +230,8 @@ step::90::initial_deploy() {
 	# payer execute, then feed 'executed' to unblock the inner prompt.
 	log::info "waiting for Phase 3 proposal + state file..."
 	local state_file=""
-	for _ in $(seq 1 60); do
+	deadline=$(($(date +%s) + 120))
+	while (( $(date +%s) < deadline )); do
 		state_file=$(grep -oE 'state file:[[:space:]]+[^[:space:]]+' "$deploy_log" 2>/dev/null | tail -1 | awk '{print $NF}' || true)
 		[[ -n $state_file ]] && break
 		sleep 1
@@ -234,14 +239,20 @@ step::90::initial_deploy() {
 	[[ -n $state_file ]] || log::fatal "state file path not in $deploy_log"
 
 	local upgrade_tx_index=""
-	for _ in $(seq 1 1200); do
+	deadline=$(($(date +%s) + 1800))
+	last_log=$(date +%s)
+	while (( $(date +%s) < deadline )); do
 		if [[ -f $state_file ]]; then
 			upgrade_tx_index=$(jq -r '.transaction_index // empty' "$state_file" 2>/dev/null || true)
 		fi
 		if [[ -n $upgrade_tx_index ]] && grep -q "type 'executed' once the Squads UI" "$deploy_log" 2>/dev/null; then
 			break
 		fi
-		sleep 1
+		if (( $(date +%s) - last_log >= 30 )); then
+			log::info "still waiting for Phase 3 proposal ($(date -u +%H:%M:%SZ))"
+			last_log=$(date +%s)
+		fi
+		sleep 2
 	done
 	[[ -n $upgrade_tx_index ]] || log::fatal "Phase 3 proposal transaction_index missing from $state_file"
 	log::info "Phase 3 upgrade proposal tx-index: $upgrade_tx_index"
@@ -253,11 +264,12 @@ step::90::initial_deploy() {
 
 	# Phase 4 prints the key-destruction reminder and prompts 'read'.
 	log::info "waiting for Phase 4 key-destruction acknowledgement..."
-	for _ in $(seq 1 600); do
+	deadline=$(($(date +%s) + 600))
+	while (( $(date +%s) < deadline )); do
 		if grep -q "type 'read' to confirm" "$deploy_log" 2>/dev/null; then
 			break
 		fi
-		sleep 1
+		sleep 2
 	done
 	log::info "feeding 'read' to FIFO"
 	printf '%s\n' "read" >"$INPUT_FIFO"
@@ -322,10 +334,11 @@ step::96::close_program_data() {
 	# proposal-create may take a while with the user verifying the
 	# blind-sign hash, but 5min covers the slow case).
 	local close_tx_index=""
-	for _ in $(seq 1 300); do
-		close_tx_index=$(grep -oE 'tx index:[[:space:]]+[0-9]+' "$close_log" | tail -1 | grep -oE '[0-9]+$' || true)
+	local close_deadline=$(($(date +%s) + 300))
+	while (( $(date +%s) < close_deadline )); do
+		close_tx_index=$(grep -oE 'tx index:[[:space:]]+[0-9]+' "$close_log" 2>/dev/null | tail -1 | grep -oE '[0-9]+$' || true)
 		[[ -n $close_tx_index ]] && break
-		sleep 1
+		sleep 2
 	done
 	[[ -n $close_tx_index ]] || log::fatal "could not parse close proposal tx-index from $close_log within 300s"
 	log::info "close proposal tx-index: $close_tx_index"
