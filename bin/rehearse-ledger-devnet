@@ -205,8 +205,13 @@ step::90::initial_deploy() {
 	log::info "waiting for Phase 2 vault-PDA prompt..."
 	local vault_pda=""
 	for _ in $(seq 1 1200); do
-		vault_pda=$(grep -oE 'vault pda:[[:space:]]+[A-HJ-NP-Za-km-z1-9]{32,44}' "$deploy_log" | tail -1 | awk '{print $NF}')
-		if [[ -n $vault_pda ]] && grep -q "retype the vault PDA exactly to proceed" "$deploy_log"; then
+		# `|| true` keeps the pipeline's exit code at 0 even when grep
+		# matches nothing — opsh runs the script with `set -euo pipefail`
+		# so a non-zero pipeline kills the rehearsal and triggers the
+		# EXIT trap before bin/program-initial-deploy has finished
+		# loading its config.
+		vault_pda=$(grep -oE 'vault pda:[[:space:]]+[A-HJ-NP-Za-km-z1-9]{32,44}' "$deploy_log" 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+		if [[ -n $vault_pda ]] && grep -q "retype the vault PDA exactly to proceed" "$deploy_log" 2>/dev/null; then
 			break
 		fi
 		sleep 1
@@ -220,16 +225,20 @@ step::90::initial_deploy() {
 	# out of the state file, drive Ledger approve + payer approve +
 	# payer execute, then feed 'executed' to unblock the inner prompt.
 	log::info "waiting for Phase 3 proposal + state file..."
-	local state_file
-	state_file=$(grep -oE 'state file:[[:space:]]+[^[:space:]]+' "$deploy_log" | tail -1 | awk '{print $NF}')
+	local state_file=""
+	for _ in $(seq 1 60); do
+		state_file=$(grep -oE 'state file:[[:space:]]+[^[:space:]]+' "$deploy_log" 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+		[[ -n $state_file ]] && break
+		sleep 1
+	done
 	[[ -n $state_file ]] || log::fatal "state file path not in $deploy_log"
 
 	local upgrade_tx_index=""
 	for _ in $(seq 1 1200); do
 		if [[ -f $state_file ]]; then
-			upgrade_tx_index=$(jq -r '.transaction_index // empty' "$state_file" 2>/dev/null || echo "")
+			upgrade_tx_index=$(jq -r '.transaction_index // empty' "$state_file" 2>/dev/null || true)
 		fi
-		if [[ -n $upgrade_tx_index ]] && grep -q "type 'executed' once the Squads UI" "$deploy_log"; then
+		if [[ -n $upgrade_tx_index ]] && grep -q "type 'executed' once the Squads UI" "$deploy_log" 2>/dev/null; then
 			break
 		fi
 		sleep 1
@@ -245,7 +254,9 @@ step::90::initial_deploy() {
 	# Phase 4 prints the key-destruction reminder and prompts 'read'.
 	log::info "waiting for Phase 4 key-destruction acknowledgement..."
 	for _ in $(seq 1 600); do
-		grep -q "type 'read' to confirm" "$deploy_log" && break
+		if grep -q "type 'read' to confirm" "$deploy_log" 2>/dev/null; then
+			break
+		fi
 		sleep 1
 	done
 	log::info "feeding 'read' to FIFO"
