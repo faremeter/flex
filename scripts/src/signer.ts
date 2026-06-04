@@ -1,0 +1,319 @@
+// Signer abstraction for the release tooling.
+//
+// The release scripts compose Squads multisig proposals and send the
+// resulting transactions signed by an operator key. That key may live
+// on disk (a JSON keypair file) or on a Ledger device; both are valid
+// operator postures. This module exposes a single `Signer` interface
+// over both, plus a URL parser that picks the implementation.
+//
+// Conventions:
+//
+// - Plain filesystem path  -> keypair signer (in-memory secret).
+// - `usb://ledger?key=N`   -> Ledger signer (USB HID transport).
+// - Optional `&change=M`     adds the fourth BIP32 derivation level.
+//
+// The Ledger entry point opens the USB HID transport, fetches the
+// on-device public key, and reads `getAppConfiguration` so the
+// operator can be warned at transport-open time if blind signing is
+// not enabled, rather than at the first signing call.
+
+import {
+  PublicKey,
+  Transaction,
+  VersionedTransaction,
+  Keypair,
+} from "@solana/web3.js";
+import TransportNodeHid from "@ledgerhq/hw-transport-node-hid";
+import type Transport from "@ledgerhq/hw-transport";
+import Solana from "@ledgerhq/hw-app-solana";
+import fs from "node:fs";
+import path from "node:path";
+import { requireEnv } from "./cli-helpers";
+
+export interface Signer {
+  readonly kind: "keypair" | "ledger";
+  readonly publicKey: PublicKey;
+  readonly url: string;
+  signTransaction(tx: Transaction): Promise<Transaction>;
+  signVersionedTransaction(
+    tx: VersionedTransaction,
+  ): Promise<VersionedTransaction>;
+  close(): Promise<void>;
+}
+
+// ---- Keypair signer (in-memory secret) ----
+
+// Test/internal helper that wraps an already-loaded Keypair. Production
+// callers go through `createKeypairSignerFromFile` or `parseSignerURL`,
+// which set the signer's `url` field to a synthesized `file://` form
+// built from the resolved absolute path. The field is informational
+// only — used for logging — and is not the operator's literal input.
+export function createKeypairSigner(kp: Keypair, url: string): Signer {
+  return {
+    kind: "keypair",
+    publicKey: kp.publicKey,
+    url,
+    async signTransaction(tx: Transaction): Promise<Transaction> {
+      tx.partialSign(kp);
+      return tx;
+    },
+    async signVersionedTransaction(
+      tx: VersionedTransaction,
+    ): Promise<VersionedTransaction> {
+      tx.sign([kp]);
+      return tx;
+    },
+    async close(): Promise<void> {
+      // No transport to release.
+    },
+  };
+}
+
+export async function createKeypairSignerFromFile(
+  filePath: string,
+): Promise<Signer> {
+  const resolved = path.resolve(filePath);
+  const raw = JSON.parse(fs.readFileSync(resolved, "utf-8")) as number[];
+  const kp = Keypair.fromSecretKey(Uint8Array.from(raw));
+  return createKeypairSigner(kp, `file://${resolved}`);
+}
+
+// ---- Ledger signer (USB HID transport) ----
+
+// Solana CLI default BIP32 derivation for `usb://ledger?key=N` is
+// `44'/501'/N'`. The optional `&change=M` query parameter adds a
+// fourth `/M'` level, matching the CLI's `?key=N/M` shorthand.
+function deriveSolanaPath(key: number, change: number | null): string {
+  const tail = change === null ? "" : `/${change.toString()}'`;
+  return `44'/501'/${key.toString()}'${tail}`;
+}
+
+// Public-facing extras that are only meaningful for a Ledger signer.
+// Callers (e.g. the blind-sign warning UI) narrow via `signer.kind`
+// and then read these fields directly.
+export interface LedgerSignerExtras {
+  readonly derivationPath: string;
+  readonly blindSigningEnabled: boolean;
+}
+
+// Returned by the Ledger factory; combines the base Signer contract
+// with the Ledger-specific fields the caller may want to inspect.
+export type LedgerSigner = Signer & { kind: "ledger" } & LedgerSignerExtras;
+
+// Test/internal helper that constructs a Ledger signer around a
+// pre-existing transport and Solana app. Production callers must go
+// through `openLedgerSigner` so the real USB HID handshake runs.
+export function createLedgerSigner(args: {
+  transport: Transport;
+  app: Solana;
+  derivationPath: string;
+  blindSigningEnabled: boolean;
+  pubkeyBytes: Buffer;
+  url: string;
+}): LedgerSigner {
+  const publicKey = new PublicKey(args.pubkeyBytes);
+  return {
+    kind: "ledger",
+    publicKey,
+    url: args.url,
+    derivationPath: args.derivationPath,
+    blindSigningEnabled: args.blindSigningEnabled,
+    async signTransaction(tx: Transaction): Promise<Transaction> {
+      const messageBytes = tx.compileMessage().serialize();
+      const { signature } = await args.app.signTransaction(
+        args.derivationPath,
+        messageBytes,
+      );
+      tx.addSignature(publicKey, signature);
+      return tx;
+    },
+    async signVersionedTransaction(
+      tx: VersionedTransaction,
+    ): Promise<VersionedTransaction> {
+      const messageBytes = Buffer.from(tx.message.serialize());
+      const { signature } = await args.app.signTransaction(
+        args.derivationPath,
+        messageBytes,
+      );
+      tx.addSignature(publicKey, signature);
+      return tx;
+    },
+    async close(): Promise<void> {
+      await args.transport.close();
+    },
+  };
+}
+
+export async function openLedgerSigner(
+  url: string,
+  derivationPath: string,
+): Promise<LedgerSigner> {
+  const supported = await TransportNodeHid.isSupported();
+  if (!supported) {
+    throw new Error(
+      "Ledger USB HID transport is not supported on this host; " +
+        "verify @ledgerhq/hw-transport-node-hid installed cleanly " +
+        "(node-hid native binding present in node_modules/node-hid/build/Release/)",
+    );
+  }
+  // open(null) picks the first attached Ledger; we deliberately do
+  // not surface a path/device-id selector — the operator's release
+  // procedure runs one device at a time and a second attached device
+  // is operator error rather than a configuration option.
+  const transport = await TransportNodeHid.open(null);
+  let app: Solana;
+  let address: { address: Buffer };
+  let appConfig: { blindSigningEnabled: boolean; version: string };
+  try {
+    app = new Solana(transport);
+    appConfig = await app.getAppConfiguration();
+    address = await app.getAddress(derivationPath);
+  } catch (err) {
+    // Best-effort transport release; do not let a close-side error
+    // mask the underlying APDU failure (the one the operator actually
+    // needs to see). When close itself throws, throw the close error
+    // wrapped around the original `err` as its `cause`, and attach the
+    // close-side error as a second link so standard
+    // `error.cause instanceof Error` walkers reach the original APDU
+    // failure (which is what the operator actually needs to debug).
+    try {
+      await transport.close();
+    } catch (closeErr) {
+      const openErr = err instanceof Error ? err : new Error(String(err));
+      const closeErrObj =
+        closeErr instanceof Error ? closeErr : new Error(String(closeErr));
+      const wrapped = new Error(
+        "openLedgerSigner: transport open failed and the cleanup close also failed",
+        { cause: openErr },
+      );
+      // Attach the close-side error as a sibling link so a forensic
+      // reader can still see both. `cause` is the primary chain.
+      Object.defineProperty(wrapped, "closeCause", {
+        value: closeErrObj,
+        enumerable: false,
+      });
+      throw wrapped;
+    }
+    throw err;
+  }
+  if (!appConfig.blindSigningEnabled) {
+    process.stderr.write(
+      "WARNING: Ledger Solana app blind signing is DISABLED. " +
+        "Squads instructions are not natively decoded by the app and will fail to sign " +
+        "until you enable Settings -> Allow blind signing on the device.\n",
+    );
+  }
+  return createLedgerSigner({
+    transport,
+    app,
+    derivationPath,
+    blindSigningEnabled: appConfig.blindSigningEnabled,
+    pubkeyBytes: address.address,
+    url,
+  });
+}
+
+// ---- URL parsers ----
+
+// Parses a signer URL and opens the underlying signer. The caller is
+// responsible for `await signer.close()` once it is done — for a
+// Ledger signer this releases the USB HID handle so Ledger Live or
+// another shell can attach immediately afterwards.
+//
+// Only two forms are accepted: a plain filesystem path, or a
+// `usb://ledger?key=N[&change=M]` URL. `file://` is intentionally not
+// supported — the `solana` CLI does not accept it at `--keypair`, so
+// shipping it as a TypeScript-only alias would create a quiet
+// capability hole at the first shellout.
+export async function parseSignerURL(spec: string): Promise<Signer> {
+  const trimmed = spec.trim();
+  if (trimmed.length === 0) {
+    throw new Error("signer URL is empty");
+  }
+  if (/^usb:\/\//i.test(trimmed)) {
+    return openLedgerSignerFromURL(trimmed);
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    throw new Error(
+      `unsupported signer URL scheme: ${trimmed}; only file paths and usb://ledger?key=N are accepted`,
+    );
+  }
+  return createKeypairSignerFromFile(trimmed);
+}
+
+// Splits `usb://ledger?key=N[&change=M]` into the URL and the BIP32
+// derivation path. Exported as a separate pure function so callers can
+// validate a Ledger URL without opening the USB transport — tests
+// exercise this without hardware, and a future "list ledger devices"
+// command can reuse it.
+export function parseLedgerURLSpec(spec: string): {
+  url: string;
+  derivationPath: string;
+} {
+  const url = new URL(spec);
+  if (url.host !== "ledger") {
+    throw new Error(
+      `unsupported usb:// host ${url.host}; expected usb://ledger?key=N`,
+    );
+  }
+  const keyParam = url.searchParams.get("key");
+  if (keyParam === null) {
+    throw new Error(
+      `${spec}: usb://ledger URL must include ?key=N (the Solana account index)`,
+    );
+  }
+  const key = Number.parseInt(keyParam, 10);
+  if (
+    !Number.isInteger(key) ||
+    key < 0 ||
+    key > 2 ** 31 - 1 ||
+    String(key) !== keyParam
+  ) {
+    throw new Error(
+      `${spec}: usb://ledger key must be a non-negative integer; got ${keyParam}`,
+    );
+  }
+  const changeParam = url.searchParams.get("change");
+  let change: number | null = null;
+  if (changeParam !== null) {
+    const parsed = Number.parseInt(changeParam, 10);
+    if (
+      !Number.isInteger(parsed) ||
+      parsed < 0 ||
+      parsed > 2 ** 31 - 1 ||
+      String(parsed) !== changeParam
+    ) {
+      throw new Error(
+        `${spec}: usb://ledger change must be a non-negative integer; got ${changeParam}`,
+      );
+    }
+    change = parsed;
+  }
+  return { url: spec, derivationPath: deriveSolanaPath(key, change) };
+}
+
+async function openLedgerSignerFromURL(spec: string): Promise<Signer> {
+  const { derivationPath } = parseLedgerURLSpec(spec);
+  return openLedgerSigner(spec, derivationPath);
+}
+
+// Env-var helper for an operator-payer signer URL. Accepted forms are
+// a plain filesystem path (must exist on disk) or a
+// `usb://ledger?key=N[&change=M]` URL (passed through unchanged;
+// transport validation defers to `openLedgerSigner`).
+export function requireSignerURL(name: string): string {
+  const v = requireEnv(name);
+  if (/^usb:\/\//i.test(v)) {
+    return v;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
+    throw new Error(
+      `${name} uses an unsupported signer URL scheme: ${v}; only file paths and usb://ledger?key=N are accepted`,
+    );
+  }
+  if (!fs.existsSync(v)) {
+    throw new Error(`${name} does not point to a file: ${v}`);
+  }
+  return v;
+}
+
