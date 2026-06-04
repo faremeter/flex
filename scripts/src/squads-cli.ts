@@ -1,23 +1,17 @@
 import "dotenv/config";
-import {
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  TransactionMessage,
-  VersionedTransaction,
-  sendAndConfirmTransaction,
-} from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { instructions as squadsInstructions } from "@sqds/multisig";
 import { configureApp, getLogger } from "@faremeter/logs";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import { createUpgradeProposal, getVaultPda } from "./squads";
-import { connectionFor, loadWeb3Keypair } from "./solana";
+import { connectionFor, sendVersionedWeb3Tx, sendWeb3Tx } from "./solana";
+import { parseSignerURL } from "./signer";
 import {
   emit,
   invocationName,
   parseCluster,
-  requireEnvFile,
+  requireSignerURL,
 } from "./cli-helpers";
 
 await configureApp();
@@ -47,8 +41,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the member keypair casting the vote;
-                          required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the member casting the vote;
+                          required. Accepts a filesystem path to a
+                          JSON keypair, or usb://ledger?key=N for a
+                          Ledger device.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -77,8 +73,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the member keypair casting the vote;
-                          required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the member casting the vote;
+                          required. Accepts a filesystem path to a
+                          JSON keypair, or usb://ledger?key=N for a
+                          Ledger device.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -122,9 +120,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the keypair that submits the
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the keypair that submits the
                           proposal-creation transaction; must be a
-                          member of the multisig. Required.
+                          member of the multisig. Required. Accepts a
+                          filesystem path or usb://ledger?key=N.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -150,8 +149,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the keypair that signs and pays the
-                          execute transaction; required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the keypair that signs and
+                          pays the execute transaction; required.
+                          Accepts a filesystem path or
+                          usb://ledger?key=N.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -213,32 +214,40 @@ async function cmdApprove(args: string[]): Promise<void> {
     args,
     "approve",
   );
-  const member = loadWeb3Keypair(requireEnvFile("OPERATOR_PAYER_KEYPAIR"));
-  const connection = connectionFor(cluster, rpcOverride);
-
-  logger.info(
-    `approve: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} member=${member.publicKey.toBase58()}`,
+  const member = await parseSignerURL(
+    requireSignerURL("OPERATOR_PAYER_KEYPAIR"),
   );
+  try {
+    const connection = connectionFor(cluster, rpcOverride);
 
-  const ix = squadsInstructions.proposalApprove({
-    multisigPda: multisig,
-    transactionIndex,
-    member: member.publicKey,
-  });
+    logger.info(
+      `approve: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} member=${member.publicKey.toBase58()}`,
+    );
 
-  const sig = await sendAndConfirmTransaction(
-    connection,
-    new Transaction().add(ix),
-    [member],
-  );
+    const ix = squadsInstructions.proposalApprove({
+      multisigPda: multisig,
+      transactionIndex,
+      member: member.publicKey,
+    });
 
-  logger.info(`approve: sig=${sig}`);
-  emit({
-    sig,
-    multisig: multisig.toBase58(),
-    transactionIndex: transactionIndex.toString(),
-    member: member.publicKey.toBase58(),
-  });
+    const sig = await sendWeb3Tx(connection, member, [ix], {
+      blindSign: {
+        label: "proposalApprove",
+        multisig,
+        transactionIndex,
+      },
+    });
+
+    logger.info(`approve: sig=${sig}`);
+    emit({
+      sig,
+      multisig: multisig.toBase58(),
+      transactionIndex: transactionIndex.toString(),
+      member: member.publicKey.toBase58(),
+    });
+  } finally {
+    await member.close();
+  }
 }
 
 async function cmdExecute(args: string[]): Promise<void> {
@@ -250,57 +259,52 @@ async function cmdExecute(args: string[]): Promise<void> {
     args,
     "execute",
   );
-  const signer = loadWeb3Keypair(requireEnvFile("OPERATOR_PAYER_KEYPAIR"));
-  const connection = connectionFor(cluster, rpcOverride);
-
-  logger.info(
-    `execute: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} signer=${signer.publicKey.toBase58()}`,
+  const signer = await parseSignerURL(
+    requireSignerURL("OPERATOR_PAYER_KEYPAIR"),
   );
+  try {
+    const connection = connectionFor(cluster, rpcOverride);
 
-  // vaultTransactionExecute reads the vault transaction account on-chain
-  // to determine the inner instructions' account-meta layout, and returns
-  // the lookup-table accounts that were registered with the proposal so
-  // the caller can build a v0 transaction with them. A legacy transaction
-  // cannot carry address-lookup-table references; execute must always be
-  // sent as v0.
-  const { instruction, lookupTableAccounts } =
-    await squadsInstructions.vaultTransactionExecute({
-      connection,
-      multisigPda: multisig,
-      transactionIndex,
-      member: signer.publicKey,
-    });
-
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash("confirmed");
-
-  const message = new TransactionMessage({
-    payerKey: signer.publicKey,
-    recentBlockhash: blockhash,
-    instructions: [instruction],
-  }).compileToV0Message(lookupTableAccounts);
-
-  const tx = new VersionedTransaction(message);
-  tx.sign([signer]);
-
-  const sig = await connection.sendTransaction(tx);
-  const confirmation = await connection.confirmTransaction(
-    { signature: sig, blockhash, lastValidBlockHeight },
-    "confirmed",
-  );
-  if (confirmation.value.err !== null) {
-    throw new Error(
-      `execute: confirmation reported error: ${JSON.stringify(confirmation.value.err)}`,
+    logger.info(
+      `execute: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} signer=${signer.publicKey.toBase58()}`,
     );
-  }
 
-  logger.info(`execute: sig=${sig}`);
-  emit({
-    sig,
-    multisig: multisig.toBase58(),
-    transactionIndex: transactionIndex.toString(),
-    signer: signer.publicKey.toBase58(),
-  });
+    // vaultTransactionExecute reads the vault transaction account on-chain
+    // to determine the inner instructions' account-meta layout, and returns
+    // the lookup-table accounts that were registered with the proposal so
+    // the caller can build a v0 transaction with them. A legacy transaction
+    // cannot carry address-lookup-table references; execute must always be
+    // sent as v0.
+    const { instruction, lookupTableAccounts } =
+      await squadsInstructions.vaultTransactionExecute({
+        connection,
+        multisigPda: multisig,
+        transactionIndex,
+        member: signer.publicKey,
+      });
+
+    const sig = await sendVersionedWeb3Tx(
+      connection,
+      signer,
+      instruction,
+      lookupTableAccounts,
+      {
+        label: "vaultTransactionExecute",
+        multisig,
+        transactionIndex,
+      },
+    );
+
+    logger.info(`execute: sig=${sig}`);
+    emit({
+      sig,
+      multisig: multisig.toBase58(),
+      transactionIndex: transactionIndex.toString(),
+      signer: signer.publicKey.toBase58(),
+    });
+  } finally {
+    await signer.close();
+  }
 }
 
 async function cmdCancel(args: string[]): Promise<void> {
@@ -312,32 +316,40 @@ async function cmdCancel(args: string[]): Promise<void> {
     args,
     "cancel",
   );
-  const member = loadWeb3Keypair(requireEnvFile("OPERATOR_PAYER_KEYPAIR"));
-  const connection = connectionFor(cluster, rpcOverride);
-
-  logger.info(
-    `cancel: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} member=${member.publicKey.toBase58()}`,
+  const member = await parseSignerURL(
+    requireSignerURL("OPERATOR_PAYER_KEYPAIR"),
   );
+  try {
+    const connection = connectionFor(cluster, rpcOverride);
 
-  const ix = squadsInstructions.proposalCancelV2({
-    multisigPda: multisig,
-    transactionIndex,
-    member: member.publicKey,
-  });
+    logger.info(
+      `cancel: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} member=${member.publicKey.toBase58()}`,
+    );
 
-  const sig = await sendAndConfirmTransaction(
-    connection,
-    new Transaction().add(ix),
-    [member],
-  );
+    const ix = squadsInstructions.proposalCancelV2({
+      multisigPda: multisig,
+      transactionIndex,
+      member: member.publicKey,
+    });
 
-  logger.info(`cancel: sig=${sig}`);
-  emit({
-    sig,
-    multisig: multisig.toBase58(),
-    transactionIndex: transactionIndex.toString(),
-    member: member.publicKey.toBase58(),
-  });
+    const sig = await sendWeb3Tx(connection, member, [ix], {
+      blindSign: {
+        label: "proposalCancelV2",
+        multisig,
+        transactionIndex,
+      },
+    });
+
+    logger.info(`cancel: sig=${sig}`);
+    emit({
+      sig,
+      multisig: multisig.toBase58(),
+      transactionIndex: transactionIndex.toString(),
+      member: member.publicKey.toBase58(),
+    });
+  } finally {
+    await member.close();
+  }
 }
 
 async function cmdVaultDrain(args: string[]): Promise<void> {
@@ -375,64 +387,77 @@ async function cmdVaultDrain(args: string[]): Promise<void> {
     }
   }
 
-  const proposer = loadWeb3Keypair(requireEnvFile("OPERATOR_PAYER_KEYPAIR"));
-  const recipient = recipientOverride ?? proposer.publicKey;
-  const { multisig, vaultIndex } = squadsConfig[cluster];
-  const vault = getVaultPda(multisig, vaultIndex);
-  const connection = connectionFor(cluster, rpcOverride);
-
-  const lamports = await connection.getBalance(vault, "confirmed");
-  logger.info(
-    `vault-drain: cluster=${cluster} multisig=${multisig.toBase58()} vault=${vault.toBase58()} recipient=${recipient.toBase58()} balance=${String(lamports)}`,
+  const proposer = await parseSignerURL(
+    requireSignerURL("OPERATOR_PAYER_KEYPAIR"),
   );
-  if (lamports === 0) {
-    logger.info("vault-drain: vault is empty; not composing a proposal");
+  try {
+    const recipient = recipientOverride ?? proposer.publicKey;
+    const { multisig, vaultIndex } = squadsConfig[cluster];
+    const vault = getVaultPda(multisig, vaultIndex);
+    const connection = connectionFor(cluster, rpcOverride);
+
+    const lamports = await connection.getBalance(vault, "confirmed");
+    logger.info(
+      `vault-drain: cluster=${cluster} multisig=${multisig.toBase58()} vault=${vault.toBase58()} recipient=${recipient.toBase58()} balance=${String(lamports)}`,
+    );
+    if (lamports === 0) {
+      logger.info("vault-drain: vault is empty; not composing a proposal");
+      emit({
+        skipped: true,
+        multisig: multisig.toBase58(),
+        vault: vault.toBase58(),
+        recipient: recipient.toBase58(),
+        lamports: 0,
+      });
+      return;
+    }
+
+    const proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [
+        SystemProgram.transfer({
+          fromPubkey: vault,
+          toPubkey: recipient,
+          lamports,
+        }),
+      ],
+      proposer: proposer.publicKey,
+    });
+
+    const sig = await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (vault-drain)",
+          multisig,
+          vaultPDA: vault,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+
+    logger.info(
+      `vault-drain: composed proposal txIndex=${proposal.transactionIndex.toString()} sig=${sig}`,
+    );
     emit({
-      skipped: true,
+      sig,
       multisig: multisig.toBase58(),
+      transactionIndex: proposal.transactionIndex.toString(),
+      proposalPda: proposal.proposalPda.toBase58(),
+      transactionPda: proposal.transactionPda.toBase58(),
       vault: vault.toBase58(),
       recipient: recipient.toBase58(),
-      lamports: 0,
+      lamports,
     });
-    return;
+  } finally {
+    await proposer.close();
   }
-
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [
-      SystemProgram.transfer({
-        fromPubkey: vault,
-        toPubkey: recipient,
-        lamports,
-      }),
-    ],
-    proposer: proposer.publicKey,
-  });
-
-  const sig = await sendAndConfirmTransaction(
-    connection,
-    new Transaction().add(
-      proposal.vaultTransactionCreateIx,
-      proposal.proposalCreateIx,
-    ),
-    [proposer],
-  );
-
-  logger.info(
-    `vault-drain: composed proposal txIndex=${proposal.transactionIndex.toString()} sig=${sig}`,
-  );
-  emit({
-    sig,
-    multisig: multisig.toBase58(),
-    transactionIndex: proposal.transactionIndex.toString(),
-    proposalPda: proposal.proposalPda.toBase58(),
-    transactionPda: proposal.transactionPda.toBase58(),
-    vault: vault.toBase58(),
-    recipient: recipient.toBase58(),
-    lamports,
-  });
 }
 
 type Subcommand = (args: string[]) => Promise<void>;

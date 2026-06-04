@@ -44,12 +44,31 @@ export function requireEnv(name: string): string {
   return trimmed;
 }
 
-export function requireEnvFile(name: string): string {
-  const v = requireEnv(name);
-  if (!fs.existsSync(v)) {
-    throw new Error(`${name} does not point to a file: ${v}`);
+// Asserts that `value` is a syntactically valid signer URL: either a
+// plain filesystem path that exists on disk, or a `usb://ledger?key=N`
+// URL. `file://` and other URL schemes are rejected here so a
+// misconfigured operator input fails at the validation layer rather
+// than at a later `parseSignerURL` call inside a helper. `source`
+// names the input for the error message (env-var name, CLI flag, etc).
+export function validateSignerURL(source: string, value: string): string {
+  if (/^usb:\/\//i.test(value)) {
+    return value;
   }
-  return v;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    throw new Error(
+      `${source} uses an unsupported signer URL scheme: ${value}; only file paths and usb://ledger?key=N are accepted`,
+    );
+  }
+  if (!fs.existsSync(value)) {
+    throw new Error(`${source} does not point to a file: ${value}`);
+  }
+  return value;
+}
+
+// Env-var variant of `validateSignerURL`: reads `name` from the
+// environment, asserts presence, then validates the value.
+export function requireSignerURL(name: string): string {
+  return validateSignerURL(name, requireEnv(name));
 }
 
 export function commandExists(name: string): boolean {

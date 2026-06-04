@@ -28,7 +28,6 @@ import type Transport from "@ledgerhq/hw-transport";
 import Solana from "@ledgerhq/hw-app-solana";
 import fs from "node:fs";
 import path from "node:path";
-import { requireEnv } from "./cli-helpers";
 
 export interface Signer {
   readonly kind: "keypair" | "ledger";
@@ -295,25 +294,5 @@ export function parseLedgerURLSpec(spec: string): {
 async function openLedgerSignerFromURL(spec: string): Promise<Signer> {
   const { derivationPath } = parseLedgerURLSpec(spec);
   return openLedgerSigner(spec, derivationPath);
-}
-
-// Env-var helper for an operator-payer signer URL. Accepted forms are
-// a plain filesystem path (must exist on disk) or a
-// `usb://ledger?key=N[&change=M]` URL (passed through unchanged;
-// transport validation defers to `openLedgerSigner`).
-export function requireSignerURL(name: string): string {
-  const v = requireEnv(name);
-  if (/^usb:\/\//i.test(v)) {
-    return v;
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
-    throw new Error(
-      `${name} uses an unsupported signer URL scheme: ${v}; only file paths and usb://ledger?key=N are accepted`,
-    );
-  }
-  if (!fs.existsSync(v)) {
-    throw new Error(`${name} does not point to a file: ${v}`);
-  }
-  return v;
 }
 

@@ -15,9 +15,9 @@ import {
   createLedgerSigner,
   parseLedgerURLSpec,
   parseSignerURL,
-  requireSignerURL,
   type LedgerSigner,
 } from "./signer";
+import { requireSignerURL } from "./cli-helpers";
 import type Solana from "@ledgerhq/hw-app-solana";
 import type Transport from "@ledgerhq/hw-transport";
 

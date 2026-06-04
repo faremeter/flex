@@ -15,14 +15,15 @@ import {
   readUpgradeAuthority,
   sha256OfDeployedProgram,
 } from "./program-version";
-import { connectionFor, loadWeb3Keypair, sendWeb3Tx } from "./solana";
+import { connectionFor, sendWeb3Tx } from "./solana";
+import { parseSignerURL } from "./signer";
 import {
   closePromptReadline,
   initStateFile as initStateFileShared,
   invocationName,
+  requireSignerURL,
   parseCluster,
   prompt,
-  requireEnvFile,
   runSolana as runSolanaShared,
   sha256OfFile,
   stateSet,
@@ -61,8 +62,10 @@ Executes the four-phase initial deploy for the Flex Anchor program:
 
 Environment:
 
-  OPERATOR_PAYER_KEYPAIR  Path to the operator's payer keypair JSON.
-                          Required.
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the operator payer. Required.
+                          Accepts a filesystem path to a JSON keypair,
+                          or usb://ledger?key=N[&change=M] for a
+                          Ledger device.
 
   MAINNET_RPC_URL         Required when cluster is \`mainnet\`.
 
@@ -199,7 +202,7 @@ async function runLivenessTest(
   cluster: Cluster,
   soPath: string,
 ): Promise<LivenessTestResult> {
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
   const resolvedSoPath = path.resolve(soPath);
   if (!fs.existsSync(resolvedSoPath)) {
     throw new Error(`shared object not found: ${resolvedSoPath}`);
@@ -230,7 +233,7 @@ async function runLivenessTest(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorPayerURL,
     resolvedSoPath,
   ]);
   const bufferAddress = extractBufferAddress(writeBufferOutput);
@@ -245,7 +248,7 @@ async function runLivenessTest(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorPayerURL,
     bufferAddress.toBase58(),
     "--new-buffer-authority",
     vaultPDA.toBase58(),
@@ -257,31 +260,45 @@ async function runLivenessTest(
     authority: vaultPDA,
   });
 
-  const operator = loadWeb3Keypair(operatorKeypair);
+  const operator = await parseSignerURL(operatorPayerURL);
+  try {
+    const proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [upgradeIx],
+      proposer: operator.publicKey,
+    });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [upgradeIx],
-    proposer: operator.publicKey,
-  });
+    logger.info(
+      `submitting Squads proposal-creation transaction (proposer=${operator.publicKey.toBase58()})`,
+    );
+    await sendWeb3Tx(
+      connection,
+      operator,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (initial-deploy)",
+          multisig,
+          vaultPDA,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
 
-  logger.info(
-    `submitting Squads proposal-creation transaction (proposer=${operator.publicKey.toBase58()})`,
-  );
-  await sendWeb3Tx(connection, operator, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
-
-  return {
-    proposalPda: proposal.proposalPda,
-    transactionPda: proposal.transactionPda,
-    transactionIndex: proposal.transactionIndex,
-    bufferAddress,
-    squadsUrl: proposal.squadsUrl,
-  };
+    return {
+      proposalPda: proposal.proposalPda,
+      transactionPda: proposal.transactionPda,
+      transactionIndex: proposal.transactionIndex,
+      bufferAddress,
+      squadsUrl: proposal.squadsUrl,
+    };
+  } finally {
+    await operator.close();
+  }
 }
 
 async function pollDeployedShaMatches(
@@ -317,7 +334,7 @@ async function pollDeployedShaMatches(
 // ---------- the orchestrator (the bin script's entire payload) ----------
 
 function preflight(cluster: Cluster): {
-  operatorKeypair: string;
+  operatorPayerURL: string;
   rpcURL: string;
   programId: PublicKey;
   vaultPDA: PublicKey;
@@ -333,7 +350,7 @@ function preflight(cluster: Cluster): {
       `program keypair not found: ${KEYPAIR_PATH}; if you relocated the keypair out-of-band after the original keygen, copy it back to that path before running initial-deploy`,
     );
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
 
   const connection = connectionFor(cluster);
   const rpcURL = connection.rpcEndpoint;
@@ -347,13 +364,13 @@ function preflight(cluster: Cluster): {
   logger.info(`multisig:   ${multisig.toBase58()}`);
   logger.info(`vault pda:  ${vaultPDA.toBase58()}`);
 
-  return { operatorKeypair, rpcURL, programId, vaultPDA, multisig };
+  return { operatorPayerURL, rpcURL, programId, vaultPDA, multisig };
 }
 
 async function phase1Deploy(
   cluster: Cluster,
   rpcURL: string,
-  operatorKeypair: string,
+  operatorPayerURL: string,
   programId: PublicKey,
 ): Promise<void> {
   logger.info(
@@ -382,7 +399,7 @@ async function phase1Deploy(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorPayerURL,
     "--program-id",
     KEYPAIR_PATH,
     "--max-len",
@@ -397,7 +414,7 @@ async function phase1Deploy(
 async function phase2Handoff(
   cluster: Cluster,
   rpcURL: string,
-  operatorKeypair: string,
+  operatorPayerURL: string,
   programId: PublicKey,
   vaultPDA: PublicKey,
 ): Promise<void> {
@@ -426,7 +443,7 @@ async function phase2Handoff(
     "--url",
     rpcURL,
     "--keypair",
-    operatorKeypair,
+    operatorPayerURL,
     "--new-upgrade-authority",
     vaultPDA.toBase58(),
     "--skip-new-upgrade-authority-signer-check",
@@ -556,7 +573,7 @@ async function cmdRun(args: string[]): Promise<void> {
   await phase1Deploy(
     cluster,
     config.rpcURL,
-    config.operatorKeypair,
+    config.operatorPayerURL,
     config.programId,
   );
   stateSet(stateFile, "phase1_complete", true);
@@ -564,7 +581,7 @@ async function cmdRun(args: string[]): Promise<void> {
   await phase2Handoff(
     cluster,
     config.rpcURL,
-    config.operatorKeypair,
+    config.operatorPayerURL,
     config.programId,
     config.vaultPDA,
   );

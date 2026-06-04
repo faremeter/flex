@@ -5,28 +5,34 @@ import { configureApp, getLogger } from "@faremeter/logs";
 import path from "path";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
+
 import {
   createUpgradeProposal,
+  type UpgradeProposal,
   getMultisigConfig,
   getVaultPda,
   guardNoOpenProposalsForProgram,
 } from "./squads";
+
 import {
   BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
   deriveProgramDataAddress,
 } from "./bpf-loader-pda";
 import { buildCloseBufferIx, buildCloseProgramDataIx } from "./bpf-loader-ix";
 import { readUpgradeAuthority } from "./program-version";
-import { connectionFor, loadWeb3Keypair, sendWeb3Tx } from "./solana";
+import { connectionFor, sendWeb3Tx } from "./solana";
+import { parseSignerURL } from "./signer";
+
 import {
   closePromptReadline,
   commandExists,
   emit,
   initStateFile as initStateFileShared,
   invocationName,
+  requireSignerURL,
+  validateSignerURL,
   parseCluster,
   prompt as promptOperator,
-  requireEnvFile,
   stateSet,
 } from "./cli-helpers";
 
@@ -66,7 +72,10 @@ Other options:
   --help | -h                      Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR    Operator payer keypair path; required.
+  OPERATOR_PAYER_KEYPAIR    Signer URL for the operator payer; required.
+                            Accepts a filesystem path to a JSON keypair,
+                            or usb://ledger?key=N[&change=M] for a
+                            Ledger device.
   MAINNET_RPC_URL           Required when cluster=mainnet and no
                             --rpc-url override is supplied.
 
@@ -80,7 +89,7 @@ Inspection subcommands (rarely needed; the orchestrator is the default):
   resolve <cluster> <key> [<rpc>]
   assert-vault-is-authority <cluster> [<rpc>]
   guard-duplicate-proposal <cluster> [<rpc>]
-  compose-close-proposal <cluster> <proposer-keypair> [<rpc>]
+  compose-close-proposal <cluster> <proposer-signer-url> [<rpc>]
   poll-closed <cluster> <timeout-seconds> [<rpc>]
 `;
 
@@ -133,9 +142,10 @@ Options:
   --help | -h             Print this usage and exit 0
 
 Environment:
-  OPERATOR_PAYER_KEYPAIR  Path to the keypair that submits the
+  OPERATOR_PAYER_KEYPAIR  Signer URL for the keypair that submits the
                           proposal-creation transaction; must be a
-                          member of the multisig. Required.
+                          member of the multisig. Required. Accepts a
+                          filesystem path or usb://ledger?key=N.
   MAINNET_RPC_URL         Required when cluster=mainnet and no --rpc-url
                           override is supplied.
 
@@ -186,66 +196,83 @@ async function cmdCloseBuffer(args: string[]): Promise<void> {
     }
   }
 
-  const proposer = loadWeb3Keypair(requireEnvFile("OPERATOR_PAYER_KEYPAIR"));
-  const { multisig, vaultIndex } = squadsConfig[cluster];
-  const vault = getVaultPda(multisig, vaultIndex);
-  const recipient = recipientOverride ?? vault;
-  const connection = connectionFor(cluster, rpcOverride);
-
-  // Verify the buffer actually exists and that its authority is the
-  // vault — composing a Squads proposal that references the wrong
-  // buffer or whose ix would fail at simulation is wasted work.
-  const bufferAccountInfo = await connection.getAccountInfo(
-    bufferAccount,
-    "confirmed",
+  const proposer = await parseSignerURL(
+    requireSignerURL("OPERATOR_PAYER_KEYPAIR"),
   );
-  if (bufferAccountInfo === null) {
-    throw new Error(
-      `buffer account ${bufferAccount.toBase58()} not found on ${cluster}`,
+  try {
+    const { multisig, vaultIndex } = squadsConfig[cluster];
+    const vault = getVaultPda(multisig, vaultIndex);
+    const recipient = recipientOverride ?? vault;
+    const connection = connectionFor(cluster, rpcOverride);
+
+    // Verify the buffer actually exists and that its authority is the
+    // vault — composing a Squads proposal that references the wrong
+    // buffer or whose ix would fail at simulation is wasted work.
+    const bufferAccountInfo = await connection.getAccountInfo(
+      bufferAccount,
+      "confirmed",
     );
-  }
-  if (!bufferAccountInfo.owner.equals(BPF_LOADER_UPGRADEABLE_PROGRAM_ID)) {
-    throw new Error(
-      `account ${bufferAccount.toBase58()} is not owned by BPF Loader Upgradeable (owner=${bufferAccountInfo.owner.toBase58()})`,
+    if (bufferAccountInfo === null) {
+      throw new Error(
+        `buffer account ${bufferAccount.toBase58()} not found on ${cluster}`,
+      );
+    }
+    if (!bufferAccountInfo.owner.equals(BPF_LOADER_UPGRADEABLE_PROGRAM_ID)) {
+      throw new Error(
+        `account ${bufferAccount.toBase58()} is not owned by BPF Loader Upgradeable (owner=${bufferAccountInfo.owner.toBase58()})`,
+      );
+    }
+
+    logger.info(
+      `close-buffer: cluster=${cluster} buffer=${bufferAccount.toBase58()} multisig=${multisig.toBase58()} vault=${vault.toBase58()} recipient=${recipient.toBase58()} bufferBalance=${String(bufferAccountInfo.lamports)}`,
     );
+
+    const closeIx = buildCloseBufferIx({
+      bufferAccount,
+      authority: vault,
+      recipient,
+    });
+
+    const proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [closeIx],
+      proposer: proposer.publicKey,
+    });
+
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (close-buffer)",
+          multisig,
+          vaultPDA: vault,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+
+    logger.info(
+      `close-buffer: composed proposal txIndex=${proposal.transactionIndex.toString()} pda=${proposal.proposalPda.toBase58()}`,
+    );
+    emit({
+      multisig: multisig.toBase58(),
+      bufferAccount: bufferAccount.toBase58(),
+      recipient: recipient.toBase58(),
+      transactionIndex: proposal.transactionIndex.toString(),
+      proposalPda: proposal.proposalPda.toBase58(),
+      transactionPda: proposal.transactionPda.toBase58(),
+      squadsUrl: proposal.squadsUrl,
+      bufferLamports: bufferAccountInfo.lamports,
+    });
+  } finally {
+    await proposer.close();
   }
-
-  logger.info(
-    `close-buffer: cluster=${cluster} buffer=${bufferAccount.toBase58()} multisig=${multisig.toBase58()} vault=${vault.toBase58()} recipient=${recipient.toBase58()} bufferBalance=${String(bufferAccountInfo.lamports)}`,
-  );
-
-  const closeIx = buildCloseBufferIx({
-    bufferAccount,
-    authority: vault,
-    recipient,
-  });
-
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [closeIx],
-    proposer: proposer.publicKey,
-  });
-
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
-
-  logger.info(
-    `close-buffer: composed proposal txIndex=${proposal.transactionIndex.toString()} pda=${proposal.proposalPda.toBase58()}`,
-  );
-  emit({
-    multisig: multisig.toBase58(),
-    bufferAccount: bufferAccount.toBase58(),
-    recipient: recipient.toBase58(),
-    transactionIndex: proposal.transactionIndex.toString(),
-    proposalPda: proposal.proposalPda.toBase58(),
-    transactionPda: proposal.transactionPda.toBase58(),
-    squadsUrl: proposal.squadsUrl,
-    bufferLamports: bufferAccountInfo.lamports,
-  });
 }
 
 async function cmdResolve(args: string[]): Promise<void> {
@@ -319,10 +346,10 @@ async function cmdGuardDuplicateProposal(args: string[]): Promise<void> {
 }
 
 async function cmdComposeCloseProposal(args: string[]): Promise<void> {
-  const [clusterRaw, proposerKeypairPath, rpcOverride] = args;
+  const [clusterRaw, proposerSignerURL, rpcOverride] = args;
   const cluster = parseCluster(clusterRaw);
-  if (!proposerKeypairPath) {
-    throw new Error("compose-close-proposal requires <proposer-keypair-path>");
+  if (!proposerSignerURL) {
+    throw new Error("compose-close-proposal requires <proposer-signer-url>");
   }
 
   const programId = getProgramId();
@@ -330,52 +357,68 @@ async function cmdComposeCloseProposal(args: string[]): Promise<void> {
   const vaultPda = getVaultPda(multisig, vaultIndex);
   const connection = connectionFor(cluster, rpcOverride);
 
-  const proposer = loadWeb3Keypair(proposerKeypairPath);
+  const proposer = await parseSignerURL(
+    validateSignerURL("<proposer-signer-url>", proposerSignerURL),
+  );
+  try {
+    // recipient = vault PDA: the reclaimed program-data rent flows back to
+    // the multisig vault, not to an individual operator. This is the only
+    // sensible default for a Squads-mediated close; the operator's payer
+    // is just paying the proposal-creation fee, not collecting the rent.
+    const closeIx = buildCloseProgramDataIx({
+      programId,
+      authority: vaultPda,
+      recipient: vaultPda,
+    });
 
-  // recipient = vault PDA: the reclaimed program-data rent flows back to
-  // the multisig vault, not to an individual operator. This is the only
-  // sensible default for a Squads-mediated close; the operator's payer
-  // is just paying the proposal-creation fee, not collecting the rent.
-  const closeIx = buildCloseProgramDataIx({
-    programId,
-    authority: vaultPda,
-    recipient: vaultPda,
-  });
+    const proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [closeIx],
+      proposer: proposer.publicKey,
+    });
 
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [closeIx],
-    proposer: proposer.publicKey,
-  });
+    // Submit the proposal-creation transaction atomically with the index
+    // prediction. Same rationale as program-deploy and program-verify:
+    // splitting compose and submit lets unrelated multisig activity shift
+    // the transaction index between them and invalidate the predicted
+    // PDAs and Squads UI URL.
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (close-program-data)",
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
 
-  // Submit the proposal-creation transaction atomically with the index
-  // prediction. Same rationale as program-deploy and program-verify:
-  // splitting compose and submit lets unrelated multisig activity shift
-  // the transaction index between them and invalidate the predicted
-  // PDAs and Squads UI URL.
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+    const { timeLock } = await getMultisigConfig(connection, multisig);
+    const earliestLegalExecuteIso = new Date(
+      Date.now() + timeLock * 1000,
+    ).toISOString();
 
-  const { timeLock } = await getMultisigConfig(connection, multisig);
-  const earliestLegalExecuteIso = new Date(
-    Date.now() + timeLock * 1000,
-  ).toISOString();
-
-  emit({
-    proposalPda: proposal.proposalPda.toBase58(),
-    transactionPda: proposal.transactionPda.toBase58(),
-    transactionIndex: proposal.transactionIndex.toString(),
-    squadsUrl: proposal.squadsUrl,
-    timeLockSeconds: timeLock,
-    earliestLegalExecuteIso,
-    programId: programId.toBase58(),
-    programDataPda: deriveProgramDataAddress(programId).toBase58(),
-    vaultPda: vaultPda.toBase58(),
-  });
+    emit({
+      proposalPda: proposal.proposalPda.toBase58(),
+      transactionPda: proposal.transactionPda.toBase58(),
+      transactionIndex: proposal.transactionIndex.toString(),
+      squadsUrl: proposal.squadsUrl,
+      timeLockSeconds: timeLock,
+      earliestLegalExecuteIso,
+      programId: programId.toBase58(),
+      programDataPda: deriveProgramDataAddress(programId).toBase58(),
+      vaultPda: vaultPda.toBase58(),
+    });
+  } finally {
+    await proposer.close();
+  }
 }
 
 // Polls `programDataPda` until its on-chain account vanishes, signalling
@@ -545,8 +588,11 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!commandExists("bun")) {
     throw new Error("bun is required but not installed");
   }
-  const operatorKeypair = requireEnvFile("OPERATOR_PAYER_KEYPAIR");
-  const payer = opts.payer ?? operatorKeypair;
+  const operatorPayerURL = requireSignerURL("OPERATOR_PAYER_KEYPAIR");
+  const payer =
+    opts.payer === undefined
+      ? operatorPayerURL
+      : validateSignerURL("--payer", opts.payer);
 
   // ---- resolve config ----
   const connection = connectionFor(cluster, opts.rpcOverride);
@@ -600,23 +646,39 @@ async function cmdRun(args: string[]): Promise<void> {
   printRetireBanner(cluster);
   logger.warning("RETIRE: composing close proposal");
 
-  const proposer = loadWeb3Keypair(payer);
-  const closeIx = buildCloseProgramDataIx({
-    programId,
-    authority: vaultPda,
-    recipient: vaultPda,
-  });
-  const proposal = await createUpgradeProposal({
-    connection,
-    multisig,
-    vaultIndex,
-    instructions: [closeIx],
-    proposer: proposer.publicKey,
-  });
-  await sendWeb3Tx(connection, proposer, [
-    proposal.vaultTransactionCreateIx,
-    proposal.proposalCreateIx,
-  ]);
+  const proposer = await parseSignerURL(payer);
+  let proposal: UpgradeProposal;
+  try {
+    const closeIx = buildCloseProgramDataIx({
+      programId,
+      authority: vaultPda,
+      recipient: vaultPda,
+    });
+    proposal = await createUpgradeProposal({
+      connection,
+      multisig,
+      vaultIndex,
+      instructions: [closeIx],
+      proposer: proposer.publicKey,
+    });
+    await sendWeb3Tx(
+      connection,
+      proposer,
+      [proposal.vaultTransactionCreateIx, proposal.proposalCreateIx],
+      {
+        blindSign: {
+          label: "vaultTransactionCreate + proposalCreate (retire program)",
+          multisig,
+          vaultPDA: vaultPda,
+          proposalPDA: proposal.proposalPda,
+          transactionPDA: proposal.transactionPda,
+          transactionIndex: proposal.transactionIndex,
+        },
+      },
+    );
+  } finally {
+    await proposer.close();
+  }
   const earliestLegalIso = new Date(Date.now() + timeLock * 1000).toISOString();
 
   stateSet(stateFile, "proposal_pda", proposal.proposalPda.toBase58());
