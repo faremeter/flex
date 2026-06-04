@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Thin wrapper. Opens the Ledger transport at the supplied URL (default
+# usb://ledger?key=0), prints the on-device public key as base58, and
+# releases the transport.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+exec bun "$REPO_ROOT/scripts/src/probe-ledger.ts" "$@"

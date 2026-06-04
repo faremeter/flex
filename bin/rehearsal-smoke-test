@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Thin wrapper. Runs the on-chain devnet smoke test: generates a
+# throwaway owner + facilitator, airdrops, calls create_escrow and
+# close_escrow against $REHEARSAL_PROGRAM_ID. Used by
+# bin/rehearse-ledger-devnet after the program is deployed.
+set -euo pipefail
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+exec bun "$REPO_ROOT/scripts/src/rehearsal-smoke-test.ts" "$@"

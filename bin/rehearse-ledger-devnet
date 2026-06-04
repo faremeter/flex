@@ -1,0 +1,211 @@
+#!/usr/bin/env opsh
+# shellcheck shell=bash disable=SC2164
+opsh::version::require v0.7.0
+lib::import step-runner git command
+
+# Rehearses the Ledger-as-operator release flow end-to-end on devnet:
+#
+#   1. Probes the on-device Solana pubkey from `$LEDGER_URL`.
+#   2. Reads the second-member pubkey from `$PAYER_KEYPAIR_PATH`.
+#   3. Generates a throwaway program keypair under tmp/rehearsal-...
+#      and copies it to target/deploy/flex-keypair.json (the path
+#      bin/program-initial-deploy reads).
+#   4. Patches scripts/src/squads.config.ts's devnet block with the
+#      two members and a 60-second time lock.
+#   5. Patches scripts/src/initial-deploy.ts's getProgramId to return
+#      the rehearsal program ID.
+#   6. Runs anchor build to produce target/deploy/flex.so.
+#   7. Runs bin/bootstrap-squads devnet with the Ledger as creator.
+#   8. Patches the bootstrapped multisig address into squads.config.ts.
+#   9. Runs bin/program-initial-deploy devnet with the Ledger as
+#      operator payer; the operator drives the on-device confirmations
+#      and the Phase 3 Squads UI approve+execute.
+#
+# Both patched files are tracked, and an EXIT trap restores them via
+# `git checkout HEAD --` so a successful or interrupted run leaves the
+# working tree clean.
+
+REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. &>/dev/null && pwd)
+LEDGER_URL="${LEDGER_URL:-usb://ledger?key=0}"
+PAYER_KEYPAIR_PATH="${PAYER_KEYPAIR_PATH:-$HOME/sandbox/faremeter/keypairs/payer.json}"
+REHEARSAL_DIR="$REPO_ROOT/tmp/rehearsal-ledger-devnet"
+PROGRAM_KEYPAIR_DEST="$REPO_ROOT/target/deploy/flex-keypair.json"
+
+PATCHED_FILES=(
+	scripts/src/squads.config.ts
+	scripts/src/initial-deploy.ts
+	programs/flex/src/lib.rs
+	Anchor.toml
+)
+
+restore_patched_files() {
+	log::info "restoring patched files via 'git checkout HEAD --'"
+	for relpath in "${PATCHED_FILES[@]}"; do
+		git -C "$REPO_ROOT" checkout HEAD -- "$relpath" || true
+	done
+}
+
+# `trap` fires once on shell exit regardless of how the script ended
+# (clean success, log::fatal, ^C). The restore is idempotent.
+trap restore_patched_files EXIT
+
+step::10::check_prerequisites() {
+	command::exists solana || log::fatal "solana CLI not installed"
+	command::exists solana-keygen || log::fatal "solana-keygen not installed"
+	command::exists anchor || log::fatal "anchor not installed"
+	command::exists bun || log::fatal "bun not installed"
+	command::exists perl || log::fatal "perl not installed (rehearsal patches use perl -0pe)"
+	[[ -f $PAYER_KEYPAIR_PATH ]] || log::fatal "payer keypair not found at $PAYER_KEYPAIR_PATH"
+	git -C "$REPO_ROOT" diff --quiet -- "${PATCHED_FILES[@]}" || log::fatal "${PATCHED_FILES[*]} have uncommitted changes; commit or stash before rehearsing (EXIT trap would clobber them)"
+	mkdir -p "$REHEARSAL_DIR"
+	mkdir -p "$REPO_ROOT/target/deploy"
+}
+
+step::20::probe_ledger_address() {
+	log::info ""
+	log::info "Make sure your Ledger is connected, unlocked, and on the Solana app."
+	log::info "Blind signing must be enabled (Settings -> Allow blind signing)."
+	log::info ""
+	read -r -p "Press Enter when ready..."
+	LEDGER_PUBKEY=$("$REPO_ROOT/bin/probe-ledger" "$LEDGER_URL")
+	[[ -n $LEDGER_PUBKEY ]] || log::fatal "probe-ledger returned an empty pubkey"
+	log::info "Ledger pubkey: $LEDGER_PUBKEY"
+	printf '%s\n' "$LEDGER_PUBKEY" >"$REHEARSAL_DIR/ledger-pubkey"
+}
+
+step::30::derive_payer_pubkey() {
+	PAYER_PUBKEY=$(solana-keygen pubkey "$PAYER_KEYPAIR_PATH")
+	[[ -n $PAYER_PUBKEY ]] || log::fatal "solana-keygen pubkey returned empty for $PAYER_KEYPAIR_PATH"
+	log::info "Payer pubkey:  $PAYER_PUBKEY"
+	printf '%s\n' "$PAYER_PUBKEY" >"$REHEARSAL_DIR/payer-pubkey"
+}
+
+step::40::generate_program_keypair() {
+	PROGRAM_KEYPAIR_PATH="$REHEARSAL_DIR/program-keypair.json"
+	if [[ -f $PROGRAM_KEYPAIR_PATH ]]; then
+		log::info "reusing rehearsal program keypair at $PROGRAM_KEYPAIR_PATH"
+	else
+		solana-keygen new --no-bip39-passphrase --silent -o "$PROGRAM_KEYPAIR_PATH"
+	fi
+	PROGRAM_ID=$(solana-keygen pubkey "$PROGRAM_KEYPAIR_PATH")
+	log::info "Rehearsal program ID: $PROGRAM_ID"
+
+	# bin/program-initial-deploy reads target/deploy/flex-keypair.json
+	# directly. Copy the rehearsal keypair into that location.
+	cp "$PROGRAM_KEYPAIR_PATH" "$PROGRAM_KEYPAIR_DEST"
+}
+
+step::50::patch_squads_config() {
+	log::info "patching scripts/src/squads.config.ts devnet block (2-of-2, 60s timeLock)"
+	# Replace the devnet { ... } block with the rehearsal members and
+	# time lock. The multisig field stays at PLACEHOLDER_MULTISIG until
+	# step 80, after bin/bootstrap-squads prints the real address.
+	LEDGER_PUBKEY="$LEDGER_PUBKEY" PAYER_PUBKEY="$PAYER_PUBKEY" \
+		perl -i -0pe '
+		my $ledger = $ENV{LEDGER_PUBKEY};
+		my $payer = $ENV{PAYER_PUBKEY};
+		my $block = sprintf(qq|  devnet: {\n    multisig: PLACEHOLDER_MULTISIG,\n    members: [\n      new PublicKey("%s"),\n      new PublicKey("%s"),\n    ],\n    threshold: 2,\n    vaultIndex: 0,\n    verifyMode: "batched",\n    timeLock: 60,\n  },|, $ledger, $payer);
+		s{  devnet: \{.*?^  \},}{$block}sm;
+		' "$REPO_ROOT/scripts/src/squads.config.ts"
+}
+
+step::60::patch_initial_deploy_program_id() {
+	log::info "patching scripts/src/initial-deploy.ts getProgramId to return $PROGRAM_ID"
+	PROGRAM_ID="$PROGRAM_ID" perl -i -0pe '
+		my $id = $ENV{PROGRAM_ID};
+		s{function getProgramId\(\): PublicKey \{\n  return new PublicKey\(FLEX_PROGRAM_ADDRESS\);\n\}}{function getProgramId(): PublicKey {\n  return new PublicKey("$id");\n}}s;
+		' "$REPO_ROOT/scripts/src/initial-deploy.ts"
+}
+
+step::65::patch_declare_id() {
+	log::info "patching programs/flex/src/lib.rs declare_id! to $PROGRAM_ID"
+	PROGRAM_ID="$PROGRAM_ID" perl -i -pe '
+		my $id = $ENV{PROGRAM_ID};
+		s{declare_id!\("[^"]+"\);}{declare_id!\("$id"\);};
+		' "$REPO_ROOT/programs/flex/src/lib.rs"
+	log::info "patching Anchor.toml [programs.*] entries to $PROGRAM_ID"
+	PROGRAM_ID="$PROGRAM_ID" perl -i -pe '
+		my $id = $ENV{PROGRAM_ID};
+		s{^flex = "[^"]+"$}{flex = "$id"};
+		' "$REPO_ROOT/Anchor.toml"
+}
+
+step::70::build_program() {
+	log::info "building flex.so via 'anchor build' (declare_id! is now $PROGRAM_ID)"
+	(cd "$REPO_ROOT" && anchor build) || log::fatal "anchor build failed"
+}
+
+step::80::bootstrap_multisig() {
+	if [[ -f $REHEARSAL_DIR/multisig ]]; then
+		MULTISIG=$(cat "$REHEARSAL_DIR/multisig")
+		log::info "reusing prior rehearsal multisig: $MULTISIG"
+	else
+		log::info ""
+		log::info "Bootstrapping Squads multisig on devnet."
+		log::info "The Ledger will be asked to sign the multisig-create transaction."
+		log::info ""
+		local output
+		# bin/bootstrap-squads prints both human-readable logs to stderr
+		# (via @faremeter/logs) and MULTISIG_ADDRESS=... / VAULT_PDA=...
+		# to stdout. Capture stdout, tee stderr to the operator.
+		output=$(CREATOR_KEYPAIR_PATH="$LEDGER_URL" \
+			"$REPO_ROOT/bin/bootstrap-squads" devnet 2>&1 | tee /dev/stderr) \
+			|| log::fatal "bin/bootstrap-squads devnet exited non-zero"
+		MULTISIG=$(printf '%s\n' "$output" | grep '^MULTISIG_ADDRESS=' | cut -d= -f2)
+		[[ -n $MULTISIG ]] || log::fatal "failed to parse MULTISIG_ADDRESS from bootstrap output"
+		printf '%s\n' "$MULTISIG" >"$REHEARSAL_DIR/multisig"
+		log::info "multisig bootstrapped: $MULTISIG"
+	fi
+
+	log::info "patching squads.config.ts with bootstrapped multisig"
+	# Slurp mode + non-global s/// matches the first occurrence only —
+	# the devnet block — leaving mainnet's PLACEHOLDER_MULTISIG alone.
+	MULTISIG="$MULTISIG" perl -i -0pe '
+		my $m = $ENV{MULTISIG};
+		s{multisig: PLACEHOLDER_MULTISIG,}{multisig: new PublicKey\("$m"\),};
+		' "$REPO_ROOT/scripts/src/squads.config.ts"
+}
+
+step::90::initial_deploy() {
+	log::info ""
+	log::info "Running bin/program-initial-deploy devnet"
+	log::info "  Phase 1: solana program deploy (Ledger signs)"
+	log::info "  Phase 2: set-upgrade-authority -> vault PDA (you type the PDA to confirm)"
+	log::info "  Phase 3: liveness test (Ledger signs proposal-create; you and the"
+	log::info "           second member approve+execute in the Squads UI)"
+	log::info "  Phase 4: witnessed key-destruction reminder (no automatic delete)"
+	log::info ""
+	read -r -p "Press Enter to start program-initial-deploy..."
+
+	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
+		"$REPO_ROOT/bin/program-initial-deploy" devnet
+}
+
+step::95::smoke_test_on_chain() {
+	log::info ""
+	log::info "Smoke-testing the deployed rehearsal program on devnet."
+	log::info "  Generates a throwaway owner + facilitator, airdrops 1 SOL,"
+	log::info "  calls create_escrow + close_escrow, asserts the on-chain state."
+	log::info ""
+	REHEARSAL_PROGRAM_ID="$PROGRAM_ID" \
+		LEDGER_URL="$LEDGER_URL" \
+		"$REPO_ROOT/bin/rehearsal-smoke-test" \
+		|| log::fatal "smoke test failed; the program is deployed but did not respond as expected"
+}
+
+step::100::summary() {
+	log::info ""
+	log::info "================ Rehearsal complete ================"
+	log::info "  Program ID: $PROGRAM_ID"
+	log::info "  Multisig:   $(cat "$REHEARSAL_DIR/multisig")"
+	log::info "  Time lock:  60 seconds"
+	log::info "  Members:    Ledger ($LEDGER_PUBKEY)"
+	log::info "              Payer  ($PAYER_PUBKEY)"
+	log::info "  Threshold:  2 of 2"
+	log::info ""
+	log::info "Artifacts in $REHEARSAL_DIR/"
+	log::info "Program keypair at $PROGRAM_KEYPAIR_DEST is the rehearsal throwaway."
+	log::info "===================================================="
+}
+
+steps::run step
