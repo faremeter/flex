@@ -194,7 +194,9 @@ step::90::initial_deploy() {
 	# A holder process keeps the FIFO open for writing so individual
 	# `echo "value" >> "$INPUT_FIFO"` writes don't deliver EOF to the
 	# reader between prompts. The holder is killed by the EXIT trap.
-	sleep infinity >"$INPUT_FIFO" &
+	# `tail -f /dev/null` blocks forever portably; macOS's `sleep`
+	# doesn't accept `infinity` so don't use that.
+	tail -f /dev/null >"$INPUT_FIFO" &
 	INPUT_FIFO_HOLDER=$!
 
 	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
@@ -205,7 +207,7 @@ step::90::initial_deploy() {
 step::95::smoke_test_on_chain() {
 	log::info ""
 	log::info "Smoke-testing the deployed rehearsal program on devnet."
-	log::info "  Generates a throwaway owner + facilitator, airdrops 1 SOL,"
+	log::info "  The Ledger is the escrow owner + fee payer (no airdrop needed),"
 	log::info "  calls create_escrow + close_escrow, asserts the on-chain state."
 	log::info ""
 	REHEARSAL_PROGRAM_ID="$PROGRAM_ID" \
@@ -214,7 +216,98 @@ step::95::smoke_test_on_chain() {
 		|| log::fatal "smoke test failed; the program is deployed but did not respond as expected"
 }
 
+# Helper: drive a Squads proposal through approve+execute when both
+# members are scripted (Ledger via $LEDGER_URL, payer via file).
+# Approves under both keys, sleeps 65s past the 60s time lock, then
+# executes via the payer (no Ledger prompt for execute).
+drive_squads_proposal() {
+	local tx_index="$1"
+	local label="$2"
+	log::info "approving $label proposal as Ledger (tx-index $tx_index)..."
+	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
+		"$REPO_ROOT/bin/program-squads-approve" devnet "$MULTISIG" "$tx_index" \
+		|| log::fatal "Ledger approve failed for $label"
+	log::info "approving $label proposal as payer..."
+	OPERATOR_PAYER_KEYPAIR="$PAYER_KEYPAIR_PATH" \
+		"$REPO_ROOT/bin/program-squads-approve" devnet "$MULTISIG" "$tx_index" \
+		|| log::fatal "payer approve failed for $label"
+	log::info "waiting 65s for the 60s time lock to elapse..."
+	sleep 65
+	log::info "executing $label proposal via payer..."
+	OPERATOR_PAYER_KEYPAIR="$PAYER_KEYPAIR_PATH" \
+		"$REPO_ROOT/bin/program-squads-execute" devnet "$MULTISIG" "$tx_index" \
+		|| log::fatal "payer execute failed for $label"
+}
+
+step::96::close_program_data() {
+	log::info ""
+	log::info "Closing ProgramData to reclaim its rent into the vault PDA."
+	log::info ""
+
+	local close_log="$REHEARSAL_DIR/close.log"
+	rm -f "$close_log"
+	# bin/program-close composes the proposal (Ledger signs the
+	# proposal-create tx), then prompts 'closed' once the multisig has
+	# approved+executed the close. We launch it in the background so we
+	# can drive the approve+execute via separate bin scripts.
+	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
+		"$REPO_ROOT/bin/program-close" devnet --i-want-to-close-this-program \
+		<"$INPUT_FIFO" >"$close_log" 2>&1 &
+	local close_pid=$!
+
+	# Wait for the proposal-create tx to land and the script to print
+	# `RETIRE: tx index:        N`. Time out after 5 minutes (Ledger
+	# proposal-create may take a while with the user verifying the
+	# blind-sign hash, but 5min covers the slow case).
+	local close_tx_index=""
+	for _ in $(seq 1 300); do
+		close_tx_index=$(grep -oE 'tx index:[[:space:]]+[0-9]+' "$close_log" | tail -1 | grep -oE '[0-9]+$' || true)
+		[[ -n $close_tx_index ]] && break
+		sleep 1
+	done
+	[[ -n $close_tx_index ]] || log::fatal "could not parse close proposal tx-index from $close_log within 300s"
+	log::info "close proposal tx-index: $close_tx_index"
+
+	drive_squads_proposal "$close_tx_index" "close"
+
+	# Feed 'closed' to the FIFO so program-close's polling continues
+	# past its operator confirmation prompt.
+	printf '%s\n' "closed" >"$INPUT_FIFO"
+
+	wait "$close_pid" || log::fatal "bin/program-close exited non-zero; see $close_log"
+	log::info "ProgramData closed; rent moved to vault PDA $(jq -r '.vault_pda // empty' "$REHEARSAL_DIR"/multisig 2>/dev/null || echo '(see state file)')"
+}
+
+step::97::drain_vault() {
+	log::info ""
+	log::info "Draining vault PDA balance back to the Ledger."
+	log::info ""
+
+	local drain_log="$REHEARSAL_DIR/drain.log"
+	rm -f "$drain_log"
+	# bin/program-vault-drain composes the proposal (Ledger signs the
+	# proposal-create tx) and exits. The drain itself happens when the
+	# multisig executes the proposal; we drive that next.
+	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
+		"$REPO_ROOT/bin/program-vault-drain" devnet --recipient "$LEDGER_PUBKEY" \
+		>"$drain_log" 2>&1 \
+		|| log::fatal "bin/program-vault-drain failed; see $drain_log"
+
+	# program-vault-drain emits a single JSON line on stdout with
+	# {"transactionIndex":"N",...}. Parse it.
+	local drain_tx_index
+	drain_tx_index=$(grep -oE '"transactionIndex":"[0-9]+"' "$drain_log" | tail -1 | grep -oE '[0-9]+' || true)
+	[[ -n $drain_tx_index ]] || log::fatal "failed to parse drain proposal tx-index from $drain_log"
+	log::info "drain proposal tx-index: $drain_tx_index"
+
+	drive_squads_proposal "$drain_tx_index" "drain"
+
+	log::info "vault drained; balance returned to Ledger $LEDGER_PUBKEY"
+}
+
 step::99::summary() {
+	local ledger_balance
+	ledger_balance=$(solana balance "$LEDGER_PUBKEY" --url https://api.devnet.solana.com 2>/dev/null || echo "(unknown)")
 	log::info ""
 	log::info "================ Rehearsal complete ================"
 	log::info "  Program ID: $PROGRAM_ID"
@@ -223,6 +316,8 @@ step::99::summary() {
 	log::info "  Members:    Ledger ($LEDGER_PUBKEY)"
 	log::info "              Payer  ($PAYER_PUBKEY)"
 	log::info "  Threshold:  2 of 2"
+	log::info ""
+	log::info "  Ledger balance now: $ledger_balance"
 	log::info ""
 	log::info "Artifacts in $REHEARSAL_DIR/"
 	log::info "Program keypair at $PROGRAM_KEYPAIR_DEST is the rehearsal throwaway."
