@@ -30,6 +30,8 @@ LEDGER_URL="${LEDGER_URL:-usb://ledger?key=0}"
 PAYER_KEYPAIR_PATH="${PAYER_KEYPAIR_PATH:-$HOME/sandbox/faremeter/keypairs/payer.json}"
 REHEARSAL_DIR="$REPO_ROOT/tmp/rehearsal-ledger-devnet"
 PROGRAM_KEYPAIR_DEST="$REPO_ROOT/target/deploy/flex-keypair.json"
+INPUT_FIFO="$REHEARSAL_DIR/input-fifo"
+INPUT_FIFO_HOLDER=""
 
 PATCHED_FILES=(
 	scripts/src/squads.config.ts
@@ -38,7 +40,13 @@ PATCHED_FILES=(
 	Anchor.toml
 )
 
-restore_patched_files() {
+cleanup_on_exit() {
+	if [[ -n $INPUT_FIFO_HOLDER ]] && kill -0 "$INPUT_FIFO_HOLDER" 2>/dev/null; then
+		kill "$INPUT_FIFO_HOLDER" 2>/dev/null || true
+	fi
+	if [[ -p $INPUT_FIFO ]]; then
+		rm -f "$INPUT_FIFO"
+	fi
 	log::info "restoring patched files via 'git checkout HEAD --'"
 	for relpath in "${PATCHED_FILES[@]}"; do
 		git -C "$REPO_ROOT" checkout HEAD -- "$relpath" || true
@@ -46,8 +54,8 @@ restore_patched_files() {
 }
 
 # `trap` fires once on shell exit regardless of how the script ended
-# (clean success, log::fatal, ^C). The restore is idempotent.
-trap restore_patched_files EXIT
+# (clean success, log::fatal, ^C). The cleanup is idempotent.
+trap cleanup_on_exit EXIT
 
 step::10::check_prerequisites() {
 	command::exists solana || log::fatal "solana CLI not installed"
@@ -59,14 +67,17 @@ step::10::check_prerequisites() {
 	git -C "$REPO_ROOT" diff --quiet -- "${PATCHED_FILES[@]}" || log::fatal "${PATCHED_FILES[*]} have uncommitted changes; commit or stash before rehearsing (EXIT trap would clobber them)"
 	mkdir -p "$REHEARSAL_DIR"
 	mkdir -p "$REPO_ROOT/target/deploy"
+	# Named FIFO that feeds prompts to bin/program-initial-deploy in
+	# step 90. A separate `echo "value" > "$INPUT_FIFO"` command writes
+	# each prompt response; a sleep-infinity holder keeps the FIFO open
+	# for writing between writes (otherwise the reader sees EOF).
+	[[ -p $INPUT_FIFO ]] || mkfifo "$INPUT_FIFO"
 }
 
 step::20::probe_ledger_address() {
-	log::info ""
-	log::info "Make sure your Ledger is connected, unlocked, and on the Solana app."
-	log::info "Blind signing must be enabled (Settings -> Allow blind signing)."
-	log::info ""
-	read -r -p "Press Enter when ready..."
+	log::info "probing Ledger pubkey at $LEDGER_URL"
+	log::info "  (Ledger must be connected, unlocked, on the Solana app,"
+	log::info "   with blind signing enabled — otherwise this step errors out)"
 	LEDGER_PUBKEY=$("$REPO_ROOT/bin/probe-ledger" "$LEDGER_URL")
 	[[ -n $LEDGER_PUBKEY ]] || log::fatal "probe-ledger returned an empty pubkey"
 	log::info "Ledger pubkey: $LEDGER_PUBKEY"
@@ -168,17 +179,27 @@ step::80::bootstrap_multisig() {
 
 step::90::initial_deploy() {
 	log::info ""
-	log::info "Running bin/program-initial-deploy devnet"
-	log::info "  Phase 1: solana program deploy (Ledger signs)"
-	log::info "  Phase 2: set-upgrade-authority -> vault PDA (you type the PDA to confirm)"
-	log::info "  Phase 3: liveness test (Ledger signs proposal-create; you and the"
-	log::info "           second member approve+execute in the Squads UI)"
+	log::info "starting bin/program-initial-deploy devnet"
+	log::info "  Phase 1: solana program deploy (Ledger signs every chunk)"
+	log::info "  Phase 2: set-upgrade-authority -> vault PDA (input: vault PDA)"
+	log::info "  Phase 3: liveness test — Ledger signs proposal-create; operator"
+	log::info "           drives Squads UI approve+execute (input: 'submitted')"
 	log::info "  Phase 4: witnessed key-destruction reminder (no automatic delete)"
 	log::info ""
-	read -r -p "Press Enter to start program-initial-deploy..."
+	log::info "stdin for the inner script is routed through a FIFO at:"
+	log::info "  $INPUT_FIFO"
+	log::info "the orchestrator writes prompt responses to that FIFO when needed."
+	log::info ""
+
+	# A holder process keeps the FIFO open for writing so individual
+	# `echo "value" >> "$INPUT_FIFO"` writes don't deliver EOF to the
+	# reader between prompts. The holder is killed by the EXIT trap.
+	sleep infinity >"$INPUT_FIFO" &
+	INPUT_FIFO_HOLDER=$!
 
 	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
-		"$REPO_ROOT/bin/program-initial-deploy" devnet
+		"$REPO_ROOT/bin/program-initial-deploy" devnet \
+		<"$INPUT_FIFO"
 }
 
 step::95::smoke_test_on_chain() {
