@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { FLEX_PROGRAM_ADDRESS } from "@faremeter/flex-solana";
 import { configureApp, getLogger } from "@faremeter/logs";
 import fs from "fs";
@@ -133,6 +133,24 @@ function parseMaxLenMultiplier(): number {
   }
   return parsed;
 }
+
+// Account header sizes used by Solana's upgradeable BPF loader for
+// rent calculations:
+//   ProgramData: 4-byte variant tag + 8-byte slot + 1-byte
+//                Option<Pubkey> tag + 32-byte authority = 45 bytes.
+//   Buffer:      4-byte variant tag + 1-byte Option<Pubkey> tag
+//                + 32-byte authority = 37 bytes.
+// Rent-exempt size = data size + header size; we query the cluster for
+// the rent itself rather than reimplementing the lamports-per-byte
+// formula here.
+const UPGRADEABLE_PROGRAM_DATA_HEADER_SIZE = 45;
+const UPGRADEABLE_BUFFER_HEADER_SIZE = 37;
+
+// Slop the payer needs above the strict rent total to cover tx fees
+// and the small per-shellout overheads of the Phase 1 + 2 + 3 deploy
+// dance. 0.1 SOL is empirically generous; the actual fees per run are
+// fractions of a penny.
+const PAYER_FEE_SLOP_LAMPORTS = 0.1 * LAMPORTS_PER_SOL;
 
 const BUFFER_ADDRESS_PATTERN = /Buffer:\s*([1-9A-HJ-NP-Za-km-z]{32,44})/;
 
@@ -333,13 +351,62 @@ async function pollDeployedShaMatches(
 
 // ---------- the orchestrator (the bin script's entire payload) ----------
 
-function preflight(cluster: Cluster): {
+// Phase 1 spends ProgramData rent (max_len * multiplier + header) from
+// the payer; Phase 3 spends upgrade-buffer rent (program size + header)
+// from the same payer. If the payer can fund Phase 1 but not Phase 3,
+// the deploy lands halfway: the ProgramData rent sits behind the
+// Squads vault PDA (Phase 2 has already transferred upgrade authority
+// to it) and the only way to reclaim it is a close-program proposal
+// through the multisig. This preflight queries the cluster for both
+// rent amounts and surfaces the gap before any value moves.
+async function assertPayerCanFundBothPhases(
+  connection: Connection,
+  payerPubkey: PublicKey,
+): Promise<void> {
+  const programSize = fs.statSync(SO_PATH).size;
+  const multiplier = parseMaxLenMultiplier();
+  const maxLen = Math.ceil(programSize * multiplier);
+  const programDataSize = maxLen + UPGRADEABLE_PROGRAM_DATA_HEADER_SIZE;
+  const bufferSize = programSize + UPGRADEABLE_BUFFER_HEADER_SIZE;
+
+  const [programDataRent, bufferRent, payerBalance] = await Promise.all([
+    connection.getMinimumBalanceForRentExemption(programDataSize),
+    connection.getMinimumBalanceForRentExemption(bufferSize),
+    connection.getBalance(payerPubkey, "confirmed"),
+  ]);
+  const required = programDataRent + bufferRent + PAYER_FEE_SLOP_LAMPORTS;
+
+  const fmt = (lamports: number) =>
+    (lamports / LAMPORTS_PER_SOL).toFixed(6) + " SOL";
+
+  logger.info(`payer budget for initial-deploy:`);
+  logger.info(
+    `  phase 1 ProgramData rent (size ${String(programDataSize)}, multiplier ${String(multiplier)}): ${fmt(programDataRent)}`,
+  );
+  logger.info(
+    `  phase 3 upgrade-buffer rent (size ${String(bufferSize)}): ${fmt(bufferRent)}`,
+  );
+  logger.info(`  tx-fee slop: ${fmt(PAYER_FEE_SLOP_LAMPORTS)}`);
+  logger.info(`  required:    ${fmt(required)}`);
+  logger.info(
+    `  payer ${payerPubkey.toBase58()} balance: ${fmt(payerBalance)}`,
+  );
+
+  if (payerBalance < required) {
+    const short = required - payerBalance;
+    throw new Error(
+      `payer ${payerPubkey.toBase58()} is short ${fmt(short)}: fund it to >= ${fmt(required)} before re-running. Without this margin Phase 1 may succeed and lock ${fmt(programDataRent)} behind the Squads vault PDA before Phase 3 fails for lack of buffer rent, requiring a close-program proposal to recover.`,
+    );
+  }
+}
+
+async function preflight(cluster: Cluster): Promise<{
   operatorPayerURL: string;
   rpcURL: string;
   programId: PublicKey;
   vaultPDA: PublicKey;
   multisig: PublicKey;
-} {
+}> {
   if (!fs.existsSync(SO_PATH)) {
     throw new Error(
       `shared object not found: ${SO_PATH} (run \`anchor build\` first)`,
@@ -363,6 +430,17 @@ function preflight(cluster: Cluster): {
   logger.info(`program id: ${programId.toBase58()}`);
   logger.info(`multisig:   ${multisig.toBase58()}`);
   logger.info(`vault pda:  ${vaultPDA.toBase58()}`);
+
+  // Resolve the operator's pubkey before any value moves. For file
+  // URLs this is a keypair read; for Ledger URLs this opens the device
+  // transport to derive the public key (no on-device confirmation
+  // required).
+  const operator = await parseSignerURL(operatorPayerURL);
+  try {
+    await assertPayerCanFundBothPhases(connection, operator.publicKey);
+  } finally {
+    await operator.close();
+  }
 
   return { operatorPayerURL, rpcURL, programId, vaultPDA, multisig };
 }
@@ -562,7 +640,7 @@ lifecycle is the operator's responsibility.
 
 async function cmdRun(args: string[]): Promise<void> {
   const cluster = parseCluster(args[0]);
-  const config = preflight(cluster);
+  const config = await preflight(cluster);
 
   const stateFile = initStateFile(cluster);
   stateSet(stateFile, "rpc_url", config.rpcURL);
