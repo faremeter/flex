@@ -113,6 +113,33 @@ export async function getMultisigConfig(
   };
 }
 
+// Every member-permissioned Squads instruction (proposalCreate,
+// proposalApprove, proposalCancel, vaultTransactionExecute) rejects
+// on-chain if the signer is not in the multisig's member set. If the
+// operator's OPERATOR_PAYER_KEYPAIR resolves to a non-member pubkey —
+// e.g. a mistyped Ledger derivation index that lands on a different
+// account than the one used to bootstrap the multisig — they discover
+// it only after submitting (and paying for) a transaction that the
+// program then refuses with a vague error.
+//
+// This preflight reads the multisig's configured members and throws
+// with the actual signer + configured-member list before any tx is
+// submitted, so operator-side key mix-ups surface as a clear error
+// rather than an on-chain rejection deep in a longer flow.
+export async function assertMemberOfMultisig(
+  connection: Connection,
+  multisig: PublicKey,
+  signer: PublicKey,
+  context: string,
+): Promise<void> {
+  const { members } = await getMultisigConfig(connection, multisig);
+  if (!members.some((m) => m.equals(signer))) {
+    throw new Error(
+      `${context}: signer ${signer.toBase58()} is not a member of multisig ${multisig.toBase58()}. The on-chain transaction would be rejected. Configured members: ${members.map((m) => m.toBase58()).join(", ")}`,
+    );
+  }
+}
+
 export async function assertTimeLock(
   connection: Connection,
   multisig: PublicKey,
