@@ -6,6 +6,7 @@ import path from "path";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 import {
+  assertMemberOfMultisig,
   createUpgradeProposal,
   getVaultPda,
   guardNoOpenProposalsForProgram,
@@ -438,6 +439,18 @@ async function preflight(cluster: Cluster): Promise<{
   const operator = await parseSignerURL(operatorPayerURL);
   try {
     await assertPayerCanFundBothPhases(connection, operator.publicKey);
+    // Phase 3 composes a Squads upgrade proposal with the operator as
+    // proposer; proposalCreate is permissioned to multisig members, so
+    // a non-member operator would fail Phase 3 after Phase 1's
+    // ProgramData rent is already locked behind the vault. Check
+    // membership now so the operator can fix the OPERATOR_PAYER_KEYPAIR
+    // before any value moves.
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      operator.publicKey,
+      "initial-deploy preflight",
+    );
   } finally {
     await operator.close();
   }

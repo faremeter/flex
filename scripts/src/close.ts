@@ -7,6 +7,7 @@ import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
 
 import {
+  assertMemberOfMultisig,
   createUpgradeProposal,
   type UpgradeProposal,
   getMultisigConfig,
@@ -225,6 +226,13 @@ async function cmdCloseBuffer(args: string[]): Promise<void> {
 
     logger.info(
       `close-buffer: cluster=${cluster} buffer=${bufferAccount.toBase58()} multisig=${multisig.toBase58()} vault=${vault.toBase58()} recipient=${recipient.toBase58()} bufferBalance=${String(bufferAccountInfo.lamports)}`,
+    );
+
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      proposer.publicKey,
+      "close-buffer",
     );
 
     const closeIx = buildCloseBufferIx({
@@ -649,6 +657,12 @@ async function cmdRun(args: string[]): Promise<void> {
   const proposer = await parseSignerURL(payer);
   let proposal: UpgradeProposal;
   try {
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      proposer.publicKey,
+      "close",
+    );
     const closeIx = buildCloseProgramDataIx({
       programId,
       authority: vaultPda,

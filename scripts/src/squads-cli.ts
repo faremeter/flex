@@ -4,7 +4,11 @@ import { instructions as squadsInstructions } from "@sqds/multisig";
 import { configureApp, getLogger } from "@faremeter/logs";
 import { type Cluster } from "./cluster.config";
 import { squadsConfig } from "./squads.config";
-import { createUpgradeProposal, getVaultPda } from "./squads";
+import {
+  assertMemberOfMultisig,
+  createUpgradeProposal,
+  getVaultPda,
+} from "./squads";
 import { connectionFor, sendVersionedWeb3Tx, sendWeb3Tx } from "./solana";
 import { parseSignerURL } from "./signer";
 import {
@@ -224,6 +228,13 @@ async function cmdApprove(args: string[]): Promise<void> {
       `approve: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} member=${member.publicKey.toBase58()}`,
     );
 
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      member.publicKey,
+      "approve",
+    );
+
     const ix = squadsInstructions.proposalApprove({
       multisigPda: multisig,
       transactionIndex,
@@ -267,6 +278,13 @@ async function cmdExecute(args: string[]): Promise<void> {
 
     logger.info(
       `execute: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} signer=${signer.publicKey.toBase58()}`,
+    );
+
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      signer.publicKey,
+      "execute",
     );
 
     // vaultTransactionExecute reads the vault transaction account on-chain
@@ -324,6 +342,13 @@ async function cmdCancel(args: string[]): Promise<void> {
 
     logger.info(
       `cancel: multisig=${multisig.toBase58()} txIndex=${transactionIndex.toString()} member=${member.publicKey.toBase58()}`,
+    );
+
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      member.publicKey,
+      "cancel",
     );
 
     const ix = squadsInstructions.proposalCancelV2({
@@ -400,6 +425,14 @@ async function cmdVaultDrain(args: string[]): Promise<void> {
     logger.info(
       `vault-drain: cluster=${cluster} multisig=${multisig.toBase58()} vault=${vault.toBase58()} recipient=${recipient.toBase58()} balance=${String(lamports)}`,
     );
+
+    await assertMemberOfMultisig(
+      connection,
+      multisig,
+      proposer.publicKey,
+      "vault-drain",
+    );
+
     if (lamports === 0) {
       logger.info("vault-drain: vault is empty; not composing a proposal");
       emit({
