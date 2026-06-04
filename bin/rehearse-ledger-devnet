@@ -179,29 +179,80 @@ step::80::bootstrap_multisig() {
 
 step::90::initial_deploy() {
 	log::info ""
-	log::info "starting bin/program-initial-deploy devnet"
-	log::info "  Phase 1: solana program deploy (Ledger signs every chunk)"
-	log::info "  Phase 2: set-upgrade-authority -> vault PDA (input: vault PDA)"
-	log::info "  Phase 3: liveness test — Ledger signs proposal-create; operator"
-	log::info "           drives Squads UI approve+execute (input: 'submitted')"
-	log::info "  Phase 4: witnessed key-destruction reminder (no automatic delete)"
-	log::info ""
-	log::info "stdin for the inner script is routed through a FIFO at:"
-	log::info "  $INPUT_FIFO"
-	log::info "the orchestrator writes prompt responses to that FIFO when needed."
+	log::info "running bin/program-initial-deploy devnet — payer signs all CLI shellouts;"
+	log::info "the Ledger only signs the Phase 3 Squads approve vote (driven below)."
 	log::info ""
 
 	# A holder process keeps the FIFO open for writing so individual
-	# `echo "value" >> "$INPUT_FIFO"` writes don't deliver EOF to the
+	# `echo "value" > "$INPUT_FIFO"` writes don't deliver EOF to the
 	# reader between prompts. The holder is killed by the EXIT trap.
 	# `tail -f /dev/null` blocks forever portably; macOS's `sleep`
 	# doesn't accept `infinity` so don't use that.
 	tail -f /dev/null >"$INPUT_FIFO" &
 	INPUT_FIFO_HOLDER=$!
 
-	OPERATOR_PAYER_KEYPAIR="$LEDGER_URL" \
+	local deploy_log="$REHEARSAL_DIR/initial-deploy.log"
+	rm -f "$deploy_log"
+	OPERATOR_PAYER_KEYPAIR="$PAYER_KEYPAIR_PATH" \
 		"$REPO_ROOT/bin/program-initial-deploy" devnet \
-		<"$INPUT_FIFO"
+		<"$INPUT_FIFO" >"$deploy_log" 2>&1 &
+	local deploy_pid=$!
+
+	# Phase 2 prompts the operator to re-type the vault PDA. The same
+	# vault PDA is printed on its own line ("vault pda:  XXX") at the
+	# top of cmdRun's preflight. Wait for both the print and the prompt
+	# to land, then write the value to the FIFO.
+	log::info "waiting for Phase 2 vault-PDA prompt..."
+	local vault_pda=""
+	for _ in $(seq 1 1200); do
+		vault_pda=$(grep -oE 'vault pda:[[:space:]]+[A-HJ-NP-Za-km-z1-9]{32,44}' "$deploy_log" | tail -1 | awk '{print $NF}')
+		if [[ -n $vault_pda ]] && grep -q "retype the vault PDA exactly to proceed" "$deploy_log"; then
+			break
+		fi
+		sleep 1
+	done
+	[[ -n $vault_pda ]] || log::fatal "vault PDA never printed; see $deploy_log"
+	log::info "feeding vault PDA ($vault_pda) to FIFO"
+	printf '%s\n' "$vault_pda" >"$INPUT_FIFO"
+
+	# Phase 3 builds the upgrade-liveness proposal (payer-signed) and
+	# prints proposal coordinates + state file. Parse transaction index
+	# out of the state file, drive Ledger approve + payer approve +
+	# payer execute, then feed 'executed' to unblock the inner prompt.
+	log::info "waiting for Phase 3 proposal + state file..."
+	local state_file
+	state_file=$(grep -oE 'state file:[[:space:]]+[^[:space:]]+' "$deploy_log" | tail -1 | awk '{print $NF}')
+	[[ -n $state_file ]] || log::fatal "state file path not in $deploy_log"
+
+	local upgrade_tx_index=""
+	for _ in $(seq 1 1200); do
+		if [[ -f $state_file ]]; then
+			upgrade_tx_index=$(jq -r '.transaction_index // empty' "$state_file" 2>/dev/null || echo "")
+		fi
+		if [[ -n $upgrade_tx_index ]] && grep -q "type 'executed' once the Squads UI" "$deploy_log"; then
+			break
+		fi
+		sleep 1
+	done
+	[[ -n $upgrade_tx_index ]] || log::fatal "Phase 3 proposal transaction_index missing from $state_file"
+	log::info "Phase 3 upgrade proposal tx-index: $upgrade_tx_index"
+
+	drive_squads_proposal "$upgrade_tx_index" "Phase 3 upgrade"
+
+	log::info "feeding 'executed' to FIFO"
+	printf '%s\n' "executed" >"$INPUT_FIFO"
+
+	# Phase 4 prints the key-destruction reminder and prompts 'read'.
+	log::info "waiting for Phase 4 key-destruction acknowledgement..."
+	for _ in $(seq 1 600); do
+		grep -q "type 'read' to confirm" "$deploy_log" && break
+		sleep 1
+	done
+	log::info "feeding 'read' to FIFO"
+	printf '%s\n' "read" >"$INPUT_FIFO"
+
+	wait "$deploy_pid" || log::fatal "bin/program-initial-deploy exited non-zero; see $deploy_log"
+	log::info "initial deploy + liveness test complete"
 }
 
 step::95::smoke_test_on_chain() {
